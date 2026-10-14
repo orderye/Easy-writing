@@ -54,6 +54,23 @@ CREATE TABLE IF NOT EXISTS chapter (
 );
 CREATE INDEX IF NOT EXISTS idx_chapter_volume ON chapter(volume_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_chapter_novel  ON chapter(novel_id);
+ 
+ -- 4.1 章节历史版本
+ CREATE TABLE IF NOT EXISTS chapter_revision (
+     id              TEXT PRIMARY KEY,
+     chapter_id      TEXT NOT NULL REFERENCES chapter(id) ON DELETE CASCADE,
+     novel_id        TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+     title           TEXT NOT NULL,
+     content         TEXT NOT NULL DEFAULT '{}',
+     content_plain   TEXT NOT NULL DEFAULT '',
+     word_count      INTEGER NOT NULL DEFAULT 0,
+     revision_type   TEXT NOT NULL DEFAULT 'auto' CHECK(revision_type IN ('auto', 'manual', 'ai_before', 'ai_after', 'rollback_before')),
+     note            TEXT NOT NULL DEFAULT '',
+     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+ );
+ CREATE INDEX IF NOT EXISTS idx_revision_chapter ON chapter_revision(chapter_id, created_at DESC);
+ CREATE INDEX IF NOT EXISTS idx_revision_novel   ON chapter_revision(novel_id);
+
 
 -- 5. 本地图片资产
 CREATE TABLE IF NOT EXISTS asset (

@@ -22,6 +22,19 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             <div class="flex items-center gap-3 text-slate-400 dark:text-slate-500">
+                <button
+                    class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1 transition-colors"
+                    title="查看章节版本历史与时间轴回滚"
+                    on:click=move |_| {
+                        if app_ctx.current_chapter.get().is_some() {
+                            app_ctx.is_revisions_modal_open.set(true);
+                        }
+                    }
+                >
+                    <span>"🕒"</span>
+                    <span>"版本历史"</span>
+                </button>
+                <span class="text-slate-300 dark:text-slate-600">"|"</span>
                 <span>"快捷键: ⌘/Ctrl+S 保存"</span>
                 <span class="text-slate-300 dark:text-slate-600">"|"</span>
                 <span>"自动保存已开启"</span>

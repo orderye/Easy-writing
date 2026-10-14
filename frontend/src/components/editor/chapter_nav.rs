@@ -109,9 +109,22 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
                 <button
-                    class="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                    class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded text-xs font-medium flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                    title="查看章节版本历史与时间轴回滚"
+                    on:click=move |_| {
+                        if app_ctx.current_chapter.get().is_some() {
+                            app_ctx.is_revisions_modal_open.set(true);
+                        }
+                    }
+                >
+                    <span class="text-slate-500 dark:text-slate-400">"🕒"</span>
+                    "历史版本"
+                </button>
+
+                <button
+                    class="px-3 py-1 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                     title="从当前正文提炼世界观、角色、剧情和大纲"
                     on:click=move |_| {
                         if let (Some(novel), Some(chapter)) = (app_ctx.current_novel.get(), app_ctx.current_chapter.get()) {

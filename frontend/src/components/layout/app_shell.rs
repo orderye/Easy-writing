@@ -1,6 +1,7 @@
 use crate::components::ai::conflict_modal::ConflictModal;
 use crate::components::ai::extraction_modal::ExtractionModal;
 use crate::components::config::config_modal::ConfigModal;
+use crate::components::editor::revision_modal::RevisionModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::settings_panel::SettingsPanel;
 use crate::components::structure_panel::chapter_list::do_switch_chapter;
@@ -56,6 +57,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
 
             <ConfigModal is_open=app_ctx.is_config_open app_ctx=app_ctx />
             
+            <RevisionModal is_open=app_ctx.is_revisions_modal_open app_ctx=app_ctx />
+
             <ExtractionModal
                 is_open=app_ctx.is_extract_modal_open
                 candidates=app_ctx.extraction_candidates

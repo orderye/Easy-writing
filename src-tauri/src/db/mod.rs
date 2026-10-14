@@ -7,6 +7,7 @@ use std::path::PathBuf;
 pub mod agent;
 pub mod app_setting;
 pub mod chapter;
+pub mod chapter_revision;
 pub mod extraction;
 pub mod llm_profile;
 pub mod novel;

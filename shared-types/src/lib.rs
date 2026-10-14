@@ -54,6 +54,33 @@ pub struct ChapterHeader {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChapterRevision {
+    pub id: String,
+    pub chapter_id: String,
+    pub novel_id: String,
+    pub title: String,
+    pub content: String,
+    pub content_plain: String,
+    pub word_count: i32,
+    pub revision_type: String, // "auto" | "manual" | "ai_before" | "ai_after" | "rollback_before"
+    pub note: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChapterRevisionHeader {
+    pub id: String,
+    pub chapter_id: String,
+    pub novel_id: String,
+    pub title: String,
+    pub word_count: i32,
+    pub revision_type: String,
+    pub note: String,
+    pub created_at: String,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WorldviewEntry {
     pub id: String,
     pub novel_id: String,

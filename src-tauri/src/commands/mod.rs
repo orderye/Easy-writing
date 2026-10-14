@@ -4,7 +4,8 @@ pub mod sync_cmd;
 
 use crate::db::DbPool;
 use shared_types::{
-    Chapter, ChapterHeader, Character, Novel, PlotItem, Volume, WorldviewEntry,
+    Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, Novel, PlotItem,
+    Volume, WorldviewEntry,
 };
 use tauri::State;
 
@@ -138,6 +139,75 @@ pub fn save_chapter_content(
 ) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::chapter::save_chapter_content(&conn, &id, &content, &content_plain, word_count)
+        .map_err(|e| e.to_string())?;
+
+    // Auto snapshot trigger if conditions are met
+    if let Ok(Some(chap)) = crate::db::chapter::get_chapter(&conn, &id) {
+        let _ = crate::db::chapter_revision::maybe_auto_snapshot(
+            &conn,
+            &id,
+            &chap.novel_id,
+            &chap.title,
+            &content,
+            &content_plain,
+            word_count,
+        );
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_chapter_revisions(
+    pool: State<DbPool>,
+    chapter_id: String,
+) -> Result<Vec<ChapterRevisionHeader>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chapter_revision::list_revisions_for_chapter(&conn, &chapter_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_chapter_revision(
+    pool: State<DbPool>,
+    id: String,
+) -> Result<Option<ChapterRevision>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chapter_revision::get_revision(&conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_manual_chapter_revision(
+    pool: State<DbPool>,
+    chapter_id: String,
+    note: String,
+) -> Result<ChapterRevision, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let chap = crate::db::chapter::get_chapter(&conn, &chapter_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Chapter not found".to_string())?;
+
+    crate::db::chapter_revision::create_revision(
+        &conn,
+        &chap.id,
+        &chap.novel_id,
+        &chap.title,
+        &chap.content,
+        &chap.content_plain,
+        chap.word_count,
+        "manual",
+        &note,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn revert_chapter_to_revision(
+    pool: State<DbPool>,
+    chapter_id: String,
+    revision_id: String,
+) -> Result<Chapter, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chapter_revision::revert_chapter_to_revision(&conn, &chapter_id, &revision_id)
         .map_err(|e| e.to_string())
 }
 

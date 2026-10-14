@@ -43,6 +43,11 @@ pub fn run() {
             commands::move_chapter,
             commands::reorder_chapters,
             commands::delete_chapter,
+            // Chapter Revisions
+            commands::list_chapter_revisions,
+            commands::get_chapter_revision,
+            commands::create_manual_chapter_revision,
+            commands::revert_chapter_to_revision,
             // Settings
             commands::list_worldview,
             commands::save_worldview,
