@@ -43,7 +43,7 @@ impl AppContext {
             left_panel_open: RwSignal::new(true),
             right_panel_open: RwSignal::new(true),
             active_settings_tab: RwSignal::new("worldview".to_string()),
-            ai_chat_open: RwSignal::new(true),
+            ai_chat_open: RwSignal::new(false),
             save_status: RwSignal::new("saved".to_string()),
             word_count: RwSignal::new(0),
             is_editor_mounted: RwSignal::new(false),

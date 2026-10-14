@@ -12,7 +12,7 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
     };
 
     view! {
-        <div class="h-7 border-t border-slate-200 bg-slate-50 px-4 flex items-center justify-between text-xs text-slate-500 select-none z-10">
+        <div class="h-7 border-t border-slate-200 bg-slate-50 px-4 flex items-center justify-between text-xs text-slate-500 select-none z-10 shrink-0">
             <div class="flex items-center gap-4">
                 <span>"本章字数: " <strong class="text-slate-700">{word_count}</strong> " 字"</span>
                 <span class="text-slate-300">"|"</span>

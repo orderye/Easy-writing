@@ -76,17 +76,17 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
         <aside
             class=move || {
                 format!(
-                    "h-full bg-slate-50 border-l border-slate-200 flex flex-col panel-transition select-none {}",
+                    "h-full bg-slate-50 border-l border-slate-200 flex flex-col panel-transition select-none shrink-0 {}",
                     if app_ctx.right_panel_open.get() { "w-72" } else { "w-0 overflow-hidden border-none" }
                 )
             }
         >
-            <div class="h-12 border-b border-slate-200 px-3 flex items-center justify-between">
+            <div class="h-12 border-b border-slate-200 px-3 flex items-center justify-between shrink-0">
                 <span class="font-bold text-slate-800 text-sm">"作品结构"</span>
                 <RightToggle is_open=app_ctx.right_panel_open />
             </div>
 
-            <div class="p-3 border-b border-slate-200">
+            <div class="p-3 border-b border-slate-200 shrink-0">
                 <SaveButton app_ctx=app_ctx />
             </div>
 
@@ -96,7 +96,7 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
             {move || {
                 if let Some(ch) = app_ctx.current_chapter.get() {
                     view! {
-                        <div class="border-t border-slate-200 p-3 bg-white space-y-2">
+                        <div class="border-t border-slate-200 p-3 bg-white space-y-2 shrink-0">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="font-semibold text-slate-700 truncate max-w-[120px]">
                                     {ch.title.clone()}

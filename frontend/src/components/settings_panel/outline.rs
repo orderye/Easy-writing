@@ -88,7 +88,7 @@ pub fn OutlineView(app_ctx: AppContext) -> impl IntoView {
     };
 
     view! {
-        <div class="flex-1 overflow-y-auto p-3 space-y-4">
+        <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-4">
             // Layer 1: Whole novel synopsis
             <div>
                 <div class="flex items-center justify-between mb-1.5">

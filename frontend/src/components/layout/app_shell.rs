@@ -47,7 +47,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
     });
 
     view! {
-        <div class="h-screen w-screen flex flex-row overflow-hidden bg-slate-100">
+        <div class="h-full w-full flex flex-row overflow-hidden bg-slate-100">
             <SettingsPanel app_ctx=app_ctx />
             <WritingStage app_ctx=app_ctx />
             <StructurePanel app_ctx=app_ctx />

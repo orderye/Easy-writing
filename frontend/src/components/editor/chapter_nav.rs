@@ -81,15 +81,24 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
     };
 
     view! {
-        <div class="h-12 border-b border-slate-200 bg-white px-4 flex items-center justify-between shadow-sm select-none z-10">
-            <div class="flex items-center gap-3">
-                // Novel title shown when left panel is hidden
+        <div class="h-12 border-b border-slate-200 bg-white px-4 flex items-center justify-between shadow-xs select-none z-10 shrink-0">
+            <div class="flex items-center gap-2">
+                // Left Panel unfold button & novel title shown when left panel is hidden
                 {move || {
                     if !app_ctx.left_panel_open.get() {
                         view! {
-                            <span class="font-bold text-slate-800 text-sm border-r border-slate-300 pr-3 mr-1">
-                                {novel_title()}
-                            </span>
+                            <div class="flex items-center gap-2 mr-2">
+                                <button
+                                    class="px-2 py-1 text-xs font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition-colors border border-slate-300 cursor-pointer"
+                                    title="展开设定库"
+                                    on:click=move |_| app_ctx.left_panel_open.set(true)
+                                >
+                                    "▶ 设定"
+                                </button>
+                                <span class="font-bold text-slate-800 text-sm border-r border-slate-300 pr-3">
+                                    {novel_title()}
+                                </span>
+                            </div>
                         }.into_any()
                     } else {
                         view! { <span></span> }.into_any()
@@ -105,14 +114,14 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
 
                 <div class="flex items-center gap-1 ml-2">
                     <button
-                        class="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs"
+                        class="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs cursor-pointer"
                         title="上一章"
                         on:click=on_prev_chapter
                     >
                         "▲ 上一章"
                     </button>
                     <button
-                        class="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs"
+                        class="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs cursor-pointer"
                         title="下一章"
                         on:click=on_next_chapter
                     >
@@ -123,7 +132,7 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
 
             <div class="flex items-center gap-3">
                 <button
-                    class="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+                    class="px-3 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                     title="从当前正文提炼世界观、角色、剧情和大纲"
                     on:click=move |_| {
                         if let (Some(novel), Some(chapter)) = (app_ctx.current_novel.get(), app_ctx.current_chapter.get()) {
@@ -156,27 +165,36 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
                     "提炼本章"
                 </button>
 
-                // Save button shown in nav bar when right panel is hidden
+                // Save button & right panel unfold shown when right panel is hidden
                 {move || {
                     if !app_ctx.right_panel_open.get() {
                         let save_status = app_ctx.save_status.get();
                         let is_dirty = save_status == "dirty";
                         view! {
-                            <button
-                                class=format!(
-                                    "px-3 py-1 text-xs font-medium rounded border transition-colors cursor-pointer {}",
-                                    if is_dirty {
-                                        "bg-blue-600 text-white border-blue-700 hover:bg-blue-700"
-                                    } else {
-                                        "bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200"
+                            <div class="flex items-center gap-2">
+                                <button
+                                    class=format!(
+                                        "px-3 py-1 text-xs font-medium rounded border transition-colors cursor-pointer {}",
+                                        if is_dirty {
+                                            "bg-blue-600 text-white border-blue-700 hover:bg-blue-700"
+                                        } else {
+                                            "bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200"
+                                        }
+                                    )
+                                    on:click=move |_| {
+                                        crate::components::structure_panel::save_button::perform_save(app_ctx);
                                     }
-                                )
-                                on:click=move |_| {
-                                    crate::components::structure_panel::save_button::perform_save(app_ctx);
-                                }
-                            >
-                                {if is_dirty { "保存修改 *" } else { "已保存" }}
-                            </button>
+                                >
+                                    {if is_dirty { "保存修改 *" } else { "已保存" }}
+                                </button>
+                                <button
+                                    class="px-2 py-1 text-xs font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition-colors border border-slate-300 cursor-pointer"
+                                    title="展开结构目录"
+                                    on:click=move |_| app_ctx.right_panel_open.set(true)
+                                >
+                                    "目录 ◀"
+                                </button>
+                            </div>
                         }.into_any()
                     } else {
                         view! { <span></span> }.into_any()

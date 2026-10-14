@@ -62,7 +62,7 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
     };
 
     view! {
-        <div class="flex-1 overflow-y-auto p-3 space-y-3">
+        <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
             <div class="flex items-center justify-between">
                 <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">"角色卡列表"</span>
                 <button

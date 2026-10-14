@@ -55,13 +55,13 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
         <aside
             class=move || {
                 format!(
-                    "h-full bg-slate-50 border-r border-slate-200 flex flex-col panel-transition select-none {}",
+                    "h-full bg-slate-50 border-r border-slate-200 flex flex-col panel-transition select-none shrink-0 {}",
                     if app_ctx.left_panel_open.get() { "w-72" } else { "w-0 overflow-hidden border-none" }
                 )
             }
         >
             // Header with novel title and collapse button
-            <div class="h-12 border-b border-slate-200 px-3 flex items-center justify-between">
+            <div class="h-12 border-b border-slate-200 px-3 flex items-center justify-between shrink-0">
                 <input
                     type="text"
                     class="font-bold text-slate-800 text-sm bg-transparent hover:bg-slate-200/60 px-1.5 py-0.5 rounded focus:bg-white focus:outline-blue-500 w-44 truncate"
@@ -73,11 +73,11 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             // Four Settings Tabs
-            <div class="grid grid-cols-4 border-b border-slate-200 bg-slate-100 text-xs text-slate-600 font-medium text-center">
+            <div class="grid grid-cols-4 border-b border-slate-200 bg-slate-100 text-xs text-slate-600 font-medium text-center shrink-0">
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 {}",
+                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
                             if active_tab() == "worldview" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
                         )
                     }
@@ -88,7 +88,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 {}",
+                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
                             if active_tab() == "character" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
                         )
                     }
@@ -99,7 +99,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 {}",
+                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
                             if active_tab() == "plot" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
                         )
                     }
@@ -110,7 +110,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 {}",
+                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
                             if active_tab() == "outline" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
                         )
                     }
@@ -121,7 +121,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             // Active Tab Content
-            <div class="flex-1 overflow-hidden flex flex-col">
+            <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
                 {move || match active_tab().as_str() {
                     "character" => view! { <CharactersView app_ctx=app_ctx /> }.into_any(),
                     "plot" => view! { <PlotLinesView app_ctx=app_ctx /> }.into_any(),
@@ -131,9 +131,9 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             // Footer Settings Icon
-            <div class="h-10 border-t border-slate-200 px-3 flex items-center justify-between text-xs text-slate-500 bg-slate-50">
+            <div class="h-10 border-t border-slate-200 px-3 flex items-center justify-between text-xs text-slate-500 bg-slate-50 shrink-0">
                 <button
-                    class="flex items-center gap-1.5 hover:text-slate-800 transition-colors p-1 rounded hover:bg-slate-200"
+                    class="flex items-center gap-1.5 hover:text-slate-800 transition-colors p-1 rounded hover:bg-slate-200 cursor-pointer"
                     title="打开系统设置 (模型接口、WebDAV 等)"
                     on:click=move |_| app_ctx.is_config_open.set(true)
                 >

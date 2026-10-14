@@ -122,7 +122,7 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
     };
 
     view! {
-        <div class="border-t border-slate-200 bg-white shadow-lg flex flex-col z-20">
+        <div class="border-t border-slate-200 bg-white shadow-lg flex flex-col z-20 shrink-0">
             // Toggle bar
             <div
                 class="h-8 bg-slate-100 hover:bg-slate-200/80 px-4 flex items-center justify-between cursor-pointer border-b border-slate-200 select-none text-xs text-slate-700"

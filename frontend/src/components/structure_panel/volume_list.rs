@@ -48,7 +48,7 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
     };
 
     view! {
-        <div class="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+        <div class="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">
             <div class="flex items-center justify-between px-1 mb-1">
                 <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">"卷目与章节"</span>
                 <button
