@@ -53,6 +53,65 @@ pub fn request_switch_chapter(app_ctx: AppContext, target: ChapterHeader) {
     }
 }
 
+pub fn create_chapter_in_volume(app_ctx: AppContext, volume_id: String) {
+    if let Some(novel) = app_ctx.current_novel.get() {
+        let novel_id = novel.id;
+        let v_id = volume_id.clone();
+        leptos::task::spawn_local(async move {
+            let res = invoke::<Chapter, _>(
+                "create_chapter",
+                &CreateChapterArgs {
+                    novel_id,
+                    volume_id: v_id,
+                    title: "新章节".to_string(),
+                    summary: "".to_string(),
+                },
+            )
+            .await;
+
+            if let Ok(new_ch) = res {
+                let mut list = app_ctx.chapters_map.get();
+                let new_header = ChapterHeader {
+                    id: new_ch.id.clone(),
+                    novel_id: new_ch.novel_id.clone(),
+                    volume_id: new_ch.volume_id.clone(),
+                    title: new_ch.title.clone(),
+                    summary: new_ch.summary.clone(),
+                    word_count: 0,
+                    status: new_ch.status.clone(),
+                    sort_order: new_ch.sort_order,
+                    updated_at: new_ch.updated_at.clone(),
+                };
+                list.push(new_header.clone());
+                app_ctx.chapters_map.set(list);
+
+                // Switch to new chapter (checking if current chapter is dirty)
+                request_switch_chapter(app_ctx, new_header);
+            }
+        });
+    }
+}
+
+pub fn delete_chapter_by_id(app_ctx: AppContext, ch_id: String) {
+    leptos::task::spawn_local(async move {
+        let _ = invoke::<(), _>("delete_chapter", &DeleteChapterArgs { id: ch_id.clone() }).await;
+        let mut list = app_ctx.chapters_map.get();
+        list.retain(|c| c.id != ch_id);
+        app_ctx.chapters_map.set(list.clone());
+
+        if let Some(curr) = app_ctx.current_chapter.get() {
+            if curr.id == ch_id {
+                if let Some(next_ch) = list.first() {
+                    do_switch_chapter(app_ctx, next_ch.id.clone());
+                } else {
+                    app_ctx.current_chapter.set(None);
+                }
+            }
+        }
+    });
+}
+
+#[allow(dead_code)]
 #[component]
 pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
     let vol_id = volume_id.clone();
@@ -78,64 +137,6 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
                 true
             })
             .collect::<Vec<ChapterHeader>>()
-    };
-
-    let on_create_chapter = move |_| {
-        let v_id = vol_id_for_create.clone();
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let novel_id = novel.id;
-            leptos::task::spawn_local(async move {
-                let res = invoke::<Chapter, _>(
-                    "create_chapter",
-                    &CreateChapterArgs {
-                        novel_id,
-                        volume_id: v_id,
-                        title: "新章节".to_string(),
-                        summary: "".to_string(),
-                    },
-                )
-                .await;
-
-                if let Ok(new_ch) = res {
-                    let mut list = app_ctx.chapters_map.get();
-                    let new_header = ChapterHeader {
-                        id: new_ch.id.clone(),
-                        novel_id: new_ch.novel_id.clone(),
-                        volume_id: new_ch.volume_id.clone(),
-                        title: new_ch.title.clone(),
-                        summary: new_ch.summary.clone(),
-                        word_count: 0,
-                        status: new_ch.status.clone(),
-                        sort_order: new_ch.sort_order,
-                        updated_at: new_ch.updated_at.clone(),
-                    };
-                    list.push(new_header.clone());
-                    app_ctx.chapters_map.set(list);
-
-                    // Switch to new chapter (checking if current chapter is dirty)
-                    request_switch_chapter(app_ctx, new_header);
-                }
-            });
-        }
-    };
-
-    let on_delete_chapter = move |ch_id: String| {
-        leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_chapter", &DeleteChapterArgs { id: ch_id.clone() }).await;
-            let mut list = app_ctx.chapters_map.get();
-            list.retain(|c| c.id != ch_id);
-            app_ctx.chapters_map.set(list.clone());
-
-            if let Some(curr) = app_ctx.current_chapter.get() {
-                if curr.id == ch_id {
-                    if let Some(next_ch) = list.first() {
-                        do_switch_chapter(app_ctx, next_ch.id.clone());
-                    } else {
-                        app_ctx.current_chapter.set(None);
-                    }
-                }
-            }
-        });
     };
 
     view! {
@@ -200,7 +201,7 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
                                     title="删除章节（移入回收站）"
                                     on:click=move |ev| {
                                         ev.stop_propagation();
-                                        on_delete_chapter(del_cid.clone());
+                                        delete_chapter_by_id(app_ctx, del_cid.clone());
                                     }
                                 >
                                     "✕"
@@ -213,7 +214,7 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
 
             <button
                 class="w-full text-left px-2.5 py-1 text-[11px] text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:hover:text-blue-400 rounded flex items-center gap-1 transition-colors cursor-pointer"
-                on:click=on_create_chapter
+                on:click=move |_| create_chapter_in_volume(app_ctx, vol_id_for_create.clone())
             >
                 <span>"+"</span>
                 <span>"添加新章节"</span>
