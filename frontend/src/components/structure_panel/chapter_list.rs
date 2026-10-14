@@ -18,7 +18,6 @@ struct CreateChapterArgs {
     summary: String,
 }
 
-#[allow(dead_code)]
 #[derive(Serialize)]
 struct DeleteChapterArgs {
     id: String,
@@ -60,11 +59,24 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
     let vol_id_for_create = volume_id.clone();
 
     let chapters_for_vol = move || {
+        let q = app_ctx.chapter_search_query.get().to_lowercase().trim().to_string();
+        let st = app_ctx.chapter_status_filter.get();
         app_ctx
             .chapters_map
             .get()
             .into_iter()
-            .filter(|c| c.volume_id == vol_id)
+            .filter(|c| {
+                if c.volume_id != vol_id {
+                    return false;
+                }
+                if !q.is_empty() && !c.title.to_lowercase().contains(&q) {
+                    return false;
+                }
+                if st != "all" && c.status != st {
+                    return false;
+                }
+                true
+            })
             .collect::<Vec<ChapterHeader>>()
     };
 
@@ -107,6 +119,25 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
         }
     };
 
+    let on_delete_chapter = move |ch_id: String| {
+        leptos::task::spawn_local(async move {
+            let _ = invoke::<(), _>("delete_chapter", &DeleteChapterArgs { id: ch_id.clone() }).await;
+            let mut list = app_ctx.chapters_map.get();
+            list.retain(|c| c.id != ch_id);
+            app_ctx.chapters_map.set(list.clone());
+
+            if let Some(curr) = app_ctx.current_chapter.get() {
+                if curr.id == ch_id {
+                    if let Some(next_ch) = list.first() {
+                        do_switch_chapter(app_ctx, next_ch.id.clone());
+                    } else {
+                        app_ctx.current_chapter.set(None);
+                    }
+                }
+            }
+        });
+    };
+
     view! {
         <div class="pl-4 pr-1 py-1 space-y-1">
             <For
@@ -114,7 +145,9 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
                 key=|c| c.id.clone()
                 children=move |ch| {
                     let ch_id = ch.id.clone();
+                    let del_cid = ch.id.clone();
                     let ch_clone = ch.clone();
+                    let ch_status = ch.status.clone();
                     let is_active = move || {
                         app_ctx
                             .current_chapter
@@ -137,13 +170,41 @@ pub fn ChapterList(app_ctx: AppContext, volume_id: String) -> impl IntoView {
                             }
                             on:click=move |_| request_switch_chapter(app_ctx, ch_clone.clone())
                         >
-                            <div class="flex items-center gap-1.5 truncate">
-                                <span class="text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300">"📄"</span>
+                            <div class="flex items-center gap-1.5 truncate flex-1 min-w-0 pr-1">
+                                <span class="text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 text-[11px] shrink-0">"📄"</span>
                                 <span class="truncate">{ch.title.clone()}</span>
                             </div>
 
-                            <div class="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500">
-                                <span>{ch.word_count} "字"</span>
+                            <div class="flex items-center gap-1.5 shrink-0 text-[10px]">
+                                // Status Pill Badge
+                                {match ch_status.as_str() {
+                                    "finalized" => view! {
+                                        <span class="px-1 py-0.2 rounded font-medium bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                            "定稿"
+                                        </span>
+                                    }.into_any(),
+                                    "editing" => view! {
+                                        <span class="px-1 py-0.2 rounded font-medium bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                                            "修改"
+                                        </span>
+                                    }.into_any(),
+                                    _ => view! {
+                                        <span class="px-1 py-0.2 rounded font-medium bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                            "草稿"
+                                        </span>
+                                    }.into_any(),
+                                }}
+                                <span class="text-slate-400 dark:text-slate-500 font-normal">{ch.word_count} "字"</span>
+                                <button
+                                    class="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 text-xs p-0.5 rounded transition-opacity cursor-pointer shrink-0"
+                                    title="删除章节（移入回收站）"
+                                    on:click=move |ev| {
+                                        ev.stop_propagation();
+                                        on_delete_chapter(del_cid.clone());
+                                    }
+                                >
+                                    "✕"
+                                </button>
                             </div>
                         </div>
                     }

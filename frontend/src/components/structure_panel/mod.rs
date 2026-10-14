@@ -90,6 +90,62 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
                 <SaveButton app_ctx=app_ctx />
             </div>
 
+            // Chapter Search & Status Filter
+            <div class="px-3 pt-2 pb-2.5 border-b border-slate-200 dark:border-slate-800 space-y-2 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
+                <div class="relative flex items-center">
+                    <span class="absolute left-2 text-slate-400 text-xs pointer-events-none select-none">"🔍"</span>
+                    <input
+                        type="text"
+                        class="w-full text-xs pl-6 pr-6 py-1 bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700 rounded-md text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 transition-colors"
+                        placeholder="检索章节标题..."
+                        prop:value=move || app_ctx.chapter_search_query.get()
+                        on:input=move |ev| app_ctx.chapter_search_query.set(event_target_value(&ev))
+                    />
+                    {move || {
+                        if !app_ctx.chapter_search_query.get().is_empty() {
+                            view! {
+                                <button
+                                    class="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer select-none"
+                                    title="清空搜索"
+                                    on:click=move |_| app_ctx.chapter_search_query.set(String::new())
+                                >
+                                    "✕"
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! { <span class="hidden"></span> }.into_any()
+                        }
+                    }}
+                </div>
+
+                // Status Filter Pills
+                <div class="flex items-center gap-1 text-[11px]">
+                    {[
+                        ("all", "全部"),
+                        ("draft", "草稿"),
+                        ("editing", "修改中"),
+                        ("finalized", "定稿"),
+                    ].into_iter().map(|(val, label)| {
+                        let v_str = val.to_string();
+                        let is_selected = move || app_ctx.chapter_status_filter.get() == val;
+                        view! {
+                            <button
+                                class=move || {
+                                    if is_selected() {
+                                        "flex-1 py-0.5 rounded text-center font-medium bg-blue-600 text-white shadow-2xs transition-colors cursor-pointer"
+                                    } else {
+                                        "flex-1 py-0.5 rounded text-center text-slate-500 dark:text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                    }
+                                }
+                                on:click=move |_| app_ctx.chapter_status_filter.set(v_str.clone())
+                            >
+                                {label}
+                            </button>
+                        }
+                    }).collect::<Vec<_>>()}
+                </div>
+            </div>
+
             <VolumeList app_ctx=app_ctx />
 
             // Current chapter metadata & status card
