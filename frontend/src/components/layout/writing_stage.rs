@@ -1,4 +1,5 @@
 use crate::components::ai::chat_box::ChatBox;
+use crate::components::editor::bubble_menu::BubbleMenu;
 use crate::components::editor::chapter_nav::ChapterNav;
 use crate::components::editor::editor_wrapper::EditorWrapper;
 use crate::components::editor::status_bar::StatusBar;
@@ -13,6 +14,7 @@ pub fn WritingStage(app_ctx: AppContext) -> impl IntoView {
             <ChapterNav app_ctx=app_ctx />
             <EditorToolbar />
             <EditorWrapper app_ctx=app_ctx />
+            <BubbleMenu app_ctx=app_ctx />
             <ChatBox app_ctx=app_ctx />
             <StatusBar app_ctx=app_ctx />
         </main>

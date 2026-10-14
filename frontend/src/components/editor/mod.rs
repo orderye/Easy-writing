@@ -1,3 +1,4 @@
+pub mod bubble_menu;
 pub mod chapter_nav;
 pub mod editor_wrapper;
 pub mod status_bar;

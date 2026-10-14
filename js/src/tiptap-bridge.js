@@ -10,6 +10,11 @@ import Placeholder from '@tiptap/extension-placeholder';
 
 let activeEditor = null;
 let updateCallback = null;
+let selectionCallback = null;
+
+export function on_selection_update(cb) {
+  selectionCallback = cb;
+}
 
 export function mount_editor(elementId, initialJson, onUpdateCb) {
   const container = document.getElementById(elementId);
@@ -65,6 +70,15 @@ export function mount_editor(elementId, initialJson, onUpdateCb) {
           updateCallback();
         } catch (err) {
           console.error('[TiptapBridge] Error in onUpdate callback:', err);
+        }
+      }
+    },
+    onSelectionUpdate({ editor }) {
+      if (typeof selectionCallback === 'function') {
+        try {
+          selectionCallback();
+        } catch (err) {
+          console.error('[TiptapBridge] Error in onSelectionUpdate callback:', err);
         }
       }
     },
@@ -127,6 +141,24 @@ export function get_selection_text() {
   return activeEditor.state.doc.textBetween(from, to, ' ');
 }
 
+export function get_selection_coords() {
+  if (!activeEditor) return null;
+  const { from, to } = activeEditor.state.selection;
+  if (from === to) return null;
+  try {
+    const { view } = activeEditor;
+    const start = view.coordsAtPos(from);
+    const end = view.coordsAtPos(to);
+    return JSON.stringify({
+      top: Math.min(start.top, end.top),
+      bottom: Math.max(start.bottom, end.bottom),
+      left: (start.left + end.left) / 2,
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
 export function focus() {
   if (activeEditor) {
     activeEditor.commands.focus();
@@ -186,6 +218,7 @@ if (typeof window !== 'undefined') {
   window.TiptapBridge = {
     mount_editor,
     destroy_editor,
+    on_selection_update,
     get_content_json,
     get_content_plain,
     get_word_count,
@@ -193,6 +226,7 @@ if (typeof window !== 'undefined') {
     insert_at_cursor,
     replace_selection,
     get_selection_text,
+    get_selection_coords,
     focus,
     toggle_bold,
     toggle_italic,

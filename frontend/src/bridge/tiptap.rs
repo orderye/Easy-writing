@@ -27,7 +27,13 @@ extern "C" {
     pub fn replace_selection(text: &str) -> bool;
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn on_selection_update(cb: &js_sys::Function);
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
     pub fn get_selection_text() -> Option<String>;
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn get_selection_coords() -> Option<String>;
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]
     pub fn focus();
