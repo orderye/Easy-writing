@@ -131,6 +131,7 @@ pub fn get_chapter(pool: State<DbPool>, id: String) -> Result<Option<Chapter>, S
 
 #[tauri::command]
 pub fn save_chapter_content(
+    app_handle: tauri::AppHandle,
     pool: State<DbPool>,
     id: String,
     content: String,
@@ -152,6 +153,45 @@ pub fn save_chapter_content(
             &content_plain,
             word_count,
         );
+
+        // Silent background extraction trigger if text has meaningful length
+        let pool_clone = pool.inner().clone();
+        let novel_id = chap.novel_id.clone();
+        let chapter_id = id.clone();
+        let handle_clone = app_handle.clone();
+        tauri::async_runtime::spawn(async move {
+            let res = (|| -> Result<_, String> {
+                let conn = pool_clone.get().map_err(|e| e.to_string())?;
+                let novel = match crate::db::novel::get_novel(&conn, &novel_id) {
+                    Ok(Some(n)) => n,
+                    _ => return Err("Novel not found".to_string()),
+                };
+                let chapter = match crate::db::chapter::get_chapter(&conn, &chapter_id) {
+                    Ok(Some(c)) => c,
+                    _ => return Err("Chapter not found".to_string()),
+                };
+                let (_agent, profile, api_key) =
+                    crate::agent::dispatcher::resolve_agent_and_profile(&conn, "writing_assistant")?;
+                Ok((novel, chapter, profile, api_key))
+            })();
+
+            if let Ok((novel, chapter, profile, api_key)) = res {
+                if chapter.content_plain.chars().count() >= 100 {
+                    let gateway_arc = std::sync::Arc::new(crate::ai::gateway::AiGateway::new());
+                    if let Ok(candidates) = crate::agent::extraction::run_parallel_extraction(
+                        gateway_arc,
+                        pool_clone,
+                        novel,
+                        chapter,
+                        profile,
+                        api_key,
+                    ).await {
+                        use tauri::Emitter;
+                        let _ = handle_clone.emit("extraction_completed", candidates.len());
+                    }
+                }
+            }
+        });
     }
     Ok(())
 }

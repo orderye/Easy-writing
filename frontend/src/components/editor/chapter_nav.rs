@@ -59,6 +59,63 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
         }
     };
 
+    let refresh_candidates = move || {
+        if let Some(novel) = app_ctx.current_novel.get() {
+            let nid = novel.id;
+            leptos::task::spawn_local(async move {
+                #[derive(Serialize)]
+                struct ListCandidatesArgs {
+                    novel_id: String,
+                }
+                if let Ok(cands) = invoke::<Vec<shared_types::ExtractionCandidate>, _>(
+                    "list_extraction_candidates",
+                    &ListCandidatesArgs { novel_id: nid },
+                )
+                .await
+                {
+                    app_ctx.extraction_candidates.set(cands);
+                }
+            });
+        }
+    };
+
+    Effect::new(move |_| {
+        let _ = app_ctx.current_chapter.get();
+        refresh_candidates();
+    });
+
+    let cand_count = move || app_ctx.extraction_candidates.get().len();
+
+    let on_click_extract = move |_| {
+        let count = cand_count();
+        if count > 0 {
+            app_ctx.is_extract_modal_open.set(true);
+        } else if let (Some(novel), Some(chapter)) = (app_ctx.current_novel.get(), app_ctx.current_chapter.get()) {
+            let nid = novel.id;
+            let cid = chapter.id;
+            app_ctx.is_extract_modal_open.set(true);
+            app_ctx.is_extracting.set(true);
+            leptos::task::spawn_local(async move {
+                #[derive(Serialize)]
+                struct TriggerExtractArgs {
+                    novel_id: String,
+                    chapter_id: String,
+                }
+                if let Ok(candidates) = invoke::<Vec<shared_types::ExtractionCandidate>, _>(
+                    "trigger_chapter_extract",
+                    &TriggerExtractArgs {
+                        novel_id: nid,
+                        chapter_id: cid,
+                    },
+                )
+                .await {
+                    app_ctx.extraction_candidates.set(candidates);
+                }
+                app_ctx.is_extracting.set(false);
+            });
+        }
+    };
+
     view! {
         <div class="h-12 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 flex items-center justify-between shadow-xs select-none z-10 shrink-0">
             <div class="flex items-center gap-2">
@@ -126,35 +183,22 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class="px-3 py-1 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                     title="从当前正文提炼世界观、角色、剧情和大纲"
-                    on:click=move |_| {
-                        if let (Some(novel), Some(chapter)) = (app_ctx.current_novel.get(), app_ctx.current_chapter.get()) {
-                            let nid = novel.id;
-                            let cid = chapter.id;
-                            app_ctx.is_extract_modal_open.set(true);
-                            app_ctx.is_extracting.set(true);
-                            leptos::task::spawn_local(async move {
-                                #[derive(Serialize)]
-                                struct TriggerExtractArgs {
-                                    novel_id: String,
-                                    chapter_id: String,
-                                }
-                                if let Ok(candidates) = invoke::<Vec<shared_types::ExtractionCandidate>, _>(
-                                    "trigger_chapter_extract",
-                                    &TriggerExtractArgs {
-                                        novel_id: nid,
-                                        chapter_id: cid,
-                                    },
-                                )
-                                .await {
-                                    app_ctx.extraction_candidates.set(candidates);
-                                }
-                                app_ctx.is_extracting.set(false);
-                            });
-                        }
-                    }
+                    on:click=on_click_extract
                 >
                     <span class="text-amber-500">"✨"</span>
-                    "提炼本章"
+                    <span>"提炼本章"</span>
+                    {move || {
+                        let count = cand_count();
+                        if count > 0 {
+                            view! {
+                                <span class="px-1.5 py-0.2 text-[10px] bg-rose-500 text-white rounded-full font-bold shadow-xs">
+                                    {count}
+                                </span>
+                            }.into_any()
+                        } else {
+                            view! { <span class="hidden"></span> }.into_any()
+                        }
+                    }}
                 </button>
 
                 // Save button & right panel unfold shown when right panel is hidden

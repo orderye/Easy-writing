@@ -68,6 +68,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <TrashModal is_open=app_ctx.is_trash_modal_open app_ctx=app_ctx />
 
             <ExtractionModal
+                app_ctx=app_ctx
                 is_open=app_ctx.is_extract_modal_open
                 candidates=app_ctx.extraction_candidates
                 is_extracting=app_ctx.is_extracting
