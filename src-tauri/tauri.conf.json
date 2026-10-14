@@ -2,11 +2,11 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Easy-writing",
   "version": "0.1.0",
-  "identifier": "com.easywriting.app",
+  "identifier": "com.easywriting.desktop",
   "build": {
-    "beforeDevCommand": "pnpm build:bridge",
+    "beforeDevCommand": "pnpm build:assets",
     "devUrl": "http://127.0.0.1:8080",
-    "beforeBuildCommand": "pnpm build:bridge && trunk build --config frontend/Trunk.toml index.html",
+    "beforeBuildCommand": "pnpm build:assets && trunk build --config frontend/Trunk.toml index.html --release",
     "frontendDist": "../frontend/dist"
   },
   "app": {

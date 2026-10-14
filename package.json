@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "build:bridge": "esbuild js/src/tiptap-bridge.js --bundle --minify --format=iife --global-name=TiptapBridge --outfile=frontend/public/tiptap-bridge.bundle.js",
-    "dev:frontend": "trunk serve --open=false frontend/index.html",
+    "build:css": "tailwindcss -i frontend/styles/main.css -o frontend/public/styles.css --minify",
+    "build:assets": "pnpm build:bridge && pnpm build:css",
+    "dev:frontend": "pnpm build:assets && trunk serve --open=false frontend/index.html",
     "tauri": "tauri",
-    "dev": "pnpm build:bridge && tauri dev",
-    "build": "pnpm build:bridge && tauri build"
+    "dev": "pnpm build:assets && tauri dev",
+    "build": "pnpm build:assets && tauri build"
   },
   "dependencies": {
     "@tiptap/core": "^2.10.4",
@@ -23,6 +25,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.2",
-    "esbuild": "^0.24.2"
+    "esbuild": "^0.24.2",
+    "tailwindcss": "^3.4.19"
   }
 }
