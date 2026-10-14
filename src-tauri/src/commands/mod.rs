@@ -498,4 +498,49 @@ pub fn commit_import_novel(
     crate::import::commit_import_novel(&mut conn, target_novel_id, preview)
 }
 
+// Character Relation commands
+#[tauri::command]
+pub fn list_character_relations(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<Vec<shared_types::CharacterRelation>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::character_relation::list_character_relations(&conn, &novel_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_character_relation(
+    pool: State<DbPool>,
+    id: Option<String>,
+    novel_id: String,
+    from_char_id: String,
+    to_char_id: String,
+    relation_name: String,
+    description: String,
+) -> Result<shared_types::CharacterRelation, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::character_relation::save_character_relation(
+        &conn,
+        id,
+        &novel_id,
+        &from_char_id,
+        &to_char_id,
+        &relation_name,
+        &description,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_character_relation(
+    pool: State<DbPool>,
+    id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::character_relation::delete_character_relation(&conn, &id)
+        .map_err(|e| e.to_string())
+}
+
+
 

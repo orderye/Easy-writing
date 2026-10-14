@@ -244,3 +244,16 @@ INSERT OR IGNORE INTO agent (id, key, name, system_prompt) VALUES
     ('agent-outline', 'outline', '大纲 Agent', '你是一个宏观大纲顾问。负责把控篇章节奏、起承转合，提炼并维护全篇梗概与分卷大纲。'),
     ('agent-volchap', 'volume_chapter', '卷章 Agent', '你是一个卷章管理助手。负责协助作者提炼单卷主题简介与精炼的单章核心摘要。'),
     ('agent-writer', 'writing_assistant', '写作助手', '你是一个贴身小说写作助理。你必须无条件严格遵循作者设定的世界观、角色特质与大纲规划进行扩写、润色与创作。若指令与既有设定冲突，须主动提示并中止写入。');
+
+-- 16. 角色关系网络
+CREATE TABLE IF NOT EXISTS character_relation (
+    id              TEXT PRIMARY KEY,
+    novel_id        TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+    from_char_id    TEXT NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    to_char_id      TEXT NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    relation_name   TEXT NOT NULL DEFAULT '',
+    description     TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_relation_novel ON character_relation(novel_id);

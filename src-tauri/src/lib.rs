@@ -119,6 +119,10 @@ pub fn run() {
             // Import
             commands::parse_import_document,
             commands::commit_import_novel,
+            // Character Relations
+            commands::list_character_relations,
+            commands::save_character_relation,
+            commands::delete_character_relation,
         ])
         .run(tauri::generate_context!())
         .expect("error while running easy-writing core");
