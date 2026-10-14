@@ -30,8 +30,9 @@
 - [数据与安全](#数据与安全)
 - [数据库设计](#数据库设计)
 - [后端命令一览](#后端命令一览)
-- [开发路线图](#开发路线图)
+- [开发路线图与里程碑达成](#开发路线图与里程碑达成)
 - [相关文档](#相关文档)
+- [构建与发布](#构建与发布)
 
 ---
 
@@ -179,7 +180,11 @@ easy-writing/
 │   │   ├── db/                       # 数据访问层（连接池 + PRAGMA 定制）
 │   │   │   ├── mod.rs                # init_db、WAL / 外键 / busy_timeout
 │   │   │   ├── novel.rs  volume.rs  chapter.rs
+│   │   │   ├── chapter_revision.rs   # 章节历史版本与回滚
 │   │   │   ├── settings.rs           # 世界观 / 角色 / 剧情
+│   │   │   ├── character_relation.rs # 人物关系
+│   │   │   ├── trash.rs              # 软删除回收站
+│   │   │   ├── prompt_template.rs    # 六处修饰模板
 │   │   │   ├── agent.rs  extraction.rs  llm_profile.rs  app_setting.rs
 │   │   ├── ai/                       # AI 网关层
 │   │   │   ├── gateway.rs            # 统一转发、流式缓冲、错误归一化
@@ -195,6 +200,7 @@ easy-writing/
 │   │   │   ├── webdav.rs             # PROPFIND / MKCOL / PUT / GET
 │   │   │   ├── backup.rs             # 增量图片 + SQLite 快照 + gzip
 │   │   │   └── restore.rs            # 覆盖恢复与补图
+│   │   ├── import/                  # 长篇文稿导入与智能拆卷拆章
 │   │   ├── commands/                 # 暴露给前端的 Tauri Command
 │   │   ├── asset.rs                  # 图片哈希、落盘与入库
 │   │   └── keyring.rs                # 系统钥匙串读写
@@ -206,14 +212,21 @@ easy-writing/
 │   ├── src/
 │   │   ├── app.rs                    # 根组件与启动引导
 │   │   ├── state/mod.rs              # AppContext（全局响应式 Signal）
-│   │   ├── bridge/tiptap.rs          # wasm-bindgen JS 绑定声明
-│   │   ├── tauri_api/mod.rs          # invoke 包装
+│   │   ├── bridge/                  # wasm-bindgen JS 绑定声明
+│   │   │   ├── tiptap.rs             # 编辑器操作（挂载 / 取内容 / 插入 / 选区）
+│   │   │   └── theme.rs              # 深色模式、跟随系统、编辑器字号行距
+│   │   ├── tauri_api/mod.rs          # invoke 包装（含参数兜底）
 │   │   └── components/
 │   │       ├── layout/               # app_shell / writing_stage / panel_toggle
 │   │       ├── settings_panel/       # worldview / characters / plot_lines / outline
+│   │       │                          # + trash_modal（回收站）
+│   │       │                          # + setting_changes_modal（设定改动留档与撤销）
 │   │       ├── structure_panel/      # save_button / volume_list / chapter_list
 │   │       ├── editor/               # chapter_nav / editor_wrapper / toolbar / status_bar
+│   │       │                          # + bubble_menu（选中文字 AI 浮标）
+│   │       │                          # + revision_modal（版本时间轴与回滚）
 │   │       ├── ai/                   # chat_box / polish_* / extraction_modal / conflict_modal
+│   │       ├── novel/                # import_modal（批量导入与拆卷拆章）
 │   │       └── config/               # config_modal（模型 / Agent / WebDAV / 偏好）
 │   ├── styles/main.css               # Tailwind 入口 + 主题 CSS 变量
 │   ├── public/                       # 构建产物（bridge bundle、styles）
@@ -221,7 +234,9 @@ easy-writing/
 │
 ├── js/src/tiptap-bridge.js           # Tiptap 核心与 WASM 通信实现
 ├── shared-types/src/lib.rs           # 前后端共享数据结构
-├── Docs/                             # PRD 与实施计划
+├── Docs/                             # PRD、实施计划、界面截图
+├── .github/workflows/release.yml     # 推送 tag 触发 macOS / Windows 自动构建发布
+├── LICENSE                           # MIT
 ├── Cargo.toml                        # Rust workspace 根
 ├── package.json                      # 前端脚本与 npm 依赖
 └── tailwind.config.js
@@ -433,6 +448,29 @@ cargo test  --workspace          # 运行测试
 - [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 产品需求、界面、AI 能力、数据库与风险应对
 - [实施计划](<Docs/Easy-writing · 实施计划.md>) —— 技术选型、架构设计、完整 DDL、四阶段排期与核心时序图
 - [全面后续研发与演进计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>) —— Phase 0 ~ Phase 3 全部 16 项任务交付成果与架构说明
+
+---
+
+## 构建与发布
+
+本地打包：
+
+```bash
+pnpm build     # = pnpm build:assets && tauri build
+```
+
+产物位于 `src-tauri/target/release/bundle/`。
+
+**自动发布**：仓库内置 GitHub Actions 工作流 `.github/workflows/release.yml`，推送 `v*` 标签即自动构建并创建 Release：
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+| 平台 | 构建目标 | 产物 |
+| --- | --- | --- |
+| macOS | `aarch64-apple-darwin` | `.app` / `.dmg` |
+| Windows | x64 | `.msi` / `.exe` |
 
 ---
 
