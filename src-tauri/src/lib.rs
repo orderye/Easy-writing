@@ -81,6 +81,11 @@ pub fn run() {
             // App settings
             commands::get_app_setting,
             commands::set_app_setting,
+            // Trash / Recycle Bin
+            commands::list_trash_items,
+            commands::restore_trash_item,
+            commands::purge_trash_item,
+            commands::empty_trash,
             // WebDAV Sync
             commands::sync_cmd::webdav_save_config,
             commands::sync_cmd::webdav_get_config,

@@ -2,6 +2,7 @@ pub mod characters;
 pub mod outline;
 pub mod plot_lines;
 pub mod setting_changes_modal;
+pub mod trash_modal;
 pub mod worldview;
 
 
@@ -156,6 +157,14 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                     >
                         <span>"📜"</span>
                         <span>"留档"</span>
+                    </button>
+                    <button
+                        class="flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-[11px] border border-slate-200 dark:border-slate-700"
+                        title="打开卷章与设定废弃回收站"
+                        on:click=move |_| app_ctx.is_trash_modal_open.set(true)
+                    >
+                        <span>"🗑️"</span>
+                        <span>"回收站"</span>
                     </button>
                     <button
                         class="flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-[11px] border border-slate-200 dark:border-slate-700"

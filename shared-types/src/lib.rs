@@ -214,3 +214,14 @@ pub struct BackupFileInfo {
     pub size_bytes: u64,
     pub modified_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TrashItem {
+    pub id: String,
+    pub novel_id: String,
+    pub item_type: String, // "volume" | "chapter" | "worldview" | "character" | "plot"
+    pub title: String,
+    pub snippet: String,
+    pub deleted_at: String,
+}
+

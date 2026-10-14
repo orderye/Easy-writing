@@ -12,6 +12,7 @@ pub mod extraction;
 pub mod llm_profile;
 pub mod novel;
 pub mod settings;
+pub mod trash;
 pub mod volume;
 
 pub type DbPool = Pool<SqliteConnectionManager>;

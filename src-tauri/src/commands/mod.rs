@@ -5,7 +5,7 @@ pub mod sync_cmd;
 use crate::db::DbPool;
 use shared_types::{
     Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, Novel, PlotItem,
-    SettingChange, Volume, WorldviewEntry,
+    SettingChange, TrashItem, Volume, WorldviewEntry,
 };
 use tauri::State;
 
@@ -405,3 +405,37 @@ pub fn save_image_asset(
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::asset::save_image(&conn, &app_data_dir, &novel_id, &name, &mime, &base64_data)
 }
+
+// Trash / Recycle Bin commands
+#[tauri::command]
+pub fn list_trash_items(pool: State<DbPool>, novel_id: String) -> Result<Vec<TrashItem>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::list_trash_items(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn restore_trash_item(
+    pool: State<DbPool>,
+    item_type: String,
+    item_id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::restore_trash_item(&conn, &item_type, &item_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn purge_trash_item(
+    pool: State<DbPool>,
+    item_type: String,
+    item_id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::purge_trash_item(&conn, &item_type, &item_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn empty_trash(pool: State<DbPool>, novel_id: String) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::empty_trash(&conn, &novel_id).map_err(|e| e.to_string())
+}
+

@@ -41,6 +41,7 @@ pub struct AppContext {
     pub pending_conflict_text: RwSignal<Option<String>>,
     pub is_revisions_modal_open: RwSignal<bool>,
     pub is_setting_changes_modal_open: RwSignal<bool>,
+    pub is_trash_modal_open: RwSignal<bool>,
 }
 
 impl AppContext {
@@ -77,6 +78,7 @@ impl AppContext {
             pending_conflict_text: RwSignal::new(None),
             is_revisions_modal_open: RwSignal::new(false),
             is_setting_changes_modal_open: RwSignal::new(false),
+            is_trash_modal_open: RwSignal::new(false),
         }
     }
 }
