@@ -1,3 +1,4 @@
+use crate::bridge::theme::{apply_app_theme, set_editor_style, setup_theme_listener};
 use crate::components::layout::app_shell::AppShell;
 use crate::state::AppContext;
 use crate::tauri_api::{invoke, invoke_no_args};
@@ -41,13 +42,60 @@ struct GetChapterArgs {
     id: String,
 }
 
+#[derive(Serialize)]
+struct GetAppSettingArgs {
+    key: String,
+}
+
 #[component]
 pub fn App() -> impl IntoView {
     let app_ctx = AppContext::new();
 
     // Startup bootstrap logic
     Effect::new(move |_| {
+        setup_theme_listener();
+
         leptos::task::spawn_local(async move {
+            // Load application preferences
+            if let Ok(Some(theme_val)) =
+                invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "theme".to_string() }).await
+            {
+                app_ctx.theme.set(theme_val.clone());
+                apply_app_theme(&theme_val);
+            } else {
+                apply_app_theme("system");
+            }
+
+            let mut fs_val: u32 = 16;
+            if let Ok(Some(fs)) =
+                invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "font_size".to_string() }).await
+            {
+                if let Ok(parsed) = fs.parse::<u32>() {
+                    fs_val = parsed;
+                    app_ctx.font_size.set(parsed);
+                }
+            }
+
+            let mut lh_val = "1.8".to_string();
+            if let Ok(Some(lh)) =
+                invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "line_height".to_string() }).await
+            {
+                if !lh.trim().is_empty() {
+                    lh_val = lh.clone();
+                    app_ctx.line_height.set(lh);
+                }
+            }
+            set_editor_style(fs_val, &lh_val);
+
+            if let Ok(Some(interval)) =
+                invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_save_interval".to_string() }).await
+            {
+                if let Ok(parsed) = interval.parse::<u32>() {
+                    app_ctx.auto_save_interval.set(parsed);
+                }
+            }
+
+            // Load novels and initial data
             match invoke_no_args::<Vec<Novel>>("list_novels").await {
                 Ok(novels) => {
                     if novels.is_empty() {

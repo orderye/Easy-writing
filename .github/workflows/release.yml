@@ -1,0 +1,62 @@
+name: Release Easy-writing
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'windows-latest'
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install Trunk
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: trunk
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build frontend bridge and styles
+        run: pnpm build:assets
+
+      - name: Build and Publish Tauri Desktop App
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Easy-writing ${{ github.ref_name }}'
+          releaseBody: 'Easy-writing 小说工作台双端正式发布版本（支持 macOS 与 Windows）'
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}

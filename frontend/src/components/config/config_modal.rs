@@ -58,7 +58,7 @@ struct SetAppSettingArgs {
 }
 
 #[component]
-pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoView {
+pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
     let active_tab = RwSignal::new("llm".to_string()); // "llm" | "agent" | "webdav" | "pref"
     let profiles = RwSignal::new(Vec::<LlmProfile>::new());
     let agents = RwSignal::new(Vec::<Agent>::new());
@@ -82,6 +82,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
     let backups_list = RwSignal::new(Vec::<BackupFileInfo>::new());
 
     // App Preferences state
+    let theme = RwSignal::new("system".to_string());
     let font_size = RwSignal::new("16".to_string());
     let line_height = RwSignal::new("1.8".to_string());
     let auto_save_interval = RwSignal::new("30".to_string());
@@ -109,6 +110,9 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
             }
 
             // Load Preferences
+            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "theme".to_string() }).await {
+                theme.set(val);
+            }
             if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "font_size".to_string() }).await {
                 font_size.set(val);
             }
@@ -261,19 +265,41 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
     // Save Preferences
     let on_save_preferences = move |_| {
         pref_status.set("正在保存偏好设置...".to_string());
+        let current_theme = theme.get();
+        let current_fs = font_size.get();
+        let current_lh = line_height.get();
+        let current_intv = auto_save_interval.get();
+
         leptos::task::spawn_local(async move {
             let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
+                key: "theme".to_string(),
+                value: current_theme.clone(),
+            }).await;
+            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
                 key: "font_size".to_string(),
-                value: font_size.get(),
+                value: current_fs.clone(),
             }).await;
             let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
                 key: "line_height".to_string(),
-                value: line_height.get(),
+                value: current_lh.clone(),
             }).await;
             let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
                 key: "auto_save_interval".to_string(),
-                value: auto_save_interval.get(),
+                value: current_intv.clone(),
             }).await;
+
+            // Apply live
+            app_ctx.theme.set(current_theme.clone());
+            crate::bridge::theme::apply_app_theme(&current_theme);
+
+            let fs_num = current_fs.parse::<u32>().unwrap_or(16);
+            app_ctx.font_size.set(fs_num);
+            app_ctx.line_height.set(current_lh.clone());
+            crate::bridge::theme::set_editor_style(fs_num, &current_lh);
+
+            if let Ok(intv_num) = current_intv.parse::<u32>() {
+                app_ctx.auto_save_interval.set(intv_num);
+            }
 
             pref_status.set("✓ 偏好设置已更新并持久化！".to_string());
         });
@@ -285,15 +311,15 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
                 let tab = active_tab.get();
                 view! {
                     <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-6 select-none">
-                        <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 overflow-hidden flex flex-col h-[650px] animate-in fade-in zoom-in-95">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-4xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col h-[650px] animate-in fade-in zoom-in-95">
                             // Header
-                            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+                            <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-800/80">
                                 <div class="flex items-center gap-2.5">
                                     <span class="text-xl">"⚙️"</span>
-                                    <h3 class="font-bold text-base text-slate-800">"工作台系统设置"</h3>
+                                    <h3 class="font-bold text-base text-slate-800 dark:text-slate-100">"工作台系统设置"</h3>
                                 </div>
                                 <button
-                                    class="text-slate-400 hover:text-slate-600 font-mono text-xl cursor-pointer"
+                                    class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-mono text-xl cursor-pointer"
                                     on:click=move |_| is_open.set(false)
                                 >
                                     "✕"
@@ -301,27 +327,27 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
                             </div>
 
                             // Tab navigation
-                            <div class="flex border-b border-slate-200 bg-slate-100 text-xs font-semibold text-slate-600 px-6">
+                            <div class="flex border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/60 text-xs font-semibold text-slate-600 dark:text-slate-400 px-6">
                                 <button
-                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "llm" { "border-blue-600 text-blue-700 bg-white" } else { "border-transparent hover:text-slate-900" })
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "llm" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("llm".to_string())
                                 >
                                     "大模型 API 接口"
                                 </button>
                                 <button
-                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "agent" { "border-blue-600 text-blue-700 bg-white" } else { "border-transparent hover:text-slate-900" })
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "agent" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("agent".to_string())
                                 >
                                     "多 Agent 接口绑定"
                                 </button>
                                 <button
-                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "webdav" { "border-blue-600 text-blue-700 bg-white" } else { "border-transparent hover:text-slate-900" })
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "webdav" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("webdav".to_string())
                                 >
                                     "WebDAV 整库同步"
                                 </button>
                                 <button
-                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "pref" { "border-blue-600 text-blue-700 bg-white" } else { "border-transparent hover:text-slate-900" })
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "pref" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("pref".to_string())
                                 >
                                     "写作偏好"
@@ -329,7 +355,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
                             </div>
 
                             // Tab contents
-                            <div class="flex-1 overflow-y-auto p-6">
+                            <div class="flex-1 overflow-y-auto p-6 bg-white dark:bg-slate-800">
                                 {move || match tab.as_str() {
                                     "agent" => view! {
                                         <div class="space-y-4">
@@ -489,30 +515,86 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
                                     }.into_any(),
 
                                     "pref" => view! {
-                                        <div class="max-w-md space-y-4 text-xs text-slate-700">
+                                        <div class="max-w-md space-y-5 text-xs text-slate-700 dark:text-slate-300">
+                                            <div class="space-y-1.5">
+                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"外观主题"</label>
+                                                <div class="grid grid-cols-3 gap-2">
+                                                    <button
+                                                        type="button"
+                                                        class=move || format!(
+                                                            "px-3 py-2.5 rounded border text-center transition-colors cursor-pointer {}",
+                                                            if theme.get() == "system" {
+                                                                "border-blue-600 bg-blue-50 text-blue-700 font-bold dark:bg-blue-950/70 dark:border-blue-500 dark:text-blue-300"
+                                                            } else {
+                                                                "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60"
+                                                            }
+                                                        )
+                                                        on:click=move |_| {
+                                                            theme.set("system".to_string());
+                                                            crate::bridge::theme::apply_app_theme("system");
+                                                        }
+                                                    >
+                                                        "🌓 跟随系统"
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class=move || format!(
+                                                            "px-3 py-2.5 rounded border text-center transition-colors cursor-pointer {}",
+                                                            if theme.get() == "light" {
+                                                                "border-blue-600 bg-blue-50 text-blue-700 font-bold dark:bg-blue-950/70 dark:border-blue-500 dark:text-blue-300"
+                                                            } else {
+                                                                "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60"
+                                                            }
+                                                        )
+                                                        on:click=move |_| {
+                                                            theme.set("light".to_string());
+                                                            crate::bridge::theme::apply_app_theme("light");
+                                                        }
+                                                    >
+                                                        "☀️ 浅色模式"
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class=move || format!(
+                                                            "px-3 py-2.5 rounded border text-center transition-colors cursor-pointer {}",
+                                                            if theme.get() == "dark" {
+                                                                "border-blue-600 bg-blue-50 text-blue-700 font-bold dark:bg-blue-950/70 dark:border-blue-500 dark:text-blue-300"
+                                                            } else {
+                                                                "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60"
+                                                            }
+                                                        )
+                                                        on:click=move |_| {
+                                                            theme.set("dark".to_string());
+                                                            crate::bridge::theme::apply_app_theme("dark");
+                                                        }
+                                                    >
+                                                        "🌙 深色模式"
+                                                    </button>
+                                                </div>
+                                            </div>
                                             <div class="space-y-1">
-                                                <label class="font-semibold">"正文字号 (px)"</label>
+                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"正文字号 (px)"</label>
                                                 <input
                                                     type="number"
-                                                    class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500"
+                                                    class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
                                                     prop:value=move || font_size.get()
                                                     on:input=move |ev| font_size.set(event_target_value(&ev))
                                                 />
                                             </div>
                                             <div class="space-y-1">
-                                                <label class="font-semibold">"正文行高"</label>
+                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"正文行高"</label>
                                                 <input
                                                     type="text"
-                                                    class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500"
+                                                    class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
                                                     prop:value=move || line_height.get()
                                                     on:input=move |ev| line_height.set(event_target_value(&ev))
                                                 />
                                             </div>
                                             <div class="space-y-1">
-                                                <label class="font-semibold">"自动保存间隔 (秒)"</label>
+                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"自动保存间隔 (秒)"</label>
                                                 <input
                                                     type="number"
-                                                    class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500"
+                                                    class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
                                                     prop:value=move || auto_save_interval.get()
                                                     on:input=move |ev| auto_save_interval.set(event_target_value(&ev))
                                                 />
@@ -526,7 +608,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, _app_ctx: AppContext) -> impl IntoVi
 
                                             {move || if !pref_status.get().is_empty() {
                                                 view! {
-                                                    <div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-xs font-semibold text-emerald-800">
+                                                    <div class="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-semibold text-emerald-800 dark:text-emerald-300">
                                                         {pref_status.get()}
                                                     </div>
                                                 }.into_any()

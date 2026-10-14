@@ -76,17 +76,17 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
         <aside
             class=move || {
                 format!(
-                    "h-full bg-slate-50 border-l border-slate-200 flex flex-col panel-transition select-none shrink-0 {}",
+                    "h-full bg-slate-50 dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col panel-transition select-none shrink-0 {}",
                     if app_ctx.right_panel_open.get() { "w-72" } else { "w-0 overflow-hidden border-none" }
                 )
             }
         >
-            <div class="h-12 border-b border-slate-200 px-3 flex items-center justify-between shrink-0">
-                <span class="font-bold text-slate-800 text-sm">"作品结构"</span>
+            <div class="h-12 border-b border-slate-200 dark:border-slate-700 px-3 flex items-center justify-between shrink-0">
+                <span class="font-bold text-slate-800 dark:text-slate-100 text-sm">"作品结构"</span>
                 <RightToggle is_open=app_ctx.right_panel_open />
             </div>
 
-            <div class="p-3 border-b border-slate-200 shrink-0">
+            <div class="p-3 border-b border-slate-200 dark:border-slate-700 shrink-0">
                 <SaveButton app_ctx=app_ctx />
             </div>
 
@@ -96,13 +96,13 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
             {move || {
                 if let Some(ch) = app_ctx.current_chapter.get() {
                     view! {
-                        <div class="border-t border-slate-200 p-3 bg-white space-y-2 shrink-0">
+                        <div class="border-t border-slate-200 dark:border-slate-700 p-3 bg-white dark:bg-slate-800 space-y-2 shrink-0">
                             <div class="flex items-center justify-between text-xs">
-                                <span class="font-semibold text-slate-700 truncate max-w-[120px]">
+                                <span class="font-semibold text-slate-700 dark:text-slate-200 truncate max-w-[120px]">
                                     {ch.title.clone()}
                                 </span>
                                 <select
-                                    class="text-[11px] bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5 focus:outline-blue-500 font-medium"
+                                    class="text-[11px] bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded px-1.5 py-0.5 focus:outline-blue-500 font-medium cursor-pointer"
                                     prop:value=move || current_chapter_status.get()
                                     on:change=move |ev| current_chapter_status.set(event_target_value(&ev))
                                 >
@@ -114,11 +114,11 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
 
                             <div class="space-y-1">
                                 <div class="flex items-center justify-between">
-                                    <span class="text-[10px] text-slate-400 font-medium">"本章梗概摘要（同步章纲）"</span>
+                                    <span class="text-[10px] text-slate-400 dark:text-slate-500 font-medium">"本章梗概摘要（同步章纲）"</span>
                                     <PolishButton module_key="chapter_summary" content=current_chapter_summary label="修饰" />
                                 </div>
                                 <textarea
-                                    class="w-full text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-1.5 focus:bg-white focus:outline-blue-500 min-h-[48px]"
+                                    class="w-full text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 rounded p-1.5 focus:bg-white dark:focus:bg-slate-900 focus:outline-blue-500 min-h-[48px]"
                                     placeholder="输入单章核心摘要..."
                                     prop:value=move || current_chapter_summary.get()
                                     on:input=move |ev| current_chapter_summary.set(event_target_value(&ev))

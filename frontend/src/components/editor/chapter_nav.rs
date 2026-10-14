@@ -1,14 +1,7 @@
-use crate::bridge::tiptap;
 use crate::state::AppContext;
 use crate::tauri_api::invoke;
 use leptos::prelude::*;
 use serde::Serialize;
-use shared_types::Chapter;
-
-#[derive(Serialize)]
-struct GetChapterArgs {
-    id: String,
-}
 
 #[component]
 pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
@@ -42,17 +35,10 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
         if let Some(curr) = app_ctx.current_chapter.get() {
             if let Some(idx) = headers.iter().position(|h| h.id == curr.id) {
                 if idx > 0 {
-                    let target_id = headers[idx - 1].id.clone();
-                    leptos::task::spawn_local(async move {
-                        if let Ok(Some(ch)) =
-                            invoke::<Option<Chapter>, _>("get_chapter", &GetChapterArgs { id: target_id }).await
-                        {
-                            tiptap::set_content(&ch.content);
-                            app_ctx.current_chapter.set(Some(ch));
-                            app_ctx.word_count.set(tiptap::get_word_count());
-                            app_ctx.save_status.set("saved".to_string());
-                        }
-                    });
+                    crate::components::structure_panel::chapter_list::request_switch_chapter(
+                        app_ctx,
+                        headers[idx - 1].clone(),
+                    );
                 }
             }
         }
@@ -64,24 +50,17 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
         if let Some(curr) = app_ctx.current_chapter.get() {
             if let Some(idx) = headers.iter().position(|h| h.id == curr.id) {
                 if idx + 1 < headers.len() {
-                    let target_id = headers[idx + 1].id.clone();
-                    leptos::task::spawn_local(async move {
-                        if let Ok(Some(ch)) =
-                            invoke::<Option<Chapter>, _>("get_chapter", &GetChapterArgs { id: target_id }).await
-                        {
-                            tiptap::set_content(&ch.content);
-                            app_ctx.current_chapter.set(Some(ch));
-                            app_ctx.word_count.set(tiptap::get_word_count());
-                            app_ctx.save_status.set("saved".to_string());
-                        }
-                    });
+                    crate::components::structure_panel::chapter_list::request_switch_chapter(
+                        app_ctx,
+                        headers[idx + 1].clone(),
+                    );
                 }
             }
         }
     };
 
     view! {
-        <div class="h-12 border-b border-slate-200 bg-white px-4 flex items-center justify-between shadow-xs select-none z-10 shrink-0">
+        <div class="h-12 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 flex items-center justify-between shadow-xs select-none z-10 shrink-0">
             <div class="flex items-center gap-2">
                 // Left Panel unfold button & novel title shown when left panel is hidden
                 {move || {
@@ -89,13 +68,13 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
                         view! {
                             <div class="flex items-center gap-2 mr-2">
                                 <button
-                                    class="px-2 py-1 text-xs font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1 transition-colors border border-slate-300 cursor-pointer"
+                                    class="px-2 py-1 text-xs font-semibold rounded bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 flex items-center gap-1 transition-colors border border-slate-300 dark:border-slate-600 cursor-pointer"
                                     title="展开设定库"
                                     on:click=move |_| app_ctx.left_panel_open.set(true)
                                 >
                                     "▶ 设定"
                                 </button>
-                                <span class="font-bold text-slate-800 text-sm border-r border-slate-300 pr-3">
+                                <span class="font-bold text-slate-800 dark:text-slate-100 text-sm border-r border-slate-300 dark:border-slate-600 pr-3">
                                     {novel_title()}
                                 </span>
                             </div>
@@ -105,23 +84,23 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
                     }
                 }}
 
-                <div class="flex items-center text-sm text-slate-600 gap-1.5 font-medium">
-                    <span class="text-slate-400">"当前位置:"</span>
-                    <span class="hover:text-blue-600 cursor-pointer">{volume_title}</span>
-                    <span class="text-slate-300">"›"</span>
-                    <span class="text-slate-900 font-semibold">{chapter_title}</span>
+                <div class="flex items-center text-sm text-slate-600 dark:text-slate-300 gap-1.5 font-medium">
+                    <span class="text-slate-400 dark:text-slate-500">"当前位置:"</span>
+                    <span class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer">{volume_title}</span>
+                    <span class="text-slate-300 dark:text-slate-600">"›"</span>
+                    <span class="text-slate-900 dark:text-slate-100 font-semibold">{chapter_title}</span>
                 </div>
 
                 <div class="flex items-center gap-1 ml-2">
                     <button
-                        class="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs cursor-pointer"
+                        class="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs cursor-pointer"
                         title="上一章"
                         on:click=on_prev_chapter
                     >
                         "▲ 上一章"
                     </button>
                     <button
-                        class="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800 text-xs cursor-pointer"
+                        class="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 text-xs cursor-pointer"
                         title="下一章"
                         on:click=on_next_chapter
                     >

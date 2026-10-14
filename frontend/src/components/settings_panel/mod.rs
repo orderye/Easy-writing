@@ -20,6 +20,12 @@ struct UpdateNovelArgs {
     synopsis: String,
 }
 
+#[derive(Serialize)]
+struct SetAppSettingArgs {
+    key: String,
+    value: String,
+}
+
 #[component]
 pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
     let novel_title = move || {
@@ -55,16 +61,16 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
         <aside
             class=move || {
                 format!(
-                    "h-full bg-slate-50 border-r border-slate-200 flex flex-col panel-transition select-none shrink-0 {}",
+                    "h-full bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col panel-transition select-none shrink-0 {}",
                     if app_ctx.left_panel_open.get() { "w-72" } else { "w-0 overflow-hidden border-none" }
                 )
             }
         >
             // Header with novel title and collapse button
-            <div class="h-12 border-b border-slate-200 px-3 flex items-center justify-between shrink-0">
+            <div class="h-12 border-b border-slate-200 dark:border-slate-700 px-3 flex items-center justify-between shrink-0">
                 <input
                     type="text"
-                    class="font-bold text-slate-800 text-sm bg-transparent hover:bg-slate-200/60 px-1.5 py-0.5 rounded focus:bg-white focus:outline-blue-500 w-44 truncate"
+                    class="font-bold text-slate-800 dark:text-slate-100 text-sm bg-transparent hover:bg-slate-200/60 dark:hover:bg-slate-800/80 px-1.5 py-0.5 rounded focus:bg-white dark:focus:bg-slate-800 focus:outline-blue-500 w-44 truncate"
                     title="点击修改作品名称"
                     prop:value=novel_title
                     on:change=on_update_title
@@ -73,12 +79,12 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             // Four Settings Tabs
-            <div class="grid grid-cols-4 border-b border-slate-200 bg-slate-100 text-xs text-slate-600 font-medium text-center shrink-0">
+            <div class="grid grid-cols-4 border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-400 font-medium text-center shrink-0">
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
-                            if active_tab() == "worldview" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
+                            "py-2 hover:bg-white dark:hover:bg-slate-700 transition-colors border-b-2 cursor-pointer {}",
+                            if active_tab() == "worldview" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 font-bold" } else { "border-transparent" }
                         )
                     }
                     on:click=move |_| app_ctx.active_settings_tab.set("worldview".to_string())
@@ -88,8 +94,8 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
-                            if active_tab() == "character" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
+                            "py-2 hover:bg-white dark:hover:bg-slate-700 transition-colors border-b-2 cursor-pointer {}",
+                            if active_tab() == "character" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 font-bold" } else { "border-transparent" }
                         )
                     }
                     on:click=move |_| app_ctx.active_settings_tab.set("character".to_string())
@@ -99,8 +105,8 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
-                            if active_tab() == "plot" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
+                            "py-2 hover:bg-white dark:hover:bg-slate-700 transition-colors border-b-2 cursor-pointer {}",
+                            if active_tab() == "plot" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 font-bold" } else { "border-transparent" }
                         )
                     }
                     on:click=move |_| app_ctx.active_settings_tab.set("plot".to_string())
@@ -110,8 +116,8 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 <button
                     class=move || {
                         format!(
-                            "py-2 hover:bg-white transition-colors border-b-2 cursor-pointer {}",
-                            if active_tab() == "outline" { "border-blue-600 text-blue-700 bg-white font-bold" } else { "border-transparent" }
+                            "py-2 hover:bg-white dark:hover:bg-slate-700 transition-colors border-b-2 cursor-pointer {}",
+                            if active_tab() == "outline" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 font-bold" } else { "border-transparent" }
                         )
                     }
                     on:click=move |_| app_ctx.active_settings_tab.set("outline".to_string())
@@ -121,7 +127,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             // Active Tab Content
-            <div class="flex-1 min-h-0 overflow-hidden flex flex-col">
+            <div class="flex-1 min-h-0 overflow-hidden flex flex-col bg-white dark:bg-slate-900">
                 {move || match active_tab().as_str() {
                     "character" => view! { <CharactersView app_ctx=app_ctx /> }.into_any(),
                     "plot" => view! { <PlotLinesView app_ctx=app_ctx /> }.into_any(),
@@ -130,17 +136,45 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 }}
             </div>
 
-            // Footer Settings Icon
-            <div class="h-10 border-t border-slate-200 px-3 flex items-center justify-between text-xs text-slate-500 bg-slate-50 shrink-0">
-                <button
-                    class="flex items-center gap-1.5 hover:text-slate-800 transition-colors p-1 rounded hover:bg-slate-200 cursor-pointer"
-                    title="打开系统设置 (模型接口、WebDAV 等)"
-                    on:click=move |_| app_ctx.is_config_open.set(true)
-                >
-                    <span>"⚙️"</span>
-                    <span>"设置"</span>
-                </button>
-                <span class="text-[10px] text-slate-400">"Easy-writing v0.1"</span>
+            // Footer Settings & Quick Theme Toggle
+            <div class="h-10 border-t border-slate-200 dark:border-slate-700 px-3 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 shrink-0">
+                <div class="flex items-center gap-2">
+                    <button
+                        class="flex items-center gap-1.5 hover:text-slate-800 dark:hover:text-slate-200 transition-colors p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer"
+                        title="打开系统设置 (模型接口、WebDAV 等)"
+                        on:click=move |_| app_ctx.is_config_open.set(true)
+                    >
+                        <span>"⚙️"</span>
+                        <span>"设置"</span>
+                    </button>
+                    <button
+                        class="flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-[11px] border border-slate-200 dark:border-slate-700"
+                        title="快速切换浅色 / 深色 / 跟随系统模式"
+                        on:click=move |_| {
+                            let next_theme = match app_ctx.theme.get().as_str() {
+                                "dark" => "light",
+                                "light" => "system",
+                                _ => "dark",
+                            };
+                            app_ctx.theme.set(next_theme.to_string());
+                            crate::bridge::theme::apply_app_theme(next_theme);
+                            let nt = next_theme.to_string();
+                            leptos::task::spawn_local(async move {
+                                let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
+                                    key: "theme".to_string(),
+                                    value: nt,
+                                }).await;
+                            });
+                        }
+                    >
+                        {move || match app_ctx.theme.get().as_str() {
+                            "dark" => "🌙 暗色",
+                            "light" => "☀️ 亮色",
+                            _ => "🌓 系统",
+                        }}
+                    </button>
+                </div>
+                <span class="text-[10px] text-slate-400 dark:text-slate-500">"v0.1.0"</span>
             </div>
         </aside>
     }

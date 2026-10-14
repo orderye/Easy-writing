@@ -13,6 +13,8 @@
   --border-color: #e2e8f0;
   --accent-color: #3b82f6;
   --accent-hover: #2563eb;
+  --editor-font-size: 16px;
+  --editor-line-height: 1.8;
 }
 
 .dark {
@@ -58,12 +60,19 @@ body {
   background: #94a3b8;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
 /* Tiptap editor typography and layout */
 .tiptap {
   outline: none;
   min-height: 100%;
-  font-size: 1.0625rem;
-  line-height: 1.85;
+  font-size: var(--editor-font-size, 16px);
+  line-height: var(--editor-line-height, 1.8);
   color: var(--text-primary);
   user-select: text;
 }
@@ -94,10 +103,19 @@ body {
   text-indent: 0;
 }
 
+.dark .tiptap blockquote {
+  border-left-color: #475569;
+  color: #94a3b8;
+}
+
 .tiptap hr {
   border: none;
   border-top: 2px dashed #cbd5e1;
   margin: 2rem 0;
+}
+
+.dark .tiptap hr {
+  border-top-color: #334155;
 }
 
 .tiptap p.is-editor-empty:first-child::before {
@@ -107,6 +125,10 @@ body {
   height: 0;
   pointer-events: none;
   text-indent: 0;
+}
+
+.dark .tiptap p.is-editor-empty:first-child::before {
+  color: #64748b;
 }
 
 /* Three panel transition */

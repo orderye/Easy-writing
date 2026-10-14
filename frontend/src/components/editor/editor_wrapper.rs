@@ -39,7 +39,7 @@ pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
     });
 
     view! {
-        <div class="flex-1 min-h-0 overflow-y-auto px-8 md:px-16 py-8 bg-white cursor-text flex justify-center">
+        <div class="flex-1 min-h-0 overflow-y-auto px-8 md:px-16 py-8 bg-white dark:bg-slate-900 cursor-text flex justify-center">
             <div class="max-w-3xl w-full min-h-full pb-32">
                 <div id="tiptap-editor-root" class="min-h-full"></div>
             </div>
