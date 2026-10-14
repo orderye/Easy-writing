@@ -51,5 +51,9 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
     let migration_sql = include_str!("../../migrations/V001__init.sql");
     conn.execute_batch(migration_sql)?;
 
+    // Safe column migrations for existing databases
+    let _ = conn.execute("ALTER TABLE setting_change ADD COLUMN target_title TEXT NOT NULL DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE setting_change ADD COLUMN is_reverted INTEGER NOT NULL DEFAULT 0", []);
+
     Ok(pool)
 }

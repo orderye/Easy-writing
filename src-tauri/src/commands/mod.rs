@@ -5,7 +5,7 @@ pub mod sync_cmd;
 use crate::db::DbPool;
 use shared_types::{
     Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, Novel, PlotItem,
-    Volume, WorldviewEntry,
+    SettingChange, Volume, WorldviewEntry,
 };
 use tauri::State;
 
@@ -335,6 +335,47 @@ pub fn save_plot(
 pub fn delete_plot(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::settings::delete_plot(&conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_setting_changes(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<Vec<SettingChange>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::settings::list_setting_changes(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn revert_setting_change(
+    pool: State<DbPool>,
+    change_id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::settings::revert_setting_change(&conn, &change_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn apply_conflict_setting_update(
+    pool: State<DbPool>,
+    novel_id: String,
+    chapter_id: Option<String>,
+    setting_module: String,
+    setting_title: String,
+    new_content: String,
+    reason: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::settings::apply_conflict_setting_update(
+        &conn,
+        &novel_id,
+        chapter_id.as_deref(),
+        &setting_module,
+        &setting_title,
+        &new_content,
+        &reason,
+    )
+    .map_err(|e| e.to_string())
 }
 
 // App Settings commands

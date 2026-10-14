@@ -1,7 +1,9 @@
 pub mod characters;
 pub mod outline;
 pub mod plot_lines;
+pub mod setting_changes_modal;
 pub mod worldview;
+
 
 use crate::components::layout::panel_toggle::LeftToggle;
 use crate::components::settings_panel::characters::CharactersView;
@@ -146,6 +148,14 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                     >
                         <span>"⚙️"</span>
                         <span>"设置"</span>
+                    </button>
+                    <button
+                        class="flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-[11px] border border-slate-200 dark:border-slate-700"
+                        title="查看世界观/角色/剧情历史设定改动留档与一键撤销"
+                        on:click=move |_| app_ctx.is_setting_changes_modal_open.set(true)
+                    >
+                        <span>"📜"</span>
+                        <span>"留档"</span>
                     </button>
                     <button
                         class="flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-[11px] border border-slate-200 dark:border-slate-700"

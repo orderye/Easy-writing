@@ -58,6 +58,10 @@ pub fn run() {
             commands::list_plots,
             commands::save_plot,
             commands::delete_plot,
+            // Setting Changes
+            commands::list_setting_changes,
+            commands::revert_setting_change,
+            commands::apply_conflict_setting_update,
             // Asset
             commands::save_image_asset,
             // AI commands

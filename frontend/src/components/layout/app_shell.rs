@@ -3,13 +3,16 @@ use crate::components::ai::extraction_modal::ExtractionModal;
 use crate::components::config::config_modal::ConfigModal;
 use crate::components::editor::revision_modal::RevisionModal;
 use crate::components::layout::writing_stage::WritingStage;
+use crate::components::settings_panel::setting_changes_modal::SettingChangesModal;
 use crate::components::settings_panel::SettingsPanel;
 use crate::components::structure_panel::chapter_list::do_switch_chapter;
 use crate::components::structure_panel::save_button::perform_save;
 use crate::components::structure_panel::StructurePanel;
 use crate::state::AppContext;
+use crate::tauri_api::invoke;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
+use serde::Serialize;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
@@ -58,6 +61,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <ConfigModal is_open=app_ctx.is_config_open app_ctx=app_ctx />
             
             <RevisionModal is_open=app_ctx.is_revisions_modal_open app_ctx=app_ctx />
+            
+            <SettingChangesModal is_open=app_ctx.is_setting_changes_modal_open app_ctx=app_ctx />
 
             <ExtractionModal
                 is_open=app_ctx.is_extract_modal_open
@@ -68,7 +73,34 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <ConflictModal
                 is_open=app_ctx.is_conflict_modal_open
                 conflict_info=app_ctx.current_conflict
-                on_update_setting_and_continue=move |_new_setting: String| {
+                on_update_setting_and_continue=move |new_setting: String| {
+                    if let (Some(novel), Some(conflict)) = (app_ctx.current_novel.get(), app_ctx.current_conflict.get()) {
+                        let nid = novel.id;
+                        let cid = app_ctx.current_chapter.get().map(|c| c.id);
+                        let mod_name = conflict.setting_module.clone();
+                        let title = conflict.setting_title.clone();
+                        let reason = conflict.reason.clone();
+                        let new_val = new_setting.clone();
+                        leptos::task::spawn_local(async move {
+                            #[derive(Serialize)]
+                            struct ApplyConflictArgs {
+                                novel_id: String,
+                                chapter_id: Option<String>,
+                                setting_module: String,
+                                setting_title: String,
+                                new_content: String,
+                                reason: String,
+                            }
+                            let _ = invoke::<(), _>("apply_conflict_setting_update", &ApplyConflictArgs {
+                                novel_id: nid,
+                                chapter_id: cid,
+                                setting_module: mod_name,
+                                setting_title: title,
+                                new_content: new_val,
+                                reason: format!("AI冲突消除覆盖: {}", reason),
+                            }).await;
+                        });
+                    }
                     if let Some(text) = app_ctx.pending_conflict_text.get() {
                         crate::bridge::tiptap::insert_at_cursor(&text);
                         app_ctx.save_status.set("dirty".to_string());

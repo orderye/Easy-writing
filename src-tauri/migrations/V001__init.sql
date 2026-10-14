@@ -189,11 +189,15 @@ CREATE TABLE IF NOT EXISTS setting_change (
     chapter_id      TEXT REFERENCES chapter(id) ON DELETE SET NULL,
     target_type     TEXT NOT NULL CHECK(target_type IN ('worldview', 'character', 'plot', 'outline', 'volume', 'chapter')),
     target_id       TEXT NOT NULL,
+    target_title    TEXT NOT NULL DEFAULT '',
     before_content  TEXT NOT NULL DEFAULT '',
     after_content   TEXT NOT NULL DEFAULT '',
     reason          TEXT NOT NULL DEFAULT '',
+    is_reverted     INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_setting_change_novel ON setting_change(novel_id, created_at DESC);
+
 
 -- 13. 提示词模板
 CREATE TABLE IF NOT EXISTS prompt_template (

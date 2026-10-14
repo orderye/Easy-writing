@@ -176,9 +176,11 @@ pub struct SettingChange {
     pub chapter_id: Option<String>,
     pub target_type: String,
     pub target_id: String,
+    pub target_title: String,
     pub before_content: String,
     pub after_content: String,
     pub reason: String,
+    pub is_reverted: bool,
     pub created_at: String,
 }
 
