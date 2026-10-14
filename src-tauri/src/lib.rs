@@ -20,6 +20,28 @@ pub fn run() {
             app.manage(pool);
             Ok(())
         })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if let Some(pool) = window.try_state::<db::DbPool>() {
+                    let pool = pool.inner().clone();
+                    if commands::sync_cmd::is_webdav_configured(&pool) {
+                        api.prevent_close();
+                        let app_handle = window.app_handle().clone();
+                        let window_clone = window.clone();
+                        let app_data_dir = app_handle
+                            .path()
+                            .app_data_dir()
+                            .unwrap_or_else(|_| std::env::temp_dir());
+
+                        tauri::async_runtime::spawn(async move {
+                            let sync_task = commands::sync_cmd::run_silent_sync_if_configured(pool, app_data_dir);
+                            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), sync_task).await;
+                            let _ = window_clone.destroy();
+                        });
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             // Novel
             commands::create_novel,

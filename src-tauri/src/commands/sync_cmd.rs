@@ -31,6 +31,33 @@ fn get_webdav_client_and_remote_dir(
     Ok((client, row.remote_dir))
 }
 
+pub fn is_webdav_configured(pool: &DbPool) -> bool {
+    if let Ok(conn) = pool.get() {
+        conn.query_row(
+            "SELECT 1 FROM webdav_config WHERE id = 'default_webdav' AND length(url) > 0",
+            [],
+            |_| Ok(()),
+        )
+        .is_ok()
+    } else {
+        false
+    }
+}
+
+pub async fn run_silent_sync_if_configured(
+    pool: DbPool,
+    app_data_dir: std::path::PathBuf,
+) -> Result<String, String> {
+    let (client, remote_dir) = get_webdav_client_and_remote_dir(&pool)?;
+    crate::sync::backup::run_incremental_backup(
+        pool,
+        &client,
+        &remote_dir,
+        app_data_dir,
+    )
+    .await
+}
+
 #[tauri::command]
 pub fn webdav_save_config(
     pool: State<DbPool>,
