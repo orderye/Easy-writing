@@ -225,3 +225,45 @@ pub struct TrashItem {
     pub deleted_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportPreview {
+    pub novel_title: String,
+    pub total_word_count: i32,
+    pub volumes: Vec<ImportVolumePreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportVolumePreview {
+    pub title: String,
+    pub chapters: Vec<ImportChapterPreview>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImportChapterPreview {
+    pub title: String,
+    pub content: String,
+    pub content_plain: String,
+    pub word_count: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CharacterRelation {
+    pub id: String,
+    pub novel_id: String,
+    pub from_char_id: String,
+    pub to_char_id: String,
+    pub relation_name: String,
+    pub description: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptTemplate {
+    pub key: String,
+    pub name: String,
+    pub template: String,
+    pub default_template: String,
+    pub updated_at: String,
+}
+

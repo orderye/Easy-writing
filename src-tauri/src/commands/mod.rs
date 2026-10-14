@@ -479,3 +479,23 @@ pub fn empty_trash(pool: State<DbPool>, novel_id: String) -> Result<(), String> 
     crate::db::trash::empty_trash(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
+// Import commands
+#[tauri::command]
+pub fn parse_import_document(
+    file_name: String,
+    raw_text: String,
+) -> Result<shared_types::ImportPreview, String> {
+    Ok(crate::import::parse_import_document(&file_name, &raw_text))
+}
+
+#[tauri::command]
+pub fn commit_import_novel(
+    pool: State<DbPool>,
+    target_novel_id: Option<String>,
+    preview: shared_types::ImportPreview,
+) -> Result<Novel, String> {
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    crate::import::commit_import_novel(&mut conn, target_novel_id, preview)
+}
+
+

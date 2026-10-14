@@ -195,6 +195,14 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                         <span>"回收站"</span>
                     </button>
                     <button
+                        class="flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors px-1.5 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950/40 cursor-pointer text-[11px] border border-blue-200 dark:border-blue-800/80 font-medium text-blue-600 dark:text-blue-400"
+                        title="批量导入外部 txt/md 文稿并智能拆卷拆章"
+                        on:click=move |_| app_ctx.is_import_modal_open.set(true)
+                    >
+                        <span>"📥"</span>
+                        <span>"导入"</span>
+                    </button>
+                    <button
                         class="flex items-center gap-1 hover:text-slate-800 dark:hover:text-slate-200 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 cursor-pointer text-[11px] border border-slate-200 dark:border-slate-700"
                         title="快速切换浅色 / 深色 / 跟随系统模式"
                         on:click=move |_| {

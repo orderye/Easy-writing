@@ -45,6 +45,7 @@ pub struct AppContext {
     pub settings_search_query: RwSignal<String>,
     pub chapter_search_query: RwSignal<String>,
     pub chapter_status_filter: RwSignal<String>,
+    pub is_import_modal_open: RwSignal<bool>,
 }
 
 impl AppContext {
@@ -85,6 +86,7 @@ impl AppContext {
             settings_search_query: RwSignal::new(String::new()),
             chapter_search_query: RwSignal::new(String::new()),
             chapter_status_filter: RwSignal::new("all".to_string()),
+            is_import_modal_open: RwSignal::new(false),
         }
     }
 }

@@ -3,6 +3,7 @@ pub mod ai;
 pub mod asset;
 pub mod commands;
 pub mod db;
+pub mod import;
 pub mod keyring;
 pub mod sync;
 
@@ -115,6 +116,9 @@ pub fn run() {
             commands::sync_cmd::webdav_backup_now,
             commands::sync_cmd::webdav_list_backups,
             commands::sync_cmd::webdav_restore_backup,
+            // Import
+            commands::parse_import_document,
+            commands::commit_import_novel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running easy-writing core");

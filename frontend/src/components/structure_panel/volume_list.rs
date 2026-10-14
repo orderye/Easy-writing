@@ -55,12 +55,21 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
         <div class="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">
             <div class="flex items-center justify-between px-1 mb-1">
                 <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">"卷目与章节"</span>
-                <button
-                    class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium px-2 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
-                    on:click=on_create_volume
-                >
-                    "+ 新建卷"
-                </button>
+                <div class="flex items-center gap-1.5">
+                    <button
+                        class="text-[11px] text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 font-medium px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="批量导入外部 txt/md 文稿并智能拆卷拆章"
+                        on:click=move |_| app_ctx.is_import_modal_open.set(true)
+                    >
+                        "📥 导入"
+                    </button>
+                    <button
+                        class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium px-2 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                        on:click=on_create_volume
+                    >
+                        "+ 新建卷"
+                    </button>
+                </div>
             </div>
 
             {move || {
