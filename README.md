@@ -361,12 +361,12 @@ cargo test  --workspace          # 运行测试
 
 ## 数据库设计
 
-单文件 SQLite，共 15 张表（见 [V001__init.sql](src-tauri/migrations/V001__init.sql)）。
+单文件 SQLite，共 18 张表（见 [V001__init.sql](src-tauri/migrations/V001__init.sql)）。
 
 | 分类 | 表 |
 | --- | --- |
-| 作品与内容 | `novel`、`volume`、`chapter`、`asset` |
-| 设定 | `worldview_entry`、`character`、`plot_item` |
+| 作品与内容 | `novel`、`volume`、`chapter`、`chapter_revision`、`asset` |
+| 设定 | `worldview_entry`、`character`、`character_relation`、`plot_item` |
 | AI 与设置 | `agent`、`chat_session`、`chat_message`、`extraction_candidate`、`setting_change`、`prompt_template`、`llm_profile`、`webdav_config`、`app_setting` |
 
 **通用约定**
@@ -375,6 +375,16 @@ cargo test  --workspace          # 运行测试
 - 章节列表查询不读 `content`，只取 `summary` / `word_count` 等轻量字段，正文按章单独加载。
 - `chapter.extracted_hash` 记录最近一次提炼的正文指纹，正文未变则不重复提炼。
 - **大纲不单独建表**，由 `novel.synopsis`（全篇梗概）、`volume.summary`（卷纲）、`chapter.summary`（章纲）三层合成。
+
+**软删除与还原**
+
+卷目、章节、世界观、角色卡、剧情条目均采用软删除：删除只写入 `deleted_at`，记录进入回收站，可一键还原或彻底清空（物理删除）。
+
+**版本快照与留档**
+
+- `chapter_revision` 保存章节历史版本，手动保存与切章时自动创建，支持时间轴查看与一键回滚。
+- `setting_change` 记录 AI 冲突裁决产生的设定改动前后内容与原因，支持一键撤销恢复。
+- `character_relation` 独立存储人物关系，角色面板提供可视化关系拓扑图。
 
 ---
 
