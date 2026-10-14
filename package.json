@@ -1,0 +1,28 @@
+{
+  "name": "easy-writing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:bridge": "esbuild js/src/tiptap-bridge.js --bundle --minify --format=iife --global-name=TiptapBridge --outfile=frontend/public/tiptap-bridge.bundle.js",
+    "dev:frontend": "trunk serve --open=false frontend/index.html",
+    "tauri": "tauri",
+    "dev": "pnpm build:bridge && tauri dev",
+    "build": "pnpm build:bridge && tauri build"
+  },
+  "dependencies": {
+    "@tiptap/core": "^2.10.4",
+    "@tiptap/extension-character-count": "^2.10.4",
+    "@tiptap/extension-color": "^2.10.4",
+    "@tiptap/extension-image": "^2.10.4",
+    "@tiptap/extension-placeholder": "^2.10.4",
+    "@tiptap/extension-text-align": "^2.10.4",
+    "@tiptap/extension-text-style": "^2.10.4",
+    "@tiptap/extension-underline": "^2.10.4",
+    "@tiptap/starter-kit": "^2.10.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.2",
+    "esbuild": "^0.24.2"
+  }
+}
