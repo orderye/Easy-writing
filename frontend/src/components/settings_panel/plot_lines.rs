@@ -21,11 +21,16 @@ struct SavePlotArgs {
     chapter_id: Option<String>,
 }
 
+#[derive(Serialize)]
+struct DeletePlotArgs {
+    id: String,
+}
+
 #[component]
 pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
     let plots = RwSignal::new(Vec::<PlotItem>::new());
 
-    Effect::new(move |_| {
+    let load_plots = move || {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
@@ -36,6 +41,10 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
                 }
             });
         }
+    };
+
+    Effect::new(move |_| {
+        load_plots();
     });
 
     let on_add_plot = move |_| {
@@ -65,97 +74,137 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
         }
     };
 
+    let on_delete_plot = move |id: String| {
+        leptos::task::spawn_local(async move {
+            let _ = invoke::<(), _>("delete_plot", &DeletePlotArgs { id }).await;
+            load_plots();
+        });
+    };
+
     view! {
         <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
-            <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">"剧情与伏笔"</span>
+            <div class="flex items-center justify-between text-xs pb-1 border-b border-slate-200 dark:border-slate-800">
+                <span class="font-bold text-slate-700 dark:text-slate-300">"剧情与伏笔"</span>
                 <button
-                    class="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-0.5 rounded hover:bg-blue-50 transition-colors"
+                    class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold px-2 py-0.5 rounded hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                     on:click=on_add_plot
                 >
                     "+ 新增伏笔/事件"
                 </button>
             </div>
 
-            <For
-                each=move || plots.get()
-                key=|p| p.id.clone()
-                children=move |plot| {
-                    let p_id = plot.id.clone();
-                    let title = RwSignal::new(plot.title.clone());
-                    let content = RwSignal::new(plot.content.clone());
-                    let status = RwSignal::new(plot.status.clone());
-                    let kind = plot.kind.clone();
+            {move || {
+                let query = app_ctx.settings_search_query.get().to_lowercase().trim().to_string();
+                let all_plots = plots.get();
 
-                    let save_plot = move |new_title: String, new_content: String, new_status: String| {
-                        if let Some(novel) = app_ctx.current_novel.get() {
-                            let nid = novel.id;
-                            let pid = p_id.clone();
-                            let k = kind.clone();
-                            leptos::task::spawn_local(async move {
-                                let _ = invoke::<PlotItem, _>(
-                                    "save_plot",
-                                    &SavePlotArgs {
-                                        id: Some(pid),
-                                        novel_id: nid,
-                                        title: new_title,
-                                        content: new_content,
-                                        kind: k,
-                                        status: new_status,
-                                        chapter_id: None,
-                                    },
-                                )
-                                .await;
-                            });
-                        }
-                    };
+                let filtered = if query.is_empty() {
+                    all_plots
+                } else {
+                    all_plots.into_iter().filter(|p| {
+                        p.title.to_lowercase().contains(&query)
+                            || p.content.to_lowercase().contains(&query)
+                    }).collect()
+                };
 
-                    Effect::new(move |_| {
-                        let t = title.get();
-                        let c = content.get();
-                        let s = status.get();
-                        save_plot(t, c, s);
-                    });
-
-                    view! {
-                        <div class="border border-slate-200 rounded-lg p-2.5 bg-white shadow-2xs space-y-2">
-                            <div class="flex items-center justify-between gap-2">
-                                <input
-                                    type="text"
-                                    class="font-semibold text-xs text-slate-800 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none flex-1 truncate"
-                                    prop:value=move || title.get()
-                                    on:input=move |ev| title.set(event_target_value(&ev))
-                                />
-                                <div class="flex items-center gap-1.5 shrink-0">
-                                    <button
-                                        class=move || {
-                                            if status.get() == "planted" {
-                                                "text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded border border-amber-300 font-medium"
-                                            } else {
-                                                "text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-300 font-medium"
-                                            }
-                                        }
-                                        on:click=move |_| {
-                                            status.update(|s| {
-                                                *s = if *s == "planted" { "resolved".to_string() } else { "planted".to_string() };
-                                            });
-                                        }
-                                    >
-                                        {move || if status.get() == "planted" { "已埋设" } else { "已回收" }}
-                                    </button>
-                                    <PolishButton module_key="plot" content=content />
-                                </div>
-                            </div>
-                            <textarea
-                                class="w-full text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-1.5 focus:bg-white focus:outline-blue-500 min-h-[50px]"
-                                placeholder="输入戏剧冲突、伏笔埋设细节或回收节点……"
-                                prop:value=move || content.get()
-                                on:input=move |ev| content.set(event_target_value(&ev))
-                            ></textarea>
+                if filtered.is_empty() {
+                    return view! {
+                        <div class="py-8 text-center text-xs text-slate-400">
+                            {if query.is_empty() { "暂无剧情伏笔，点击右上角「+ 新增伏笔/事件」" } else { "未找到匹配的剧情或伏笔" }}
                         </div>
-                    }
+                    }.into_any();
                 }
-            />
+
+                view! {
+                    <div class="space-y-3">
+                        {filtered.into_iter().map(|plot| {
+                            let p_id = plot.id.clone();
+                            let del_id = plot.id.clone();
+                            let title = RwSignal::new(plot.title.clone());
+                            let content = RwSignal::new(plot.content.clone());
+                            let status = RwSignal::new(plot.status.clone());
+                            let kind = plot.kind.clone();
+
+                            let save_plot = move |new_title: String, new_content: String, new_status: String| {
+                                if let Some(novel) = app_ctx.current_novel.get() {
+                                    let nid = novel.id;
+                                    let pid = p_id.clone();
+                                    let k = kind.clone();
+                                    leptos::task::spawn_local(async move {
+                                        let _ = invoke::<PlotItem, _>(
+                                            "save_plot",
+                                            &SavePlotArgs {
+                                                id: Some(pid),
+                                                novel_id: nid,
+                                                title: new_title,
+                                                content: new_content,
+                                                kind: k,
+                                                status: new_status,
+                                                chapter_id: None,
+                                            },
+                                        )
+                                        .await;
+                                    });
+                                }
+                            };
+
+                            Effect::new(move |_| {
+                                let t = title.get();
+                                let c = content.get();
+                                let s = status.get();
+                                save_plot(t, c, s);
+                            });
+
+                            view! {
+                                <div class="border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-white dark:bg-slate-900 shadow-2xs space-y-2 hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="flex items-center gap-1.5 flex-1 min-w-0">
+                                            <span class="text-sm">"📌"</span>
+                                            <input
+                                                type="text"
+                                                class="font-semibold text-xs text-slate-800 dark:text-slate-100 bg-transparent border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-blue-500 focus:outline-hidden flex-1 truncate px-1"
+                                                prop:value=move || title.get()
+                                                on:input=move |ev| title.set(event_target_value(&ev))
+                                            />
+                                        </div>
+                                        <div class="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                                class=move || {
+                                                    if status.get() == "planted" {
+                                                        "text-[10px] bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-700 font-medium cursor-pointer"
+                                                    } else {
+                                                        "text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-1.5 py-0.5 rounded border border-emerald-300 dark:border-emerald-700 font-medium cursor-pointer"
+                                                    }
+                                                }
+                                                on:click=move |_| {
+                                                    status.update(|s| {
+                                                        *s = if *s == "planted" { "resolved".to_string() } else { "planted".to_string() };
+                                                    });
+                                                }
+                                            >
+                                                {move || if status.get() == "planted" { "已埋设" } else { "已回收" }}
+                                            </button>
+                                            <PolishButton module_key="plot" content=content />
+                                            <button
+                                                class="text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 text-xs p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                                title="删除伏笔/事件（移入回收站）"
+                                                on:click=move |_| on_delete_plot(del_id.clone())
+                                            >
+                                                "✕"
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <textarea
+                                        class="w-full text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded p-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-500 min-h-[50px] leading-relaxed font-serif"
+                                        placeholder="输入戏剧冲突、伏笔埋设细节或回收节点……"
+                                        prop:value=move || content.get()
+                                        on:input=move |ev| content.set(event_target_value(&ev))
+                                    ></textarea>
+                                </div>
+                            }
+                        }).collect::<Vec<_>>()}
+                    </div>
+                }.into_any()
+            }}
         </div>
     }
 }

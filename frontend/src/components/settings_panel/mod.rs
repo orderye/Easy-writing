@@ -129,6 +129,34 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 </button>
             </div>
 
+            // Settings Search Bar
+            <div class="px-2.5 py-1.5 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shrink-0">
+                <div class="relative flex items-center">
+                    <span class="absolute left-2 text-slate-400 text-xs">"🔍"</span>
+                    <input
+                        type="text"
+                        class="w-full pl-6 pr-6 py-1 text-xs rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                        placeholder="搜索设定、角色、剧情..."
+                        prop:value=move || app_ctx.settings_search_query.get()
+                        on:input=move |ev| app_ctx.settings_search_query.set(event_target_value(&ev))
+                    />
+                    {move || {
+                        if !app_ctx.settings_search_query.get().is_empty() {
+                            view! {
+                                <button
+                                    class="absolute right-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs cursor-pointer"
+                                    on:click=move |_| app_ctx.settings_search_query.set(String::new())
+                                >
+                                    "✕"
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! { <span></span> }.into_any()
+                        }
+                    }}
+                </div>
+            </div>
+
             // Active Tab Content
             <div class="flex-1 min-h-0 overflow-hidden flex flex-col bg-white dark:bg-slate-900">
                 {move || match active_tab().as_str() {
