@@ -21,6 +21,16 @@ pub struct AppContext {
     pub word_count: RwSignal<u32>,
     pub is_editor_mounted: RwSignal<bool>,
 
+    // App Preferences & Theme
+    pub theme: RwSignal<String>,
+    pub font_size: RwSignal<u32>,
+    pub line_height: RwSignal<String>,
+    pub auto_save_interval: RwSignal<u32>,
+
+    // Unsaved changes confirm modal
+    pub pending_switch_chapter: RwSignal<Option<ChapterHeader>>,
+    pub is_unsaved_modal_open: RwSignal<bool>,
+
     // AI & Modals state
     pub is_config_open: RwSignal<bool>,
     pub is_extract_modal_open: RwSignal<bool>,
@@ -47,6 +57,14 @@ impl AppContext {
             save_status: RwSignal::new("saved".to_string()),
             word_count: RwSignal::new(0),
             is_editor_mounted: RwSignal::new(false),
+
+            theme: RwSignal::new("system".to_string()),
+            font_size: RwSignal::new(16),
+            line_height: RwSignal::new("1.8".to_string()),
+            auto_save_interval: RwSignal::new(30),
+
+            pending_switch_chapter: RwSignal::new(None),
+            is_unsaved_modal_open: RwSignal::new(false),
 
             is_config_open: RwSignal::new(false),
             is_extract_modal_open: RwSignal::new(false),

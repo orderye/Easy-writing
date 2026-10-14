@@ -114,10 +114,26 @@ pub fn App() -> impl IntoView {
                         app_ctx.current_novel.set(Some(first_novel));
 
                         // Load volumes
-                        if let Ok(vols) =
+                        if let Ok(mut vols) =
                             invoke::<Vec<Volume>, _>("list_volumes", &ListVolumesArgs { novel_id: novel_id.clone() })
                                 .await
                         {
+                            if vols.is_empty() {
+                                // Create initial volume if none exists
+                                if let Ok(new_vol) = invoke::<Volume, _>(
+                                    "create_volume",
+                                    &CreateVolumeArgs {
+                                        novel_id: novel_id.clone(),
+                                        title: "第一卷：起势".to_string(),
+                                        summary: "".to_string(),
+                                    },
+                                )
+                                .await
+                                {
+                                    vols.push(new_vol);
+                                }
+                            }
+
                             if !vols.is_empty() {
                                 let first_vol = vols[0].clone();
                                 let vol_id = first_vol.id.clone();
@@ -125,10 +141,38 @@ pub fn App() -> impl IntoView {
                                 app_ctx.current_volume.set(Some(first_vol));
 
                                 // Load chapters
-                                if let Ok(chs) =
-                                    invoke::<Vec<ChapterHeader>, _>("list_chapter_headers", &ListChaptersArgs { volume_id: vol_id })
+                                if let Ok(mut chs) =
+                                    invoke::<Vec<ChapterHeader>, _>("list_chapter_headers", &ListChaptersArgs { volume_id: vol_id.clone() })
                                         .await
                                 {
+                                    if chs.is_empty() {
+                                        // Create initial chapter if none exists
+                                        if let Ok(new_ch) = invoke::<Chapter, _>(
+                                            "create_chapter",
+                                            &CreateChapterArgs {
+                                                novel_id: novel_id.clone(),
+                                                volume_id: vol_id,
+                                                title: "第一章：初现端倪".to_string(),
+                                                summary: "".to_string(),
+                                            },
+                                        )
+                                        .await
+                                        {
+                                            chs.push(ChapterHeader {
+                                                id: new_ch.id.clone(),
+                                                novel_id: new_ch.novel_id.clone(),
+                                                volume_id: new_ch.volume_id.clone(),
+                                                title: new_ch.title.clone(),
+                                                summary: new_ch.summary.clone(),
+                                                word_count: 0,
+                                                status: new_ch.status.clone(),
+                                                sort_order: new_ch.sort_order,
+                                                updated_at: new_ch.updated_at.clone(),
+                                            });
+                                            app_ctx.current_chapter.set(Some(new_ch));
+                                        }
+                                    }
+
                                     if !chs.is_empty() {
                                         let first_ch_header = chs[0].clone();
                                         app_ctx.chapters_map.set(chs);

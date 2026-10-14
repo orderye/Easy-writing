@@ -3,14 +3,15 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(inline_js = r#"
 export function tauri_invoke_raw(cmd, args) {
+  const payload = (args !== null && args !== undefined && typeof args === 'object') ? args : {};
   if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function') {
-    return window.__TAURI__.core.invoke(cmd, args);
+    return window.__TAURI__.core.invoke(cmd, payload);
   }
   if (window.__TAURI__ && typeof window.__TAURI__.invoke === 'function') {
-    return window.__TAURI__.invoke(cmd, args);
+    return window.__TAURI__.invoke(cmd, payload);
   }
   if (window.__TAURI_INTERNALS__ && typeof window.__TAURI_INTERNALS__.invoke === 'function') {
-    return window.__TAURI_INTERNALS__.invoke(cmd, args);
+    return window.__TAURI_INTERNALS__.invoke(cmd, payload);
   }
   return Promise.reject("Tauri IPC bridge not found in current WebView window.");
 }

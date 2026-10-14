@@ -6,10 +6,11 @@
   "build": {
     "beforeDevCommand": "pnpm build:assets",
     "devUrl": "http://127.0.0.1:8080",
-    "beforeBuildCommand": "pnpm build:assets && trunk build --config frontend/Trunk.toml index.html --release",
+    "beforeBuildCommand": "pnpm build:assets && trunk build --config frontend/Trunk.toml --release",
     "frontendDist": "../frontend/dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Easy-writing · 小说工作台",
