@@ -66,7 +66,18 @@
 | **深色模式** | 支持浅色 / 深色 / 跟随系统三档切换，设置面板与左栏底栏快捷切换，正文字号与行距实时动态生效 | ✅ MVP |
 | **防丢保护** | 手动保存（⌘/Ctrl+S）、脏标记、定时自动保存、切章未保存二次弹窗确认拦截 | ✅ MVP |
 | **CI 自动化发布** | GitHub Actions 工作流（`.github/workflows/release.yml`）自动化构建 macOS 与 Windows 客户端 | ✅ MVP |
-| 回收站 / 版本历史 / 自动提炼 / 选中文字快捷操作 | 见 [P1 排期](<Docs/Easy-writing · 实施计划.md>) | 📋 P1 |
+| **快捷 AI 浮标** | 编辑器选中文本即刻弹出快捷浮标（润色 / 扩写 / 缩写 / 续写）与并排 Diff 采纳 | ✅ v1.0.0 |
+| **版本快照回滚** | 手动保存与切章自动创建版本快照，支持时间轴抽屉查看与安全一键回滚 | ✅ v1.0.0 |
+| **冲突改动留档** | 详细记录 AI 裁决产生的设定变动细节与原因，提供一键撤销恢复原设定 | ✅ v1.0.0 |
+| **软删除回收站** | 卷目、章节、世界观、角色卡、剧情伏笔误删后集中存放，支持一键还原与彻底清空 | ✅ v1.0.0 |
+| **设定全文检索** | 世界观多级分组手风琴卡片，设定条目实时模糊全文搜索高亮 | ✅ v1.0.0 |
+| **章节即时筛选** | 结构面板支持按章节标题关键字模糊搜索与状态（草稿 / 修改中 / 定稿）胶囊过滤 | ✅ v1.0.0 |
+| **静默自动提炼** | 章节保存后后台异步 4 Agent 提取设定，导航栏小红点徽标提示作者空闲时集中审核 | ✅ v1.0.0 |
+| **退出静默同步** | 应用关闭时自动触发 WebDAV 数据库安全快照上传，保障跨设备数据一致 | ✅ v1.0.0 |
+| **长文批量导入** | 导入外部 `.txt` / `.md` 长篇文稿，正则智能识别「卷/章」生成结构树并事务入库 | ✅ v1.0.0 |
+| **角色关系图谱** | 设定面板提供交互式 SVG 角色关系拓扑网与纽带管理 | ✅ v1.0.0 |
+| **Prompt 模板管理** | 6 处修饰模块（世界观/角色/剧情/大纲/卷/章）独立提示词深度微调与一键恢复出厂 | ✅ v1.0.0 |
+| **长目录虚拟滚动** | 300+ 章节长目录视口虚拟渲染，DOM 节点维持 ~25 个，告别长篇连载卡顿 | ✅ v1.0.0 |
 
 ---
 
@@ -370,36 +381,40 @@ cargo test  --workspace          # 运行测试
 ## 后端命令一览
 
 <details>
-<summary>共 49 个 Tauri Command（点击展开）</summary>
+<summary>共 68 个 Tauri Command（点击展开）</summary>
 
 | 分组 | 命令 |
 | --- | --- |
 | 作品 | `create_novel` `list_novels` `get_novel` `update_novel` `delete_novel` |
 | 卷目 | `create_volume` `list_volumes` `update_volume` `reorder_volumes` `delete_volume` |
 | 章节 | `create_chapter` `list_chapter_headers` `list_all_chapter_headers_for_novel` `get_chapter` `save_chapter_content` `update_chapter_meta` `move_chapter` `reorder_chapters` `delete_chapter` |
+| 章节版本 | `create_manual_chapter_revision` `list_chapter_revisions` `get_chapter_revision` `revert_chapter_to_revision` |
 | 设定 | `list_worldview` `save_worldview` `delete_worldview` `list_characters` `save_character` `delete_character` `list_plots` `save_plot` `delete_plot` |
-| 图片 | `save_image_asset` |
-| AI | `ai_polish` `ai_chat_stream` `ai_check_conflict` `trigger_chapter_extract` `list_extraction_candidates` `resolve_candidate` |
-| 配置 | `create_llm_profile` `list_llm_profiles` `delete_llm_profile` `test_llm_connection` `list_agents` `update_agent` |
-| 偏好 | `get_app_setting` `set_app_setting` |
-| 同步 | `webdav_save_config` `webdav_get_config` `webdav_test_connection` `webdav_backup_now` `webdav_list_backups` `webdav_restore_backup` |
+| 设定改动 | `list_setting_changes` `revert_setting_change` `apply_conflict_setting_update` |
+| 角色关系 | `list_character_relations` `save_character_relation` `delete_character_relation` |
+| 回收站 | `list_trash_items` `restore_trash_item` `purge_trash_item` `empty_trash` |
+| 文稿导入 | `parse_import_document` `commit_import_novel` |
+| 图片资源 | `save_image_asset` |
+| 模板配置 | `list_prompt_templates` `save_prompt_template` `reset_prompt_template` |
+| AI 核心 | `ai_polish` `ai_chat_stream` `ai_check_conflict` `trigger_chapter_extract` `list_extraction_candidates` `resolve_candidate` |
+| 模型与Agent | `create_llm_profile` `list_llm_profiles` `delete_llm_profile` `test_llm_connection` `list_agents` `update_agent` |
+| 应用偏好 | `get_app_setting` `set_app_setting` |
+| WebDAV 同步 | `webdav_save_config` `webdav_get_config` `webdav_test_connection` `webdav_backup_now` `webdav_list_backups` `webdav_restore_backup` |
 
 </details>
 
 ---
 
-## 开发路线图
+## 开发路线图与里程碑达成
 
-| 阶段 | 内容 | 周期 |
-| --- | --- | --- |
-| **Phase 1** | 基础骨架与跨语言 Bridge、三栏布局、作品/卷/章 CRUD、自动保存 | 2.5 周 |
-| **Phase 2** | 编辑器格式与图片协议、章节生命周期复用、四类设定模块、大纲双向同步 | 2.0 周 |
-| **Phase 3** | AI 网关与多协议 SSE、Agent 调度与上下文装配、六处 AI 修饰、严格模式对话与冲突拦截、4 Agent 并行提炼 | 3.5 周 |
-| **Phase 4** | WebDAV 增量镜像同步、深色模式与偏好、双端打包发布 | 1.5 周 |
+| 阶段 | 内容 | 状态 | 成果 / 交付物 |
+| --- | --- | :---: | --- |
+| **Phase 0** | MVP 发布收尾：全局深色模式、正文字号与行距实时动态生效、未保存切章确认拦截、Windows CI 工作流 | ✅ 已交付 | `c92802a` |
+| **Phase 1** | 核心体验与安全：选中文本 Bubble 浮标（润/扩/缩/续 + Diff 对比）、章节版本时间轴与回滚、设定冲突改动审计与撤销、软删除回收站 | ✅ 已交付 | `5ddf4c9` `06f0cab` `7d9bd6d` `64f7712` |
+| **Phase 2** | 规模与自动化：设定库全文模糊检索与多级分组折叠、章节目录状态与标题筛选、保存后后台静默提炼与候选红点、退出应用静默 WebDAV 快照同步 | ✅ 已交付 | `3cb4190` `1622a2e` `5bbe934` `126e980` |
+| **Phase 3** | 生态与架构演进：外部长篇文稿批量导入拆卷拆章、角色关系图谱与动态 SVG 拓扑网络、6 处修饰模块独立 Prompt 模板管理、300+ 章节长目录虚拟滚动（Virtual Scrolling） | ✅ 已交付 | `fcf360c` `6a08888` `57e4350` `aeb1ef0` |
 
-**P1 规划**：选中正文快捷操作、章节历史版本、设定冲突撤销、回收站、保存后静默自动提炼、设定全文检索、章节筛选、退出自动备份、虚拟滚动、外部稿件导入。
-
-详见 [实施计划](<Docs/Easy-writing · 实施计划.md>)。
+详见 [实施计划](<Docs/Easy-writing · 实施计划.md>) 与 [全面后续研发与演进计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>)。
 
 ---
 
@@ -407,15 +422,15 @@ cargo test  --workspace          # 运行测试
 
 - [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 产品需求、界面、AI 能力、数据库与风险应对
 - [实施计划](<Docs/Easy-writing · 实施计划.md>) —— 技术选型、架构设计、完整 DDL、四阶段排期与核心时序图
+- [全面后续研发与演进计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>) —— Phase 0 ~ Phase 3 全部 16 项任务交付成果与架构说明
 
 ---
 
-## 说明
+## 说明与开源协议
 
-- 目前为**单用户本地版**，无登录、无多人协作。
-- 目标平台为先 macOS 与 Windows；Linux 与移动端暂不适配。
-- 词条、回收站、版本历史等标注 P1 的能力尚未实现。
-- 仓库暂未附带 LICENSE 文件，如需开源请先补充许可证声明。
+- 目前为**单用户本地桌面版**，数据完全属于用户，无强制网络依赖、无第三方账户。
+- 目标平台涵盖 **macOS (Apple Silicon / Intel)** 与 **Windows (x64)**。
+- 采用 [MIT License](LICENSE) 开源协议，欢迎交流共建。
 
 ---
 
