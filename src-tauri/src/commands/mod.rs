@@ -10,7 +10,7 @@ use shared_types::{
 use tauri::State;
 
 // Novel commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn create_novel(
     pool: State<DbPool>,
     title: String,
@@ -20,19 +20,19 @@ pub fn create_novel(
     crate::db::novel::create_novel(&conn, &title, &synopsis).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_novels(pool: State<DbPool>) -> Result<Vec<Novel>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::novel::list_novels(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_novel(pool: State<DbPool>, id: String) -> Result<Option<Novel>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::novel::get_novel(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_novel(
     pool: State<DbPool>,
     id: String,
@@ -43,14 +43,14 @@ pub fn update_novel(
     crate::db::novel::update_novel(&conn, &id, &title, &synopsis).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_novel(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::novel::delete_novel(&conn, &id).map_err(|e| e.to_string())
 }
 
 // Volume commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn create_volume(
     pool: State<DbPool>,
     novel_id: String,
@@ -61,13 +61,13 @@ pub fn create_volume(
     crate::db::volume::create_volume(&conn, &novel_id, &title, &summary).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_volumes(pool: State<DbPool>, novel_id: String) -> Result<Vec<Volume>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::volume::list_volumes(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_volume(
     pool: State<DbPool>,
     id: String,
@@ -78,20 +78,20 @@ pub fn update_volume(
     crate::db::volume::update_volume(&conn, &id, &title, &summary).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn reorder_volumes(pool: State<DbPool>, volume_ids: Vec<String>) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::volume::reorder_volumes(&conn, &volume_ids).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_volume(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::volume::delete_volume(&conn, &id).map_err(|e| e.to_string())
 }
 
 // Chapter commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn create_chapter(
     pool: State<DbPool>,
     novel_id: String,
@@ -104,7 +104,7 @@ pub fn create_chapter(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_chapter_headers(
     pool: State<DbPool>,
     volume_id: String,
@@ -113,7 +113,7 @@ pub fn list_chapter_headers(
     crate::db::chapter::list_chapter_headers(&conn, &volume_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_all_chapter_headers_for_novel(
     pool: State<DbPool>,
     novel_id: String,
@@ -123,13 +123,13 @@ pub fn list_all_chapter_headers_for_novel(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_chapter(pool: State<DbPool>, id: String) -> Result<Option<Chapter>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::chapter::get_chapter(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_chapter_content(
     app_handle: tauri::AppHandle,
     pool: State<DbPool>,
@@ -196,7 +196,7 @@ pub fn save_chapter_content(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_chapter_revisions(
     pool: State<DbPool>,
     chapter_id: String,
@@ -206,7 +206,7 @@ pub fn list_chapter_revisions(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_chapter_revision(
     pool: State<DbPool>,
     id: String,
@@ -215,7 +215,7 @@ pub fn get_chapter_revision(
     crate::db::chapter_revision::get_revision(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn create_manual_chapter_revision(
     pool: State<DbPool>,
     chapter_id: String,
@@ -240,7 +240,7 @@ pub fn create_manual_chapter_revision(
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn revert_chapter_to_revision(
     pool: State<DbPool>,
     chapter_id: String,
@@ -251,7 +251,7 @@ pub fn revert_chapter_to_revision(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_chapter_meta(
     pool: State<DbPool>,
     id: String,
@@ -264,7 +264,7 @@ pub fn update_chapter_meta(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn move_chapter(
     pool: State<DbPool>,
     chapter_id: String,
@@ -276,20 +276,20 @@ pub fn move_chapter(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn reorder_chapters(pool: State<DbPool>, chapter_ids: Vec<String>) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::chapter::reorder_chapters(&conn, &chapter_ids).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_chapter(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::chapter::delete_chapter(&conn, &id).map_err(|e| e.to_string())
 }
 
 // Settings commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_worldview(
     pool: State<DbPool>,
     novel_id: String,
@@ -298,7 +298,7 @@ pub fn list_worldview(
     crate::db::settings::list_worldview(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_worldview(
     pool: State<DbPool>,
     id: Option<String>,
@@ -312,13 +312,13 @@ pub fn save_worldview(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_worldview(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::settings::delete_worldview(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_characters(
     pool: State<DbPool>,
     novel_id: String,
@@ -327,7 +327,7 @@ pub fn list_characters(
     crate::db::settings::list_characters(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_character(
     pool: State<DbPool>,
     id: Option<String>,
@@ -341,19 +341,19 @@ pub fn save_character(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_character(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::settings::delete_character(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_plots(pool: State<DbPool>, novel_id: String) -> Result<Vec<PlotItem>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::settings::list_plots(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_plot(
     pool: State<DbPool>,
     id: Option<String>,
@@ -371,13 +371,13 @@ pub fn save_plot(
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_plot(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::settings::delete_plot(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_setting_changes(
     pool: State<DbPool>,
     novel_id: String,
@@ -386,7 +386,7 @@ pub fn list_setting_changes(
     crate::db::settings::list_setting_changes(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn revert_setting_change(
     pool: State<DbPool>,
     change_id: String,
@@ -395,7 +395,7 @@ pub fn revert_setting_change(
     crate::db::settings::revert_setting_change(&conn, &change_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn apply_conflict_setting_update(
     pool: State<DbPool>,
     novel_id: String,
@@ -419,19 +419,19 @@ pub fn apply_conflict_setting_update(
 }
 
 // App Settings commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_app_setting(pool: State<DbPool>, key: String) -> Result<Option<String>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::app_setting::get_setting(&conn, &key).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn set_app_setting(pool: State<DbPool>, key: String, value: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::app_setting::set_setting(&conn, &key, &value).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_image_asset(
     app: tauri::AppHandle,
     pool: State<DbPool>,
@@ -447,13 +447,13 @@ pub fn save_image_asset(
 }
 
 // Trash / Recycle Bin commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_trash_items(pool: State<DbPool>, novel_id: String) -> Result<Vec<TrashItem>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::trash::list_trash_items(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn restore_trash_item(
     pool: State<DbPool>,
     item_type: String,
@@ -463,7 +463,7 @@ pub fn restore_trash_item(
     crate::db::trash::restore_trash_item(&conn, &item_type, &item_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn purge_trash_item(
     pool: State<DbPool>,
     item_type: String,
@@ -473,14 +473,14 @@ pub fn purge_trash_item(
     crate::db::trash::purge_trash_item(&conn, &item_type, &item_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn empty_trash(pool: State<DbPool>, novel_id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::trash::empty_trash(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
 // Import commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn parse_import_document(
     file_name: String,
     raw_text: String,
@@ -488,7 +488,7 @@ pub fn parse_import_document(
     Ok(crate::import::parse_import_document(&file_name, &raw_text))
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn commit_import_novel(
     pool: State<DbPool>,
     target_novel_id: Option<String>,
@@ -499,7 +499,7 @@ pub fn commit_import_novel(
 }
 
 // Character Relation commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_character_relations(
     pool: State<DbPool>,
     novel_id: String,
@@ -509,7 +509,7 @@ pub fn list_character_relations(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_character_relation(
     pool: State<DbPool>,
     id: Option<String>,
@@ -532,7 +532,7 @@ pub fn save_character_relation(
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_character_relation(
     pool: State<DbPool>,
     id: String,
@@ -543,7 +543,7 @@ pub fn delete_character_relation(
 }
 
 // Prompt Template commands
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_prompt_templates(
     pool: State<DbPool>,
 ) -> Result<Vec<shared_types::PromptTemplate>, String> {
@@ -552,7 +552,7 @@ pub fn list_prompt_templates(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn save_prompt_template(
     pool: State<DbPool>,
     key: String,
@@ -563,7 +563,7 @@ pub fn save_prompt_template(
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn reset_prompt_template(
     pool: State<DbPool>,
     key: String,

@@ -58,7 +58,7 @@ pub async fn run_silent_sync_if_configured(
     .await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn webdav_save_config(
     pool: State<DbPool>,
     url: String,
@@ -93,7 +93,7 @@ pub fn webdav_save_config(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn webdav_get_config(pool: State<DbPool>) -> Result<Option<WebdavConfig>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
 
@@ -118,13 +118,13 @@ pub fn webdav_get_config(pool: State<DbPool>) -> Result<Option<WebdavConfig>, St
     }
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn webdav_test_connection(pool: State<'_, DbPool>) -> Result<(), String> {
     let (client, _) = get_webdav_client_and_remote_dir(pool.inner())?;
     client.test_connection().await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn webdav_backup_now(
     app: tauri::AppHandle,
     pool: State<'_, DbPool>,
@@ -144,7 +144,7 @@ pub async fn webdav_backup_now(
     .await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn webdav_list_backups(
     pool: State<'_, DbPool>,
 ) -> Result<Vec<BackupFileInfo>, String> {
@@ -152,7 +152,7 @@ pub async fn webdav_list_backups(
     crate::sync::restore::list_remote_backups(&client, &remote_dir).await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn webdav_restore_backup(
     app: tauri::AppHandle,
     pool: State<'_, DbPool>,

@@ -3,7 +3,7 @@ use crate::db::DbPool;
 use shared_types::{Agent, LlmProfile};
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn create_llm_profile(
     pool: State<'_, DbPool>,
     name: String,
@@ -33,13 +33,13 @@ pub fn create_llm_profile(
     .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_llm_profiles(pool: State<'_, DbPool>) -> Result<Vec<LlmProfile>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::llm_profile::list_profiles(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn delete_llm_profile(pool: State<'_, DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     if let Ok(Some(prof)) = crate::db::llm_profile::get_profile(&conn, &id) {
@@ -50,7 +50,7 @@ pub fn delete_llm_profile(pool: State<'_, DbPool>, id: String) -> Result<(), Str
     crate::db::llm_profile::delete_profile(&conn, &id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn test_llm_connection(
     pool: State<'_, DbPool>,
     profile_id: String,
@@ -70,13 +70,13 @@ pub async fn test_llm_connection(
     gateway.test_connection(&profile, &api_key).await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_agents(pool: State<'_, DbPool>) -> Result<Vec<Agent>, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::agent::list_agents(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn update_agent(
     pool: State<'_, DbPool>,
     key: String,

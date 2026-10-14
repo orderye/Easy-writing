@@ -31,3 +31,6 @@ flate2 = "1.0"
 base64 = "0.22"
 regex = "1.10"
 shared-types = { path = "../shared-types" }
+
+[dev-dependencies]
+tauri = { version = "2.1", features = ["protocol-asset", "test"] }

@@ -5,7 +5,7 @@ use shared_types::{ConflictInfo, ExtractionCandidate};
 use std::sync::Arc;
 use tauri::State;
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn ai_polish(
     pool: State<'_, DbPool>,
     module_key: String,
@@ -39,7 +39,7 @@ pub async fn ai_polish(
         .await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn ai_chat_stream(
     app: tauri::AppHandle,
     pool: State<'_, DbPool>,
@@ -83,7 +83,7 @@ pub async fn ai_chat_stream(
         .await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn ai_check_conflict(
     pool: State<'_, DbPool>,
     novel_id: String,
@@ -109,7 +109,7 @@ pub async fn ai_check_conflict(
     crate::ai::consistency::check_consistency(&gateway, &context_text, &profile, &api_key, &text).await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub async fn trigger_chapter_extract(
     pool: State<'_, DbPool>,
     novel_id: String,
@@ -146,7 +146,7 @@ pub async fn trigger_chapter_extract(
     .await
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn list_extraction_candidates(
     pool: State<'_, DbPool>,
     novel_id: String,
@@ -155,7 +155,7 @@ pub fn list_extraction_candidates(
     crate::db::extraction::list_pending_candidates(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn resolve_candidate(
     pool: State<'_, DbPool>,
     candidate_id: String,
