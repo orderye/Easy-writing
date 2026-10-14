@@ -26,7 +26,7 @@ pub async fn ai_polish(
     let (_agent, profile, api_key) =
         crate::agent::dispatcher::resolve_agent_and_profile(&conn, agent_key)?;
 
-    let system_instruction = crate::agent::polish::get_polish_prompt(&module_key);
+    let system_instruction = crate::db::prompt_template::get_active_prompt_template(&conn, &module_key);
     let gateway = AiGateway::new();
 
     let messages = vec![ChatMessage {

@@ -542,5 +542,37 @@ pub fn delete_character_relation(
         .map_err(|e| e.to_string())
 }
 
+// Prompt Template commands
+#[tauri::command]
+pub fn list_prompt_templates(
+    pool: State<DbPool>,
+) -> Result<Vec<shared_types::PromptTemplate>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::prompt_template::list_prompt_templates(&conn)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_prompt_template(
+    pool: State<DbPool>,
+    key: String,
+    template: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::prompt_template::save_prompt_template(&conn, &key, &template)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reset_prompt_template(
+    pool: State<DbPool>,
+    key: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::prompt_template::reset_prompt_template(&conn, &key)
+        .map_err(|e| e.to_string())
+}
+
+
 
 

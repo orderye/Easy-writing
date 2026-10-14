@@ -12,6 +12,7 @@ pub mod character_relation;
 pub mod extraction;
 pub mod llm_profile;
 pub mod novel;
+pub mod prompt_template;
 pub mod settings;
 pub mod trash;
 pub mod volume;
@@ -69,6 +70,7 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
         );
         CREATE INDEX IF NOT EXISTS idx_relation_novel ON character_relation(novel_id);",
     );
+    let _ = conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_template_scope ON prompt_template(scope)", []);
 
     Ok(pool)
 }

@@ -2,7 +2,7 @@ use crate::state::AppContext;
 use crate::tauri_api::{invoke, invoke_no_args};
 use leptos::prelude::*;
 use serde::Serialize;
-use shared_types::{Agent, BackupFileInfo, LlmProfile, WebdavConfig};
+use shared_types::{Agent, BackupFileInfo, LlmProfile, PromptTemplate, WebdavConfig};
 
 #[derive(Serialize)]
 struct CreateProfileArgs {
@@ -59,9 +59,10 @@ struct SetAppSettingArgs {
 
 #[component]
 pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
-    let active_tab = RwSignal::new("llm".to_string()); // "llm" | "agent" | "webdav" | "pref"
+    let active_tab = RwSignal::new("llm".to_string()); // "llm" | "agent" | "prompt" | "webdav" | "pref"
     let profiles = RwSignal::new(Vec::<LlmProfile>::new());
     let agents = RwSignal::new(Vec::<Agent>::new());
+    let prompt_templates = RwSignal::new(Vec::<PromptTemplate>::new());
 
     // New profile form state
     let form_name = RwSignal::new(String::new());
@@ -107,6 +108,11 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
             // Load WebDAV Backup List
             if let Ok(list) = invoke_no_args::<Vec<BackupFileInfo>>("webdav_list_backups").await {
                 backups_list.set(list);
+            }
+
+            // Load Prompt Templates
+            if let Ok(list) = invoke_no_args::<Vec<PromptTemplate>>("list_prompt_templates").await {
+                prompt_templates.set(list);
             }
 
             // Load Preferences
@@ -341,6 +347,12 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                     "多 Agent 接口绑定"
                                 </button>
                                 <button
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "prompt" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
+                                    on:click=move |_| active_tab.set("prompt".to_string())
+                                >
+                                    "修饰提示词模板"
+                                </button>
+                                <button
                                     class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "webdav" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("webdav".to_string())
                                 >
@@ -386,6 +398,108 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                         }
                                                     }
                                                 />
+                                            </div>
+                                        </div>
+                                    }.into_any(),
+
+                                    "prompt" => view! {
+                                        <div class="space-y-4">
+                                            <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
+                                                <div>
+                                                    <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100">"6 处修饰模块独立 Prompt 模板"</h4>
+                                                    <p class="text-[11px] text-slate-500 dark:text-slate-400">"自定义世界观、角色卡、剧情伏笔、全篇梗概、卷简介及章摘要的 AI 润色修饰指令，支持一键恢复出厂预设。"</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="space-y-3">
+                                                {move || {
+                                                    let tmpls = prompt_templates.get();
+                                                    tmpls.into_iter().map(|item| {
+                                                        let key = StoredValue::new(item.key);
+                                                        let name = item.name;
+                                                        let def_tmpl = StoredValue::new(item.default_template);
+                                                        let tmpl_signal = RwSignal::new(item.template);
+                                                        let save_msg = RwSignal::new(String::new());
+
+                                                        view! {
+                                                            <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-850/50 space-y-2">
+                                                                <div class="flex items-center justify-between">
+                                                                    <div class="flex items-center gap-2">
+                                                                        <span class="font-bold text-xs text-slate-800 dark:text-slate-100">{name}</span>
+                                                                        <span class="text-[10px] font-mono px-1.5 py-0.2 bg-slate-200 dark:bg-slate-750 text-slate-600 dark:text-slate-300 rounded">
+                                                                            {move || key.get_value()}
+                                                                        </span>
+                                                                        {move || if tmpl_signal.get() != def_tmpl.get_value() {
+                                                                            view! {
+                                                                                <span class="text-[10px] px-1.5 py-0.2 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded border border-amber-200 dark:border-amber-700">
+                                                                                    "已自定义"
+                                                                                </span>
+                                                                            }.into_any()
+                                                                        } else {
+                                                                            view! {
+                                                                                <span class="text-[10px] px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded">
+                                                                                    "默认预设"
+                                                                                </span>
+                                                                            }.into_any()
+                                                                        }}
+                                                                    </div>
+                                                                    <div class="flex items-center gap-2">
+                                                                        <span class="text-[11px] text-emerald-600 dark:text-emerald-400">{move || save_msg.get()}</span>
+                                                                        {move || if tmpl_signal.get() != def_tmpl.get_value() {
+                                                                            view! {
+                                                                                <button
+                                                                                    class="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
+                                                                                    on:click=move |_| {
+                                                                                        let k = key.get_value();
+                                                                                        let dt = def_tmpl.get_value();
+                                                                                        leptos::task::spawn_local(async move {
+                                                                                            #[derive(Serialize)]
+                                                                                            struct ResetTmplArgs {
+                                                                                                key: String,
+                                                                                            }
+                                                                                            if invoke::<(), _>("reset_prompt_template", &ResetTmplArgs { key: k }).await.is_ok() {
+                                                                                                tmpl_signal.set(dt);
+                                                                                                save_msg.set("已恢复出厂默认预设 ✓".to_string());
+                                                                                            }
+                                                                                        });
+                                                                                    }
+                                                                                >
+                                                                                    "恢复默认"
+                                                                                </button>
+                                                                            }.into_any()
+                                                                        } else {
+                                                                            view! { <div></div> }.into_any()
+                                                                        }}
+                                                                        <button
+                                                                            class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-medium shadow-xs transition-colors cursor-pointer"
+                                                                            on:click=move |_| {
+                                                                                let k = key.get_value();
+                                                                                let t = tmpl_signal.get();
+                                                                                leptos::task::spawn_local(async move {
+                                                                                    #[derive(Serialize)]
+                                                                                    struct SaveTmplArgs {
+                                                                                        key: String,
+                                                                                        template: String,
+                                                                                    }
+                                                                                    if invoke::<(), _>("save_prompt_template", &SaveTmplArgs { key: k, template: t }).await.is_ok() {
+                                                                                        save_msg.set("已保存自定义模板 ✓".to_string());
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        >
+                                                                            "保存修改"
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <textarea
+                                                                    class="w-full text-xs text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md p-2 min-h-[70px] leading-relaxed font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                                                    prop:value=move || tmpl_signal.get()
+                                                                    on:input=move |ev| tmpl_signal.set(event_target_value(&ev))
+                                                                ></textarea>
+                                                            </div>
+                                                        }
+                                                    }).collect::<Vec<_>>()
+                                                }}
                                             </div>
                                         </div>
                                     }.into_any(),

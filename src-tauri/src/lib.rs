@@ -123,6 +123,10 @@ pub fn run() {
             commands::list_character_relations,
             commands::save_character_relation,
             commands::delete_character_relation,
+            // Prompt Templates
+            commands::list_prompt_templates,
+            commands::save_prompt_template,
+            commands::reset_prompt_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running easy-writing core");
