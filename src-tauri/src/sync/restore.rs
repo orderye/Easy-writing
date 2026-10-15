@@ -90,7 +90,7 @@ pub async fn run_consistency_restore(
     let asset_rows: Vec<(String, String)> = {
         let conn = pool.get().map_err(|e| e.to_string())?;
         let mut stmt = conn
-            .prepare("SELECT file_path, hash FROM asset")
+            .prepare("SELECT rel_path, hash FROM asset")
             .map_err(|e| e.to_string())?;
 
         let rows: Result<Vec<_>, _> = stmt

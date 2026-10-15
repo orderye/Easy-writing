@@ -2,7 +2,10 @@ use crate::state::AppContext;
 use crate::tauri_api::{invoke, invoke_no_args};
 use leptos::prelude::*;
 use serde::Serialize;
-use shared_types::{Agent, AppUpdateInfo, BackupFileInfo, LlmProfile, PromptTemplate, WebdavConfig};
+use shared_types::{
+    Agent, AppUpdateInfo, BackupFileInfo, GenerationParams, LlmProfile, PromptTemplate, RemoteModel,
+    WebdavConfig,
+};
 
 #[derive(Serialize)]
 struct CreateProfileArgs {
@@ -12,6 +15,30 @@ struct CreateProfileArgs {
     model: String,
     api_key: String,
     is_default: bool,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    stream: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct UpdateProfileArgs {
+    id: String,
+    name: String,
+    protocol: String,
+    base_url: String,
+    model: String,
+    is_default: bool,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    stream: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct FetchModelsArgs {
+    protocol: String,
+    base_url: String,
+    api_key: Option<String>,
+    profile_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -67,6 +94,31 @@ struct OpenUrlArgs {
     url: String,
 }
 
+/// 把 llm_profile.params 里的生成参数渲染成一行摘要文案（PRD §5.1 P0）。
+fn gen_params_summary(params_json: &str) -> String {
+    let params = GenerationParams::parse_from_str(params_json);
+    if params.is_empty() {
+        return "生成参数：接口默认（temperature / 最大输出长度 / 流式均未覆盖）".to_string();
+    }
+
+    let temp = params
+        .temperature
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| "默认".to_string());
+    let max_tokens = params
+        .max_tokens
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| "默认".to_string());
+    let stream = params.stream.unwrap_or(true);
+
+    format!(
+        "生成参数：temperature {} · 最大输出长度 {} · {}",
+        temp,
+        max_tokens,
+        if stream { "流式输出" } else { "一次性返回" }
+    )
+}
+
 #[component]
 pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
     let active_tab = RwSignal::new("llm".to_string()); // "llm" | "agent" | "prompt" | "webdav" | "pref"
@@ -80,6 +132,21 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let form_base_url = RwSignal::new("https://api.openai.com/v1".to_string());
     let form_model = RwSignal::new("gpt-4o".to_string());
     let form_api_key = RwSignal::new(String::new());
+
+    // 生成参数（PRD §5.1 P0）：temperature、最大输出长度、是否流式
+    let form_temperature = RwSignal::new(String::new());
+    let form_max_tokens = RwSignal::new(String::new());
+    let form_stream = RwSignal::new(true);
+
+    // 「拉取模型列表」（PRD §5.1 P0）
+    let remote_models = RwSignal::new(Vec::<RemoteModel>::new());
+    let is_fetching_models = RwSignal::new(false);
+
+    // 编辑已有配置时的生成参数（进入编辑态后展示）
+    let editing_id = RwSignal::new(Option::<String>::None);
+    let edit_temperature = RwSignal::new(String::new());
+    let edit_max_tokens = RwSignal::new(String::new());
+    let edit_stream = RwSignal::new(true);
 
     let test_status = RwSignal::new(String::new());
 
@@ -97,6 +164,8 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let font_size = RwSignal::new("16".to_string());
     let line_height = RwSignal::new("1.8".to_string());
     let auto_save_interval = RwSignal::new("30".to_string());
+    // 保存章节后自动提炼（PRD §4.2 P1，默认关闭）
+    let auto_extract = RwSignal::new(false);
     let pref_status = RwSignal::new(String::new());
 
     // App Update state
@@ -144,6 +213,9 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
             if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_save_interval".to_string() }).await {
                 auto_save_interval.set(val);
             }
+            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_extract".to_string() }).await {
+                auto_extract.set(val == "true" || val == "1");
+            }
 
             // Load Update Preferences
             if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_check_update".to_string() }).await {
@@ -164,12 +236,49 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         }
     });
 
+    // 把表单里的可选数字解析为 Option，空字符串表示「未设置 / 使用默认」
+    let parse_opt_f32 = |raw: String| -> Result<Option<f32>, String> {
+        let t = raw.trim();
+        if t.is_empty() {
+            Ok(None)
+        } else {
+            t.parse::<f32>()
+                .map(Some)
+                .map_err(|_| "temperature 需为 0 ~ 2 之间的数字".to_string())
+        }
+    };
+    let parse_opt_u32 = |raw: String| -> Result<Option<u32>, String> {
+        let t = raw.trim();
+        if t.is_empty() {
+            Ok(None)
+        } else {
+            t.parse::<u32>()
+                .map(Some)
+                .map_err(|_| "最大输出长度需为正整数".to_string())
+        }
+    };
+
     let on_add_profile = move |_| {
         let key_val = form_api_key.get().trim().to_string();
         if key_val.is_empty() {
             test_status.set("✕ 拦截提示：未填写 API Key 密钥，请输入以 sk- 开头的有效密钥后再保存配置".to_string());
             return;
         }
+
+        let temperature = match parse_opt_f32(form_temperature.get()) {
+            Ok(v) => v,
+            Err(msg) => {
+                test_status.set(format!("✕ {}", msg));
+                return;
+            }
+        };
+        let max_tokens = match parse_opt_u32(form_max_tokens.get()) {
+            Ok(v) => v,
+            Err(msg) => {
+                test_status.set(format!("✕ {}", msg));
+                return;
+            }
+        };
 
         leptos::task::spawn_local(async move {
             let res = invoke::<LlmProfile, _>(
@@ -181,6 +290,9 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                     model: form_model.get(),
                     api_key: form_api_key.get(),
                     is_default: profiles.get().is_empty(),
+                    temperature,
+                    max_tokens,
+                    stream: Some(form_stream.get()),
                 },
             )
             .await;
@@ -193,10 +305,103 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
                     form_name.set(String::new());
                     form_api_key.set(String::new());
+                    form_temperature.set(String::new());
+                    form_max_tokens.set(String::new());
+                    form_stream.set(true);
+                    remote_models.set(Vec::new());
                     test_status.set("✓ 接口配置已保存至钥匙串，可点击上方「测试连接」验证连通性".to_string());
                 }
                 Err(err) => {
                     test_status.set(format!("✕ 保存失败: {}", err));
+                }
+            }
+        });
+    };
+
+    // 「拉取模型列表」：用当前表单的协议 / Base URL / API Key 拉取远端可用模型
+    let on_fetch_models = move |_| {
+        is_fetching_models.set(true);
+        test_status.set("正在拉取模型列表...".to_string());
+
+        let protocol = form_protocol.get();
+        let base_url = form_base_url.get();
+        let key = form_api_key.get().trim().to_string();
+        let api_key = if key.is_empty() { None } else { Some(key) };
+
+        leptos::task::spawn_local(async move {
+            let res = invoke::<Vec<RemoteModel>, _>(
+                "fetch_remote_models",
+                &FetchModelsArgs {
+                    protocol,
+                    base_url,
+                    api_key,
+                    profile_id: None,
+                },
+            )
+            .await;
+
+            match res {
+                Ok(list) => {
+                    let n = list.len();
+                    remote_models.set(list);
+                    test_status.set(format!("✓ 已拉取到 {} 个可用模型，点击下方列表即可选用", n));
+                }
+                Err(err) => {
+                    remote_models.set(Vec::new());
+                    test_status.set(format!("✕ 拉取模型列表失败: {}", err));
+                }
+            }
+            is_fetching_models.set(false);
+        });
+    };
+
+    // 保存已有配置的生成参数（PRD §5.1 P0）
+    let on_save_profile_params = move |profile: LlmProfile| {
+        let temperature = match parse_opt_f32(edit_temperature.get()) {
+            Ok(v) => v,
+            Err(msg) => {
+                test_status.set(format!("✕ {}", msg));
+                return;
+            }
+        };
+        let max_tokens = match parse_opt_u32(edit_max_tokens.get()) {
+            Ok(v) => v,
+            Err(msg) => {
+                test_status.set(format!("✕ {}", msg));
+                return;
+            }
+        };
+
+        let stream = Some(edit_stream.get());
+        leptos::task::spawn_local(async move {
+            let res = invoke::<LlmProfile, _>(
+                "update_llm_profile",
+                &UpdateProfileArgs {
+                    id: profile.id.clone(),
+                    name: profile.name.clone(),
+                    protocol: profile.protocol.clone(),
+                    base_url: profile.base_url.clone(),
+                    model: profile.model.clone(),
+                    is_default: profile.is_default,
+                    temperature,
+                    max_tokens,
+                    stream,
+                },
+            )
+            .await;
+
+            match res {
+                Ok(updated) => {
+                    let mut list = profiles.get();
+                    if let Some(slot) = list.iter_mut().find(|p| p.id == updated.id) {
+                        *slot = updated.clone();
+                    }
+                    profiles.set(list);
+                    editing_id.set(None);
+                    test_status.set("✓ 生成参数已保存，后续调用该接口时立即生效".to_string());
+                }
+                Err(err) => {
+                    test_status.set(format!("✕ 保存生成参数失败: {}", err));
                 }
             }
         });
@@ -314,6 +519,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         let current_fs = font_size.get();
         let current_lh = line_height.get();
         let current_intv = auto_save_interval.get();
+        let current_auto_extract = auto_extract.get();
 
         leptos::task::spawn_local(async move {
             let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
@@ -331,6 +537,10 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
             let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
                 key: "auto_save_interval".to_string(),
                 value: current_intv.clone(),
+            }).await;
+            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
+                key: "auto_extract".to_string(),
+                value: if current_auto_extract { "true".to_string() } else { "false".to_string() },
             }).await;
 
             // Apply live
@@ -809,6 +1019,19 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                     on:input=move |ev| auto_save_interval.set(event_target_value(&ev))
                                                 />
                                             </div>
+                                            <div class="flex items-start justify-between gap-4 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                                                <div>
+                                                    <label class="font-semibold block text-slate-800 dark:text-slate-200">"保存章节后自动提炼"</label>
+                                                    <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                                                        "开启后，保存正文时后台静默提炼世界观 / 角色 / 剧情 / 章摘要候选；默认关闭，仅手动点「提炼本章」。"</span>
+                                                </div>
+                                                <input
+                                                    type="checkbox"
+                                                    class="w-4 h-4 mt-0.5 text-blue-600 rounded cursor-pointer shrink-0"
+                                                    prop:checked=move || auto_extract.get()
+                                                    on:change=move |ev| auto_extract.set(event_target_checked(&ev))
+                                                />
+                                            </div>
                                             <button
                                                 class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer"
                                                 on:click=on_save_preferences
@@ -1023,38 +1246,135 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                         let p_id = p.id.clone();
                                                         let p_id_for_test = p_id.clone();
                                                         let p_id_for_del = p_id.clone();
+                                                        let p_for_edit = p.clone();
+                                                        let p_for_save = p.clone();
+
+                                                        // 该配置已保存的生成参数（PRD §5.1 P0）
+                                                        let saved_params = GenerationParams::parse_from_str(&p.params);
+                                                        let saved_temp_str = saved_params
+                                                            .temperature
+                                                            .map(|t| t.to_string())
+                                                            .unwrap_or_default();
+                                                        let saved_max_str = saved_params
+                                                            .max_tokens
+                                                            .map(|t| t.to_string())
+                                                            .unwrap_or_default();
+                                                        let saved_stream = saved_params.stream.unwrap_or(true);
+                                                        let is_editing = {
+                                                            let id = p_id.clone();
+                                                            move || editing_id.get().as_deref() == Some(id.as_str())
+                                                        };
+                                                        let is_editing_label = is_editing.clone();
+                                                        let is_editing_panel = is_editing.clone();
+
                                                         view! {
-                                                            <div class="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-slate-50 text-xs">
-                                                                <div class="space-y-0.5">
+                                                            <div class="p-3 border border-slate-200 rounded-lg bg-slate-50 text-xs space-y-2">
+                                                                <div class="flex items-center justify-between">
+                                                                    <div class="space-y-0.5">
+                                                                        <div class="flex items-center gap-2">
+                                                                            <span class="font-bold text-slate-800">{p.name.clone()}</span>
+                                                                            <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-mono">
+                                                                                {p.protocol.clone()}
+                                                                            </span>
+                                                                            {if p.is_default {
+                                                                                view! { <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">"默认"</span> }.into_any()
+                                                                            } else {
+                                                                                view! { <span></span> }.into_any()
+                                                                            }}
+                                                                        </div>
+                                                                        <div class="text-slate-400 font-mono text-[11px]">
+                                                                            "URL: " {p.base_url.clone()} " | Model: " {p.model.clone()}
+                                                                        </div>
+                                                                        <div class="text-slate-400 text-[10px]">
+                                                                            {gen_params_summary(&p.params)}
+                                                                        </div>
+                                                                    </div>
                                                                     <div class="flex items-center gap-2">
-                                                                        <span class="font-bold text-slate-800">{p.name.clone()}</span>
-                                                                        <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded font-mono">
-                                                                            {p.protocol.clone()}
-                                                                        </span>
-                                                                        {if p.is_default {
-                                                                            view! { <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">"默认"</span> }.into_any()
-                                                                        } else {
-                                                                            view! { <span></span> }.into_any()
-                                                                        }}
-                                                                    </div>
-                                                                    <div class="text-slate-400 font-mono text-[11px]">
-                                                                        "URL: " {p.base_url.clone()} " | Model: " {p.model.clone()}
+                                                                        <button
+                                                                            class="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs transition-colors cursor-pointer"
+                                                                            on:click=move |_| on_test_profile(p_id_for_test.clone())
+                                                                        >
+                                                                            "测试连接"
+                                                                        </button>
+                                                                        <button
+                                                                            class="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs transition-colors cursor-pointer"
+                                                                            on:click={
+                                                                                let id = p_id.clone();
+                                                                                let t = saved_temp_str.clone();
+                                                                                let m = saved_max_str.clone();
+                                                                                move |_| {
+                                                                                    if editing_id.get().as_deref() == Some(id.as_str()) {
+                                                                                        editing_id.set(None);
+                                                                                    } else {
+                                                                                        edit_temperature.set(t.clone());
+                                                                                        edit_max_tokens.set(m.clone());
+                                                                                        edit_stream.set(saved_stream);
+                                                                                        editing_id.set(Some(id.clone()));
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        >
+                                                                            {move || if is_editing_label() { "收起" } else { "生成参数" }}
+                                                                        </button>
+                                                                        <button
+                                                                            class="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded text-xs transition-colors cursor-pointer"
+                                                                            on:click=move |_| on_delete_profile(p_id_for_del.clone())
+                                                                        >
+                                                                            "删除"
+                                                                        </button>
                                                                     </div>
                                                                 </div>
-                                                                <div class="flex items-center gap-2">
-                                                                    <button
-                                                                        class="px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded text-xs transition-colors cursor-pointer"
-                                                                        on:click=move |_| on_test_profile(p_id_for_test.clone())
-                                                                    >
-                                                                        "测试连接"
-                                                                    </button>
-                                                                    <button
-                                                                        class="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded text-xs transition-colors cursor-pointer"
-                                                                        on:click=move |_| on_delete_profile(p_id_for_del.clone())
-                                                                    >
-                                                                        "删除"
-                                                                    </button>
-                                                                </div>
+
+                                                                // 生成参数编辑区（PRD §5.1 P0）
+                                                                {move || if is_editing_panel() {
+                                                                    let p_save = p_for_save.clone();
+                                                                    let _ = &p_for_edit;
+                                                                    view! {
+                                                                        <div class="grid grid-cols-3 gap-3 pt-2 border-t border-slate-200 items-end">
+                                                                            <div class="space-y-1">
+                                                                                <label class="font-medium text-slate-600">"temperature"</label>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    step="0.1"
+                                                                                    min="0"
+                                                                                    max="2"
+                                                                                    class="w-full p-1.5 border border-slate-300 rounded font-mono"
+                                                                                    placeholder="留空用默认"
+                                                                                    prop:value=move || edit_temperature.get()
+                                                                                    on:input=move |ev| edit_temperature.set(event_target_value(&ev))
+                                                                                />
+                                                                            </div>
+                                                                            <div class="space-y-1">
+                                                                                <label class="font-medium text-slate-600">"最大输出长度"</label>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="1"
+                                                                                    class="w-full p-1.5 border border-slate-300 rounded font-mono"
+                                                                                    placeholder="留空用默认"
+                                                                                    prop:value=move || edit_max_tokens.get()
+                                                                                    on:input=move |ev| edit_max_tokens.set(event_target_value(&ev))
+                                                                                />
+                                                                            </div>
+                                                                            <div class="flex items-center gap-2 pb-1.5">
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    class="w-3.5 h-3.5 text-blue-600 rounded cursor-pointer"
+                                                                                    prop:checked=move || edit_stream.get()
+                                                                                    on:change=move |ev| edit_stream.set(event_target_checked(&ev))
+                                                                                />
+                                                                                <label class="font-medium text-slate-600">"启用流式输出"</label>
+                                                                                <button
+                                                                                    class="ml-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium transition-colors cursor-pointer"
+                                                                                    on:click=move |_| on_save_profile_params(p_save.clone())
+                                                                                >
+                                                                                    "保存参数"
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    }.into_any()
+                                                                } else {
+                                                                    view! { <div></div> }.into_any()
+                                                                }}
                                                             </div>
                                                         }
                                                     }
@@ -1122,12 +1442,46 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                     </div>
                                                     <div class="space-y-1">
                                                         <label class="font-medium text-slate-600">"模型名称 (Model)"</label>
+                                                        <div class="flex items-center gap-2">
+                                                            <input
+                                                                type="text"
+                                                                class="flex-1 p-2 border border-slate-300 rounded focus:outline-blue-500 font-mono"
+                                                                placeholder="gpt-4o / deepseek-chat / claude-3-5-sonnet"
+                                                                prop:value=move || form_model.get()
+                                                                on:input=move |ev| form_model.set(event_target_value(&ev))
+                                                            />
+                                                            <button
+                                                                class="px-3 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-50"
+                                                                title="按上方协议与 Base URL 拉取该接口的可用模型"
+                                                                disabled=move || is_fetching_models.get()
+                                                                on:click=on_fetch_models
+                                                            >
+                                                                {move || if is_fetching_models.get() { "拉取中..." } else { "拉取模型列表" }}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="space-y-1">
+                                                        <label class="font-medium text-slate-600">"temperature"</label>
                                                         <input
-                                                            type="text"
+                                                            type="number"
+                                                            step="0.1"
+                                                            min="0"
+                                                            max="2"
                                                             class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500 font-mono"
-                                                            placeholder="gpt-4o / deepseek-chat / claude-3-5-sonnet"
-                                                            prop:value=move || form_model.get()
-                                                            on:input=move |ev| form_model.set(event_target_value(&ev))
+                                                            placeholder="留空使用接口默认值"
+                                                            prop:value=move || form_temperature.get()
+                                                            on:input=move |ev| form_temperature.set(event_target_value(&ev))
+                                                        />
+                                                    </div>
+                                                    <div class="space-y-1">
+                                                        <label class="font-medium text-slate-600">"最大输出长度 (max_tokens)"</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500 font-mono"
+                                                            placeholder="留空使用接口默认值"
+                                                            prop:value=move || form_max_tokens.get()
+                                                            on:input=move |ev| form_max_tokens.set(event_target_value(&ev))
                                                         />
                                                     </div>
                                                     <div class="col-span-2 space-y-1">
@@ -1140,7 +1494,50 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                             on:input=move |ev| form_api_key.set(event_target_value(&ev))
                                                         />
                                                     </div>
+                                                    <div class="col-span-2 flex items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            class="w-3.5 h-3.5 text-blue-600 rounded cursor-pointer"
+                                                            prop:checked=move || form_stream.get()
+                                                            on:change=move |ev| form_stream.set(event_target_checked(&ev))
+                                                        />
+                                                        <label class="font-medium text-slate-600">"启用流式输出（关闭后一次性返回完整结果）"</label>
+                                                    </div>
                                                 </div>
+
+                                                // 拉取到的模型候选（PRD §5.1 P0）
+                                                {move || {
+                                                    let models = remote_models.get();
+                                                    if models.is_empty() {
+                                                        view! { <div></div> }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="border border-slate-200 rounded-lg bg-white max-h-44 overflow-y-auto">
+                                                                <div class="px-3 py-1.5 bg-slate-100 text-[10px] text-slate-500 font-semibold sticky top-0">
+                                                                    {format!("可选模型（{} 个，点击即填入模型名称）", models.len())}
+                                                                </div>
+                                                                <For
+                                                                    each=move || remote_models.get()
+                                                                    key=|m| m.id.clone()
+                                                                    children=move |m| {
+                                                                        let model_id = m.id.clone();
+                                                                        let owned = m.owned_by.clone();
+                                                                        view! {
+                                                                            <button
+                                                                                class="w-full text-left px-3 py-1.5 hover:bg-blue-50 border-b border-slate-100 last:border-b-0 flex items-center justify-between gap-2 cursor-pointer"
+                                                                                on:click=move |_| form_model.set(model_id.clone())
+                                                                            >
+                                                                                <span class="font-mono text-slate-700 truncate">{m.id.clone()}</span>
+                                                                                <span class="text-[10px] text-slate-400 shrink-0">{owned.clone()}</span>
+                                                                            </button>
+                                                                        }
+                                                                    }
+                                                                />
+                                                            </div>
+                                                        }.into_any()
+                                                    }
+                                                }}
+
                                                 <button
                                                     class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium text-xs shadow-xs transition-colors cursor-pointer"
                                                     on:click=on_add_profile

@@ -8,6 +8,7 @@ pub mod agent;
 pub mod app_setting;
 pub mod chapter;
 pub mod chapter_revision;
+pub mod chat;
 pub mod character_relation;
 pub mod extraction;
 pub mod lexicon;
@@ -72,6 +73,16 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
         CREATE INDEX IF NOT EXISTS idx_relation_novel ON character_relation(novel_id);",
     );
     let _ = conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_template_scope ON prompt_template(scope)", []);
+
+    // 对话记录（PRD §4.1 P1）：为旧库补齐 chat_session.title 列与索引
+    let _ = conn.execute(
+        "ALTER TABLE chat_session ADD COLUMN title TEXT NOT NULL DEFAULT '对话'",
+        [],
+    );
+    let _ = conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chat_session_novel ON chat_session(novel_id, chapter_id, updated_at DESC)",
+        [],
+    );
     let _ = conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS novel_lexicon (
             id          TEXT PRIMARY KEY,

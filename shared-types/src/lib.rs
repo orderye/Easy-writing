@@ -139,6 +139,33 @@ pub struct Agent {
     pub updated_at: String,
 }
 
+/// 生成参数：temperature、最大输出长度、是否流式（PRD §5.1 P0）。
+/// 以 JSON 字符串形式持久化在 llm_profile.params 列中，缺省字段一律使用服务端/网关默认值。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct GenerationParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+}
+
+impl GenerationParams {
+    pub fn parse_from_str(s: &str) -> Self {
+        serde_json::from_str::<GenerationParams>(s).unwrap_or_default()
+    }
+
+    pub fn to_json_string(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
+    }
+
+    /// 该参数对象是否为空（未设置任何生成参数）。
+    pub fn is_empty(&self) -> bool {
+        self.temperature.is_none() && self.max_tokens.is_none() && self.stream.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LlmProfile {
     pub id: String,
@@ -361,6 +388,35 @@ pub struct LexiconEntry {
     pub source_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+/// 对话记录（PRD §4.1 P1：对话记录随作品保存，可按章节筛选）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatSession {
+    pub id: String,
+    pub novel_id: String,
+    pub chapter_id: Option<String>,
+    pub title: String,
+    pub message_count: i32,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatMessage {
+    pub id: String,
+    pub session_id: String,
+    pub role: String, // "user" | "assistant"
+    pub content: String,
+    pub created_at: String,
+}
+
+/// 「拉取模型列表」返回的单个模型条目（PRD §5.1 P0）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RemoteModel {
+    pub id: String,
+    #[serde(default)]
+    pub owned_by: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

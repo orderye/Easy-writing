@@ -1,7 +1,7 @@
 use crate::ai::gateway::AiGateway;
 use crate::ai::openai::ChatMessage;
 use crate::db::DbPool;
-use shared_types::{ConflictInfo, ExtractionCandidate};
+use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ConflictInfo, ExtractionCandidate};
 use std::sync::Arc;
 use tauri::State;
 
@@ -48,30 +48,64 @@ pub async fn ai_chat_stream(
     prompt: String,
     event_name: String,
 ) -> Result<String, String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
+    // 1. 落库用户消息，并取回「近几轮对话」作为上下文（PRD §4.1）
+    let (novel, agent, profile, api_key, session_id, history) = {
+        let conn = pool.get().map_err(|e| e.to_string())?;
 
-    let novel = crate::db::novel::get_novel(&conn, &novel_id)
+        let novel = crate::db::novel::get_novel(&conn, &novel_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Novel not found".to_string())?;
+
+        let (agent, profile, api_key) =
+            crate::agent::dispatcher::resolve_agent_and_profile(&conn, "writing_assistant")?;
+
+        // 对话记录随作品保存：会话按 作品 + 章节 归集
+        let session = crate::db::chat::ensure_session(&conn, &novel_id, chapter_id.as_deref())
+            .map_err(|e| e.to_string())?;
+
+        crate::db::chat::append_message(&conn, &session.id, "user", &prompt)
+            .map_err(|e| e.to_string())?;
+
+        // 取最近若干轮对话（不含本轮提问在最后位置导致的错位，交由下方拼装处理）
+        let history = crate::db::chat::list_messages(&conn, &session.id, 20)
+            .map_err(|e| e.to_string())?;
+
+        (novel, agent, profile, api_key, session.id, history)
+    };
+
+    let assembled = {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        crate::ai::context::assemble_writing_context(
+            &conn,
+            &novel,
+            chapter_id.as_deref(),
+            &agent.system_prompt,
+        )
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Novel not found".to_string())?;
+    };
 
-    let (agent, profile, api_key) =
-        crate::agent::dispatcher::resolve_agent_and_profile(&conn, "writing_assistant")?;
+    // 2. 拼装对话历史为多轮消息（历史里最后一条即本轮提问，避免重复追加）
+    let mut messages: Vec<ChatMessage> = history
+        .iter()
+        .map(|m| ChatMessage {
+            role: m.role.clone(),
+            content: m.content.clone(),
+        })
+        .collect();
 
-    let assembled = crate::ai::context::assemble_writing_context(
-        &conn,
-        &novel,
-        chapter_id.as_deref(),
-        &agent.system_prompt,
-    )
-    .map_err(|e| e.to_string())?;
+    if messages
+        .last()
+        .map(|m| m.role != "user" || m.content != prompt)
+        .unwrap_or(true)
+    {
+        messages.push(ChatMessage {
+            role: "user".to_string(),
+            content: prompt.clone(),
+        });
+    }
 
     let gateway = AiGateway::new();
-    let messages = vec![ChatMessage {
-        role: "user".to_string(),
-        content: prompt,
-    }];
-
-    gateway
+    let reply = gateway
         .call_stream(
             app,
             &event_name,
@@ -80,7 +114,80 @@ pub async fn ai_chat_stream(
             Some(assembled.system_prompt),
             messages,
         )
-        .await
+        .await?;
+
+    // 3. 落库助手回复
+    {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        let _ = crate::db::chat::append_message(&conn, &session_id, "assistant", &reply);
+    }
+
+    Ok(reply)
+}
+
+// ---------- 对话记录（PRD §4.1 P1：随作品保存，可按章节筛选） ----------
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_or_create_chat_session(
+    pool: State<'_, DbPool>,
+    novel_id: String,
+    chapter_id: Option<String>,
+) -> Result<ChatSession, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chat::ensure_session(&conn, &novel_id, chapter_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_chat_sessions(
+    pool: State<'_, DbPool>,
+    novel_id: String,
+    chapter_id: Option<String>,
+) -> Result<Vec<ChatSession>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chat::list_sessions(&conn, &novel_id, chapter_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_chat_messages(
+    pool: State<'_, DbPool>,
+    session_id: String,
+    limit: Option<i64>,
+) -> Result<Vec<ChatMessageDto>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chat::list_messages(&conn, &session_id, limit.unwrap_or(200))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn append_chat_message(
+    pool: State<'_, DbPool>,
+    session_id: String,
+    role: String,
+    content: String,
+) -> Result<ChatMessageDto, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chat::append_message(&conn, &session_id, &role, &content)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn clear_chat_session(
+    pool: State<'_, DbPool>,
+    session_id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chat::clear_messages(&conn, &session_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn delete_chat_session(
+    pool: State<'_, DbPool>,
+    session_id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chat::delete_session(&conn, &session_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

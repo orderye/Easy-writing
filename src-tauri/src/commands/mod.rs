@@ -155,6 +155,18 @@ pub fn save_chapter_content(
             word_count,
         );
 
+        // 保存后自动提炼：受 app_setting.auto_extract 开关控制（PRD §4.2 P1，默认关闭）。
+        // 设置缺失或读取失败时按「关闭」处理，避免默认强制开启后台提炼。
+        let auto_extract = crate::db::app_setting::get_setting(&conn, "auto_extract")
+            .ok()
+            .flatten()
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
+        if !auto_extract {
+            return Ok(());
+        }
+
         // Silent background extraction trigger if text has meaningful length
         let pool_clone = pool.inner().clone();
         let novel_id = chap.novel_id.clone();

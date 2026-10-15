@@ -94,11 +94,20 @@ pub fn run() {
             commands::ai_cmd::trigger_chapter_extract,
             commands::ai_cmd::list_extraction_candidates,
             commands::ai_cmd::resolve_candidate,
+            // Chat History (PRD §4.1 P1)
+            commands::ai_cmd::get_or_create_chat_session,
+            commands::ai_cmd::list_chat_sessions,
+            commands::ai_cmd::list_chat_messages,
+            commands::ai_cmd::append_chat_message,
+            commands::ai_cmd::clear_chat_session,
+            commands::ai_cmd::delete_chat_session,
             // Config & Profiles
             commands::config_cmd::create_llm_profile,
+            commands::config_cmd::update_llm_profile,
             commands::config_cmd::list_llm_profiles,
             commands::config_cmd::delete_llm_profile,
             commands::config_cmd::test_llm_connection,
+            commands::config_cmd::fetch_remote_models,
             commands::config_cmd::list_agents,
             commands::config_cmd::update_agent,
             // App settings

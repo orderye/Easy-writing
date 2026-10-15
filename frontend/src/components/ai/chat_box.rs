@@ -3,10 +3,14 @@ use crate::state::AppContext;
 use crate::tauri_api::invoke;
 use leptos::prelude::*;
 use serde::Serialize;
-use shared_types::ConflictInfo;
+use shared_types::{
+    ChatMessage as ChatMessageDto, ChatSession, ConflictInfo,
+};
 
+/// 本地消息视图。seq 为客户端自增序号，用于 For key——同一角色重复内容也不会冲突。
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChatMsg {
+    pub seq: u64,
     pub role: String,
     pub content: String,
 }
@@ -25,15 +29,129 @@ struct CheckConflictArgs {
     text: String,
 }
 
+#[derive(Serialize)]
+struct GetOrCreateSessionArgs {
+    novel_id: String,
+    chapter_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ListMessagesArgs {
+    session_id: String,
+    limit: Option<i64>,
+}
+
+#[derive(Serialize)]
+struct ClearSessionArgs {
+    session_id: String,
+}
+
+const WELCOME: &str = "你好！我是你的专属写作助手。我的创作将严格遵循左栏的世界观、角色卡、剧情伏笔与大纲。请输入你的写作需求（如：续写本章情节、设计一段对话等）……";
+
 #[component]
 pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
     let is_open = app_ctx.ai_chat_open;
     let input_text = RwSignal::new(String::new());
     let is_generating = RwSignal::new(false);
+    // 单调递增序号，保证 For key 全局唯一
+    let next_seq = StoredValue::new(1u64);
     let messages = RwSignal::new(vec![ChatMsg {
+        seq: 0,
         role: "assistant".to_string(),
-        content: "你好！我是你的专属写作助手。我的创作将严格遵循左栏的世界观、角色卡、剧情伏笔与大纲。请输入你的写作需求（如：续写本章情节、设计一段对话等）……".to_string(),
+        content: WELCOME.to_string(),
     }]);
+    // 当前对话会话（随作品 + 章节保存，PRD §4.1 P1）
+    let session = RwSignal::new(Option::<ChatSession>::None);
+    let history_loaded = RwSignal::new(false);
+
+    // 章节切换 / 作品切换时，重新载入该章节的对话记录
+    Effect::new(move |_| {
+        let novel = app_ctx.current_novel.get();
+        let chapter_id = app_ctx.current_chapter.get().map(|c| c.id);
+        let novel_id = match novel {
+            Some(n) => n.id,
+            None => {
+                session.set(None);
+                history_loaded.set(false);
+                return;
+            }
+        };
+
+        leptos::task::spawn_local(async move {
+            let res = invoke::<ChatSession, _>(
+                "get_or_create_chat_session",
+                &GetOrCreateSessionArgs {
+                    novel_id: novel_id.clone(),
+                    chapter_id: chapter_id.clone(),
+                },
+            )
+            .await;
+
+            match res {
+                Ok(sess) => {
+                    let s_id = sess.id.clone();
+                    session.set(Some(sess));
+
+                    if let Ok(history) = invoke::<Vec<ChatMessageDto>, _>(
+                        "list_chat_messages",
+                        &ListMessagesArgs {
+                            session_id: s_id,
+                            limit: Some(200),
+                        },
+                    )
+                    .await
+                    {
+                        let mut loaded: Vec<ChatMsg> = Vec::new();
+                        for m in history {
+                            let seq = next_seq.get_value();
+                            next_seq.set_value(seq + 1);
+                            loaded.push(ChatMsg {
+                                seq,
+                                role: m.role,
+                                content: m.content,
+                            });
+                        }
+
+                        if loaded.is_empty() {
+                            messages.set(vec![ChatMsg {
+                                seq: 0,
+                                role: "assistant".to_string(),
+                                content: WELCOME.to_string(),
+                            }]);
+                        } else {
+                            messages.set(loaded);
+                        }
+                        history_loaded.set(true);
+                    }
+                }
+                Err(_) => {
+                    // 落库失败不阻塞对话：退化为内存会话
+                    session.set(None);
+                    history_loaded.set(true);
+                }
+            }
+        });
+    });
+
+    let do_clear_history = move |_| {
+        if let Some(sess) = session.get() {
+            leptos::task::spawn_local(async move {
+                let _ = invoke::<(), _>(
+                    "clear_chat_session",
+                    &ClearSessionArgs {
+                        session_id: sess.id,
+                    },
+                )
+                .await;
+            });
+        }
+        next_seq.set_value(1);
+        messages.set(vec![ChatMsg {
+            seq: 0,
+            role: "assistant".to_string(),
+            content: WELCOME.to_string(),
+        }]);
+    };
 
     let do_send = move || {
         let text = input_text.get().trim().to_string();
@@ -42,7 +160,10 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
         }
 
         let mut list = messages.get();
+        let seq_user = next_seq.get_value();
+        next_seq.set_value(seq_user + 1);
         list.push(ChatMsg {
+            seq: seq_user,
             role: "user".to_string(),
             content: text.clone(),
         });
@@ -53,7 +174,10 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
             let chapter_id = app_ctx.current_chapter.get().map(|c| c.id);
 
             // Placeholder for stream response
+            let seq_reply = next_seq.get_value();
+            next_seq.set_value(seq_reply + 1);
             list.push(ChatMsg {
+                seq: seq_reply,
                 role: "assistant".to_string(),
                 content: "正在结合全书设定思考并创作...".to_string(),
             });
@@ -61,6 +185,7 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
             is_generating.set(true);
 
             leptos::task::spawn_local(async move {
+                // ai_chat_stream 会在后端把用户消息与助手回复一并落库（PRD §4.1 P1）
                 let res = invoke::<String, _>(
                     "ai_chat_stream",
                     &AiChatArgs {
@@ -132,6 +257,15 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                     <span class="text-blue-600">"✨"</span>
                     <span>"AI 辅助写作助手"</span>
                     <span class="text-[10px] text-slate-400 font-normal">"（严格按设定写作 · 双重冲突检测）"</span>
+                    {move || match session.get() {
+                        Some(s) => {
+                            let label = if s.chapter_id.is_some() { "本章对话已存档" } else { "全书对话已存档" };
+                            view! {
+                                <span class="text-[10px] text-emerald-600 font-normal">"· " {label}</span>
+                            }.into_any()
+                        }
+                        None => view! { <span></span> }.into_any(),
+                    }}
                 </div>
                 <span class="text-slate-500 font-mono text-xs">
                     {move || if is_open.get() { "▼ 收起" } else { "▲ 展开对话" }}
@@ -146,7 +280,7 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                             <div class="flex-1 overflow-y-auto p-4 space-y-3">
                                 <For
                                     each=move || messages.get()
-                                    key=|m| format!("{}:{}", m.role, m.content)
+                                    key=|m| m.seq
                                     children=move |msg| {
                                         let is_user = msg.role == "user";
                                         let content_for_insert = msg.content.clone();
@@ -197,6 +331,14 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                                         }
                                     }
                                 />
+                                <button
+                                    class="px-2.5 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 text-xs font-medium rounded-md transition-colors shrink-0 cursor-pointer"
+                                    title="清空当前章节的对话记录（已存档内容一并删除）"
+                                    disabled=move || !history_loaded.get()
+                                    on:click=do_clear_history
+                                >
+                                    "清空记录"
+                                </button>
                                 <button
                                     class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-md shadow-xs transition-colors shrink-0 cursor-pointer disabled:opacity-50"
                                     disabled=move || is_generating.get()

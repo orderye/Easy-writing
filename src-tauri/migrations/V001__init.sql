@@ -151,9 +151,11 @@ CREATE TABLE IF NOT EXISTS chat_session (
     id          TEXT PRIMARY KEY,
     novel_id    TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
     chapter_id  TEXT REFERENCES chapter(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL DEFAULT '对话',
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_chat_session_novel ON chat_session(novel_id, chapter_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS chat_message (
     id          TEXT PRIMARY KEY,
