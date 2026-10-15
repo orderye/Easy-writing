@@ -79,6 +79,11 @@
 | **角色关系图谱** | 设定面板提供交互式 SVG 角色关系拓扑网与纽带管理 | ✅ v1.0.0 |
 | **Prompt 模板管理** | 6 处修饰模块（世界观/角色/剧情/大纲/卷/章）独立提示词深度微调与一键恢复出厂 | ✅ v1.0.0 |
 | **长目录虚拟滚动** | 300+ 章节长目录视口虚拟渲染，DOM 节点维持 ~25 个，告别长篇连载卡顿 | ✅ v1.0.0 |
+| **角色深度档案爆破** | 深度立绘卡片：核心动机（渴望/所需/心魔/底线）、外貌特征、言谈口头禅、资产信物、致命秘密死穴、阵营与主配分级 | ✅ v0.2.0 |
+| **关系互动拓扑图谱** | 基于 Force-Graph 渲染关系网络拓扑图，支持节点拖拽、高亮关联亲友敌对链路、多级缩放漫游与关系直接编辑 | ✅ v0.2.0 |
+| **专有词库与语料提取** | 小说专有名词库管理与快速检索；设定条目自动提取同步；正文高频词快速扫描与词频热度追踪 | ✅ v0.2.0 |
+| **软件在线检查更新** | 支持 GitHub / CNB Releases API 语义化版本更新检测，自动识别系统架构安装包下载与弹窗提醒 | ✅ v0.2.0 |
+| **全文查找与快速替换** | 编辑器内置查找/替换面板（⌘F / Ctrl+F），支持大小写敏感、全词匹配、高亮当前匹配与批量替换 | ✅ v0.2.0 |
 
 ---
 
@@ -376,12 +381,12 @@ cargo test  --workspace          # 运行测试
 
 ## 数据库设计
 
-单文件 SQLite，共 18 张表（见 [V001__init.sql](src-tauri/migrations/V001__init.sql)）。
+单文件 SQLite，共 19 张表（见 [V001__init.sql](src-tauri/migrations/V001__init.sql) 与 [lexicon](src-tauri/src/db/lexicon.rs)）。
 
 | 分类 | 表 |
 | --- | --- |
 | 作品与内容 | `novel`、`volume`、`chapter`、`chapter_revision`、`asset` |
-| 设定 | `worldview_entry`、`character`、`character_relation`、`plot_item` |
+| 设定与词库 | `worldview_entry`、`character`、`character_relation`、`plot_item`、`lexicon` |
 | AI 与设置 | `agent`、`chat_session`、`chat_message`、`extraction_candidate`、`setting_change`、`prompt_template`、`llm_profile`、`webdav_config`、`app_setting` |
 
 **通用约定**
@@ -400,13 +405,14 @@ cargo test  --workspace          # 运行测试
 - `chapter_revision` 保存章节历史版本，手动保存与切章时自动创建，支持时间轴查看与一键回滚。
 - `setting_change` 记录 AI 冲突裁决产生的设定改动前后内容与原因，支持一键撤销恢复。
 - `character_relation` 独立存储人物关系，角色面板提供可视化关系拓扑图。
+- `lexicon` 存储全书专有词库与语料热词，支持频次统计与设定自动双向提取。
 
 ---
 
 ## 后端命令一览
 
 <details>
-<summary>共 68 个 Tauri Command（点击展开）</summary>
+<summary>共 77 个 Tauri Command（点击展开）</summary>
 
 | 分组 | 命令 |
 | --- | --- |
@@ -417,6 +423,7 @@ cargo test  --workspace          # 运行测试
 | 设定 | `list_worldview` `save_worldview` `delete_worldview` `list_characters` `save_character` `delete_character` `list_plots` `save_plot` `delete_plot` |
 | 设定改动 | `list_setting_changes` `revert_setting_change` `apply_conflict_setting_update` |
 | 角色关系 | `list_character_relations` `save_character_relation` `delete_character_relation` |
+| 词库与语料 | `list_lexicon` `save_lexicon_term` `delete_lexicon_term` `record_lexicon_usage` `sync_lexicon_from_novel` `import_lexicon_terms` |
 | 回收站 | `list_trash_items` `restore_trash_item` `purge_trash_item` `empty_trash` |
 | 文稿导入 | `parse_import_document` `commit_import_novel` |
 | 图片资源 | `save_image_asset` |
@@ -425,6 +432,7 @@ cargo test  --workspace          # 运行测试
 | 模型与Agent | `create_llm_profile` `list_llm_profiles` `delete_llm_profile` `test_llm_connection` `list_agents` `update_agent` |
 | 应用偏好 | `get_app_setting` `set_app_setting` |
 | WebDAV 同步 | `webdav_save_config` `webdav_get_config` `webdav_test_connection` `webdav_backup_now` `webdav_list_backups` `webdav_restore_backup` |
+| 软件在线更新 | `check_app_update` `open_external_url` `set_ignored_update_version` |
 
 </details>
 
@@ -438,6 +446,7 @@ cargo test  --workspace          # 运行测试
 | **Phase 1** | 核心体验与安全：选中文本 Bubble 浮标（润/扩/缩/续 + Diff 对比）、章节版本时间轴与回滚、设定冲突改动审计与撤销、软删除回收站 | ✅ 已交付 | `5ddf4c9` `06f0cab` `7d9bd6d` `64f7712` |
 | **Phase 2** | 规模与自动化：设定库全文模糊检索与多级分组折叠、章节目录状态与标题筛选、保存后后台静默提炼与候选红点、退出应用静默 WebDAV 快照同步 | ✅ 已交付 | `3cb4190` `1622a2e` `5bbe934` `126e980` |
 | **Phase 3** | 生态与架构演进：外部长篇文稿批量导入拆卷拆章、角色关系图谱与动态 SVG 拓扑网络、6 处修饰模块独立 Prompt 模板管理、300+ 章节长目录虚拟滚动（Virtual Scrolling） | ✅ 已交付 | `fcf360c` `6a08888` `57e4350` `aeb1ef0` |
+| **Phase 4 (v0.2.0)** | 深度档案与工作流升级：人物深度爆破卡、Force-Graph 拓扑关系网络可视化、小说专有词库与语料提取、全文查找替换（⌘F）、GitHub/CNB Releases 在线版本检测更新系统 | ✅ 已交付 | `v0.2.0` |
 
 详见 [实施计划](<Docs/Easy-writing · 实施计划.md>) 与 [全面后续研发与演进计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>)。
 
@@ -464,7 +473,7 @@ pnpm build     # = pnpm build:assets && tauri build
 **自动发布**：仓库内置 GitHub Actions 工作流 `.github/workflows/release.yml`，推送 `v*` 标签即自动构建并创建 Release：
 
 ```bash
-git tag v0.1.0 && git push origin v0.1.0
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
 | 平台 | 构建目标 | 产物 |

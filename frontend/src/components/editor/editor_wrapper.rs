@@ -1,8 +1,27 @@
 use crate::bridge::tiptap;
 use crate::state::AppContext;
+use crate::tauri_api::invoke;
 use leptos::prelude::*;
+use serde::Serialize;
+use shared_types::LexiconEntry;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
+
+#[derive(Serialize)]
+struct ListLexiconArgs {
+    novel_id: String,
+}
+
+#[derive(Serialize)]
+struct RecordUsageArgs {
+    novel_id: String,
+    term: String,
+}
+
+#[derive(Serialize)]
+struct SyncLexiconArgs {
+    novel_id: String,
+}
 
 #[component]
 pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
@@ -32,10 +51,86 @@ pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
 
             if mounted {
                 on_update.forget(); // Keep the closure alive for the lifecycle of the editor
+
+                // Register ghost completion acceptance callback
+                let on_term_accepted = {
+                    let current_novel = app_ctx.current_novel;
+                    Closure::wrap(Box::new(move |term: String| {
+                        if let Some(novel) = current_novel.get_untracked() {
+                            let novel_id = novel.id;
+                            leptos::task::spawn_local(async move {
+                                let _ = invoke::<(), _>(
+                                    "record_lexicon_usage",
+                                    &RecordUsageArgs { novel_id, term },
+                                )
+                                .await;
+                            });
+                        }
+                    }) as Box<dyn FnMut(String)>)
+                };
+                tiptap::on_lexicon_term_accepted(on_term_accepted.as_ref().unchecked_ref());
+                on_term_accepted.forget();
+
                 app_ctx.is_editor_mounted.set(true);
                 app_ctx.word_count.set(tiptap::get_word_count());
             }
         }
+    });
+
+    // Effect: Load lexicon whenever current novel or lexicon_version changes
+    Effect::new(move |_| {
+        let _version = app_ctx.lexicon_version.get();
+        if let Some(novel) = app_ctx.current_novel.get() {
+            let novel_id = novel.id;
+            leptos::task::spawn_local(async move {
+                let list_res = invoke::<Vec<LexiconEntry>, _>(
+                    "list_lexicon",
+                    &ListLexiconArgs {
+                        novel_id: novel_id.clone(),
+                    },
+                )
+                .await;
+
+                match list_res {
+                    Ok(list) => {
+                        if list.is_empty() {
+                            // Automatically initialize lexicon from settings & chapters
+                            let _ = invoke::<usize, _>(
+                                "sync_lexicon_from_novel",
+                                &SyncLexiconArgs {
+                                    novel_id: novel_id.clone(),
+                                },
+                            )
+                            .await;
+                            // Fetch again
+                            if let Ok(refreshed) = invoke::<Vec<LexiconEntry>, _>(
+                                "list_lexicon",
+                                &ListLexiconArgs { novel_id },
+                            )
+                            .await
+                            {
+                                if let Ok(json_str) = serde_json::to_string(&refreshed) {
+                                    tiptap::set_lexicon(&json_str);
+                                }
+                            }
+                        } else if let Ok(json_str) = serde_json::to_string(&list) {
+                            tiptap::set_lexicon(&json_str);
+                        }
+                    }
+                    Err(e) => {
+                        web_sys::console::warn_1(
+                            &format!("[EditorWrapper] Failed to fetch lexicon: {:?}", e).into(),
+                        );
+                    }
+                }
+            });
+        }
+    });
+
+    // Effect: Sync ghost completion enabled flag with bridge
+    Effect::new(move |_| {
+        let enabled = app_ctx.is_ghost_completion_enabled.get();
+        tiptap::set_ghost_completion_enabled(enabled);
     });
 
     view! {

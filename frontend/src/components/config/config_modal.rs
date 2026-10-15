@@ -2,7 +2,7 @@ use crate::state::AppContext;
 use crate::tauri_api::{invoke, invoke_no_args};
 use leptos::prelude::*;
 use serde::Serialize;
-use shared_types::{Agent, BackupFileInfo, LlmProfile, PromptTemplate, WebdavConfig};
+use shared_types::{Agent, AppUpdateInfo, BackupFileInfo, LlmProfile, PromptTemplate, WebdavConfig};
 
 #[derive(Serialize)]
 struct CreateProfileArgs {
@@ -57,6 +57,16 @@ struct SetAppSettingArgs {
     value: String,
 }
 
+#[derive(Serialize)]
+struct CheckUpdateArgs {
+    force: bool,
+}
+
+#[derive(Serialize)]
+struct OpenUrlArgs {
+    url: String,
+}
+
 #[component]
 pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
     let active_tab = RwSignal::new("llm".to_string()); // "llm" | "agent" | "prompt" | "webdav" | "pref"
@@ -88,6 +98,12 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let line_height = RwSignal::new("1.8".to_string());
     let auto_save_interval = RwSignal::new("30".to_string());
     let pref_status = RwSignal::new(String::new());
+
+    // App Update state
+    let auto_check_update = RwSignal::new(true);
+    let custom_update_url = RwSignal::new(String::new());
+    let update_status_msg = RwSignal::new(String::new());
+    let last_check_time_str = RwSignal::new(String::new());
 
     let load_data = move || {
         leptos::task::spawn_local(async move {
@@ -128,6 +144,17 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
             if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_save_interval".to_string() }).await {
                 auto_save_interval.set(val);
             }
+
+            // Load Update Preferences
+            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_check_update".to_string() }).await {
+                auto_check_update.set(val != "false");
+            }
+            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "update_check_url".to_string() }).await {
+                custom_update_url.set(val);
+            }
+            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "last_update_check_time".to_string() }).await {
+                last_check_time_str.set(val);
+            }
         });
     };
 
@@ -138,6 +165,12 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     });
 
     let on_add_profile = move |_| {
+        let key_val = form_api_key.get().trim().to_string();
+        if key_val.is_empty() {
+            test_status.set("✕ 拦截提示：未填写 API Key 密钥，请输入以 sk- 开头的有效密钥后再保存配置".to_string());
+            return;
+        }
+
         leptos::task::spawn_local(async move {
             let res = invoke::<LlmProfile, _>(
                 "create_llm_profile",
@@ -152,13 +185,19 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
             )
             .await;
 
-            if let Ok(new_p) = res {
-                let mut list = profiles.get();
-                list.push(new_p);
-                profiles.set(list);
+            match res {
+                Ok(new_p) => {
+                    let mut list = profiles.get();
+                    list.push(new_p);
+                    profiles.set(list);
 
-                form_name.set(String::new());
-                form_api_key.set(String::new());
+                    form_name.set(String::new());
+                    form_api_key.set(String::new());
+                    test_status.set("✓ 接口配置已保存至钥匙串，可点击上方「测试连接」验证连通性".to_string());
+                }
+                Err(err) => {
+                    test_status.set(format!("✕ 保存失败: {}", err));
+                }
             }
         });
     };
@@ -311,6 +350,52 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         });
     };
 
+    let on_check_update_now = move |_| {
+        app_ctx.is_checking_update.set(true);
+        update_status_msg.set("正在连接远程版本源检查更新...".to_string());
+        leptos::task::spawn_local(async move {
+            let res = invoke::<AppUpdateInfo, _>("check_app_update", &CheckUpdateArgs { force: true }).await;
+            app_ctx.is_checking_update.set(false);
+            match res {
+                Ok(info) => {
+                    if info.has_update {
+                        update_status_msg.set(format!("🎉 发现新版本 v{}！已为您打开更新详情", info.latest_version));
+                        app_ctx.available_update.set(Some(info));
+                        app_ctx.has_update_badge.set(true);
+                        app_ctx.is_update_modal_open.set(true);
+                    } else {
+                        update_status_msg.set(format!("✓ 当前已是最新版本 (v{})，暂无新版本发布", info.current_version));
+                    }
+                }
+                Err(e) => {
+                    update_status_msg.set(format!("✕ 检查更新失败：{}", e));
+                }
+            }
+        });
+    };
+
+    let on_save_update_settings = move |_| {
+        let is_auto = auto_check_update.get();
+        let custom_url = custom_update_url.get().trim().to_string();
+        leptos::task::spawn_local(async move {
+            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
+                key: "auto_check_update".to_string(),
+                value: if is_auto { "true".to_string() } else { "false".to_string() },
+            }).await;
+            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
+                key: "update_check_url".to_string(),
+                value: custom_url,
+            }).await;
+            update_status_msg.set("✓ 更新检测设置已保存！".to_string());
+        });
+    };
+
+    let on_open_external = move |url: String| {
+        leptos::task::spawn_local(async move {
+            let _ = invoke::<(), _>("open_external_url", &OpenUrlArgs { url }).await;
+        });
+    };
+
     view! {
         {move || {
             if is_open.get() {
@@ -363,6 +448,17 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                     on:click=move |_| active_tab.set("pref".to_string())
                                 >
                                     "写作偏好"
+                                </button>
+                                <button
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 {}", if tab == "update" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
+                                    on:click=move |_| active_tab.set("update".to_string())
+                                >
+                                    <span>"关于与更新"</span>
+                                    {move || if app_ctx.has_update_badge.get() {
+                                        view! { <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-red-500 text-white font-bold leading-none animate-pulse">"新版"</span> }.into_any()
+                                    } else {
+                                        view! { <span></span> }.into_any()
+                                    }}
                                 </button>
                             </div>
 
@@ -732,6 +828,188 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                         </div>
                                     }.into_any(),
 
+                                    "update" => view! {
+                                        <div class="space-y-6 max-w-2xl">
+                                            // Software Branding & Version Info Card
+                                            <div class="flex items-center gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80">
+                                                <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center text-2xl text-white shadow-md shrink-0">
+                                                    "✍️"
+                                                </div>
+                                                <div class="space-y-1">
+                                                    <div class="flex items-center gap-2">
+                                                        <h4 class="font-bold text-sm text-slate-800 dark:text-slate-100">"Easy-writing · 小说工作台"</h4>
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold border border-blue-200 dark:border-blue-800">
+                                                            "v0.2.0"
+                                                        </span>
+                                                    </div>
+                                                    <p class="text-xs text-slate-500 dark:text-slate-400">
+                                                        "面向中长篇连载小说作者的专业级本地离线写作工作台 · AI 辅助提炼与设定协同"
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            // Update Actions & Status Card
+                                            <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4 bg-white dark:bg-slate-800">
+                                                <div class="flex items-center justify-between">
+                                                    <div>
+                                                        <h5 class="font-bold text-xs text-slate-800 dark:text-slate-200">"版本在线更新检查"</h5>
+                                                        <p class="text-[11px] text-slate-400 dark:text-slate-500">
+                                                            {move || {
+                                                                let time = last_check_time_str.get();
+                                                                if time.is_empty() {
+                                                                    "尚未检查过更新".to_string()
+                                                                } else {
+                                                                    format!("上次检测时间：{}", time.chars().take(19).collect::<String>().replace('T', " "))
+                                                                }
+                                                            }}
+                                                        </p>
+                                                    </div>
+                                                    <button
+                                                        class=move || {
+                                                            format!(
+                                                                "px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer {}",
+                                                                if app_ctx.is_checking_update.get() {
+                                                                    "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+                                                                } else {
+                                                                    "bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white"
+                                                                }
+                                                            )
+                                                        }
+                                                        disabled=move || app_ctx.is_checking_update.get()
+                                                        on:click=on_check_update_now
+                                                    >
+                                                        {move || if app_ctx.is_checking_update.get() {
+                                                            view! {
+                                                                <span>"🔄 检测中..."</span>
+                                                            }.into_any()
+                                                        } else {
+                                                            view! {
+                                                                <span>"🔍 立即检查新版本"</span>
+                                                            }.into_any()
+                                                        }}
+                                                    </button>
+                                                </div>
+
+                                                // Update status message banner
+                                                {move || {
+                                                    let msg = update_status_msg.get();
+                                                    if msg.is_empty() {
+                                                        view! { <div></div> }.into_any()
+                                                    } else if msg.starts_with('✓') {
+                                                        view! {
+                                                            <div class="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                                                                {msg}
+                                                            </div>
+                                                        }.into_any()
+                                                    } else if msg.starts_with('✕') {
+                                                        view! {
+                                                            <div class="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-300 font-medium">
+                                                                {msg}
+                                                            </div>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <div class="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 font-medium">
+                                                                {msg}
+                                                            </div>
+                                                        }.into_any()
+                                                    }
+                                                }}
+
+                                                // If an update is detected, show shortcut banner
+                                                {move || {
+                                                    if let Some(info) = app_ctx.available_update.get() {
+                                                        let info_clone = info.clone();
+                                                        view! {
+                                                            <div class="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center justify-between">
+                                                                <div>
+                                                                    <div class="font-bold text-xs text-blue-900 dark:text-blue-200">
+                                                                        {format!("🎉 现已发布新版本：v{} ({})", info_clone.latest_version, info_clone.release_name)}
+                                                                    </div>
+                                                                    <div class="text-[11px] text-blue-600 dark:text-blue-400">
+                                                                        "点击右侧按钮查看详细更新日志并前往下载安装。"
+                                                                    </div>
+                                                                </div>
+                                                                <button
+                                                                    class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium text-xs transition-colors shrink-0 cursor-pointer"
+                                                                    on:click=move |_| app_ctx.is_update_modal_open.set(true)
+                                                                >
+                                                                    "查看更新详情"
+                                                                </button>
+                                                            </div>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! { <div></div> }.into_any()
+                                                    }
+                                                }}
+                                            </div>
+
+                                            // Update Preferences Form
+                                            <div class="p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3.5 bg-slate-50/50 dark:bg-slate-900/40">
+                                                <h5 class="font-bold text-xs text-slate-800 dark:text-slate-200">"更新选项与远程源配置"</h5>
+
+                                                <div class="flex items-center justify-between">
+                                                    <div>
+                                                        <label class="font-medium text-xs text-slate-700 dark:text-slate-300 block">"应用启动时自动检测新版本"</label>
+                                                        <span class="text-[11px] text-slate-400">"工作台启动后将在后台静默检测，发现更新时以徽标与弹窗提醒"</span>
+                                                    </div>
+                                                    <input
+                                                        type="checkbox"
+                                                        class="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                                                        prop:checked=move || auto_check_update.get()
+                                                        on:change=move |ev| auto_check_update.set(event_target_checked(&ev))
+                                                    />
+                                                </div>
+
+                                                <div class="space-y-1">
+                                                    <label class="font-medium text-xs text-slate-700 dark:text-slate-300 block">"自定义检测更新 API 源 (可选)"</label>
+                                                    <input
+                                                        type="text"
+                                                        class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500 font-mono text-xs"
+                                                        placeholder="默认使用官方 GitHub Releases API (留空即为默认)"
+                                                        prop:value=move || custom_update_url.get()
+                                                        on:input=move |ev| custom_update_url.set(event_target_value(&ev))
+                                                    />
+                                                    <p class="text-[10px] text-slate-400">"若在国内网络无法直接访问 GitHub，可配置镜像反代地址。"</p>
+                                                </div>
+
+                                                <button
+                                                    class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium text-xs transition-colors cursor-pointer"
+                                                    on:click=on_save_update_settings
+                                                >
+                                                    "保存更新检测偏好"
+                                                </button>
+                                            </div>
+
+                                            // Links & Project Info
+                                            <div class="pt-2 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700">
+                                                <div class="flex items-center gap-3">
+                                                    <button
+                                                        class="hover:text-blue-600 dark:hover:text-blue-400 underline cursor-pointer"
+                                                        on:click=move |_| on_open_external("https://github.com/orderye/Easy-writing".to_string())
+                                                    >
+                                                        "GitHub 开源仓库"
+                                                    </button>
+                                                    <span>"·"</span>
+                                                    <button
+                                                        class="hover:text-blue-600 dark:hover:text-blue-400 underline cursor-pointer"
+                                                        on:click=move |_| on_open_external("https://github.com/orderye/Easy-writing/releases".to_string())
+                                                    >
+                                                        "历史版本 Releases"
+                                                    </button>
+                                                    <span>"·"</span>
+                                                    <button
+                                                        class="hover:text-blue-600 dark:hover:text-blue-400 underline cursor-pointer"
+                                                        on:click=move |_| on_open_external("https://github.com/orderye/Easy-writing/issues".to_string())
+                                                    >
+                                                        "问题反馈与建议"
+                                                    </button>
+                                                </div>
+                                                <span class="font-mono text-[10px] text-slate-400">"MIT License"</span>
+                                            </div>
+                                        </div>
+                                    }.into_any(),
+
                                     _ => view! {
                                         // Default: LLM Profiles
                                         <div class="space-y-6">
@@ -783,14 +1061,29 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                 />
                                             </div>
 
-                                            {move || if !test_status.get().is_empty() {
-                                                view! {
-                                                    <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-md text-xs font-semibold text-blue-800">
-                                                        {test_status.get()}
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! { <div></div> }.into_any()
+                                            {move || {
+                                                let msg = test_status.get();
+                                                if msg.is_empty() {
+                                                    view! { <div></div> }.into_any()
+                                                } else if msg.starts_with('✓') {
+                                                    view! {
+                                                        <div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-xs font-semibold text-emerald-800">
+                                                            {msg}
+                                                        </div>
+                                                    }.into_any()
+                                                } else if msg.starts_with('✕') {
+                                                    view! {
+                                                        <div class="p-2.5 bg-red-50 border border-red-200 rounded-md text-xs font-semibold text-red-800">
+                                                            {msg}
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-md text-xs font-semibold text-blue-800">
+                                                            {msg}
+                                                        </div>
+                                                    }.into_any()
+                                                }
                                             }}
 
                                             // Add new profile form
@@ -842,7 +1135,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                         <input
                                                             type="password"
                                                             class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500 font-mono"
-                                                            placeholder="sk-••••••••••••••••••••••••••••••••"
+                                                            placeholder="请输入以 sk- 开头的 API Key"
                                                             prop:value=move || form_api_key.get()
                                                             on:input=move |ev| form_api_key.set(event_target_value(&ev))
                                                         />

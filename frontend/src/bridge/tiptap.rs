@@ -73,4 +73,13 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]
     pub fn redo();
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn set_lexicon(terms_json: &str);
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn set_ghost_completion_enabled(enabled: bool);
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn on_lexicon_term_accepted(cb: &js_sys::Function);
 }

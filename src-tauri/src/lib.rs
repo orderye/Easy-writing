@@ -127,6 +127,17 @@ pub fn run() {
             commands::list_prompt_templates,
             commands::save_prompt_template,
             commands::reset_prompt_template,
+            // Lexicon / Autocomplete
+            commands::list_lexicon,
+            commands::save_lexicon_term,
+            commands::delete_lexicon_term,
+            commands::record_lexicon_usage,
+            commands::sync_lexicon_from_novel,
+            commands::import_lexicon_terms,
+            // App Updates & External URLs
+            commands::update_cmd::check_app_update,
+            commands::update_cmd::open_external_url,
+            commands::update_cmd::set_ignored_update_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running easy-writing core");

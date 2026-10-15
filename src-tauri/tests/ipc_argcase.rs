@@ -23,6 +23,7 @@ const COMMAND_SOURCES: &[&str] = &[
     include_str!("../src/commands/ai_cmd.rs"),
     include_str!("../src/commands/config_cmd.rs"),
     include_str!("../src/commands/sync_cmd.rs"),
+    include_str!("../src/commands/update_cmd.rs"),
 ];
 
 /// Every `#[tauri::command]` must declare the snake_case contract; a new command added
@@ -39,7 +40,7 @@ fn every_command_declares_snake_case() {
             }
         }
     }
-    assert_eq!(total, 68, "command count changed — re-audit the frontend call sites");
+    assert_eq!(total, 77, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

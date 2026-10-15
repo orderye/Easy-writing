@@ -10,6 +10,7 @@ pub mod chapter;
 pub mod chapter_revision;
 pub mod character_relation;
 pub mod extraction;
+pub mod lexicon;
 pub mod llm_profile;
 pub mod novel;
 pub mod prompt_template;
@@ -71,6 +72,20 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
         CREATE INDEX IF NOT EXISTS idx_relation_novel ON character_relation(novel_id);",
     );
     let _ = conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_prompt_template_scope ON prompt_template(scope)", []);
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS novel_lexicon (
+            id          TEXT PRIMARY KEY,
+            novel_id    TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+            term        TEXT NOT NULL,
+            category    TEXT NOT NULL DEFAULT 'custom',
+            frequency   INTEGER NOT NULL DEFAULT 1,
+            source_id   TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_lexicon_novel_term ON novel_lexicon(novel_id, term);
+        CREATE INDEX IF NOT EXISTS idx_lexicon_novel ON novel_lexicon(novel_id);",
+    );
 
     Ok(pool)
 }

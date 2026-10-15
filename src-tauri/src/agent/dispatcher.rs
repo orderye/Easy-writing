@@ -38,5 +38,9 @@ pub fn resolve_agent_and_profile(
         String::new()
     };
 
+    if api_key.trim().is_empty() {
+        return Err("当前绑定的模型接口未检测到有效的 API Key 密钥，已在调用前拦截。请在系统设置中重新配置。".to_string());
+    }
+
     Ok((agent, profile, api_key))
 }

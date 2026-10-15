@@ -1,10 +1,11 @@
 pub mod ai_cmd;
 pub mod config_cmd;
 pub mod sync_cmd;
+pub mod update_cmd;
 
 use crate::db::DbPool;
 use shared_types::{
-    Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, Novel, PlotItem,
+    Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, LexiconEntry, Novel, PlotItem,
     SettingChange, TrashItem, Volume, WorldviewEntry,
 };
 use tauri::State;
@@ -308,8 +309,14 @@ pub fn save_worldview(
     content: String,
 ) -> Result<WorldviewEntry, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
-    crate::db::settings::save_worldview(&conn, id, &novel_id, &group_name, &title, &content)
-        .map_err(|e| e.to_string())
+    let entry = crate::db::settings::save_worldview(&conn, id, &novel_id, &group_name, &title, &content)
+        .map_err(|e| e.to_string())?;
+    
+    let clean = entry.title.trim();
+    if clean.chars().count() >= 2 && clean.chars().count() <= 30 {
+        let _ = crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, clean, "worldview", Some(&entry.id));
+    }
+    Ok(entry)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -337,8 +344,22 @@ pub fn save_character(
     profile: String,
 ) -> Result<Character, String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
-    crate::db::settings::save_character(&conn, id, &novel_id, &name, &aliases, &profile)
-        .map_err(|e| e.to_string())
+    let character = crate::db::settings::save_character(&conn, id, &novel_id, &name, &aliases, &profile)
+        .map_err(|e| e.to_string())?;
+
+    let clean_name = character.name.trim();
+    if clean_name.chars().count() >= 2 && clean_name.chars().count() <= 20 {
+        let _ = crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, clean_name, "character", Some(&character.id));
+    }
+    if let Ok(alias_list) = serde_json::from_str::<Vec<String>>(&character.aliases) {
+        for a in alias_list {
+            let a_clean = a.trim();
+            if a_clean.chars().count() >= 2 && a_clean.chars().count() <= 20 {
+                let _ = crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, a_clean, "character", Some(&character.id));
+            }
+        }
+    }
+    Ok(character)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -572,6 +593,82 @@ pub fn reset_prompt_template(
     crate::db::prompt_template::reset_prompt_template(&conn, &key)
         .map_err(|e| e.to_string())
 }
+
+// Lexicon / Autocomplete Dictionary commands
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_lexicon(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<Vec<LexiconEntry>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::lexicon::list_lexicon(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn save_lexicon_term(
+    pool: State<DbPool>,
+    novel_id: String,
+    term: String,
+    category: String,
+    source_id: Option<String>,
+) -> Result<LexiconEntry, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, &term, &category, source_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn delete_lexicon_term(
+    pool: State<DbPool>,
+    id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::lexicon::delete_lexicon_term(&conn, &id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn record_lexicon_usage(
+    pool: State<DbPool>,
+    novel_id: String,
+    term: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::lexicon::record_term_usage(&conn, &novel_id, &term).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn sync_lexicon_from_novel(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<usize, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let settings_count = crate::db::lexicon::sync_lexicon_from_settings(&conn, &novel_id)
+        .map_err(|e| e.to_string())?;
+    let corpus_count = crate::db::lexicon::scan_and_extract_corpus_terms(&conn, &novel_id)
+        .map_err(|e| e.to_string())?;
+    Ok(settings_count + corpus_count)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn import_lexicon_terms(
+    pool: State<DbPool>,
+    novel_id: String,
+    terms: Vec<String>,
+    category: String,
+) -> Result<usize, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let mut imported = 0;
+    for t in terms {
+        let trimmed = t.trim();
+        if trimmed.chars().count() >= 2 && trimmed.chars().count() <= 40 {
+            if crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, trimmed, &category, None).is_ok() {
+                imported += 1;
+            }
+        }
+    }
+    Ok(imported)
+}
+
 
 
 

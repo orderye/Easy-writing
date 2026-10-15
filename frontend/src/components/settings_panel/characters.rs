@@ -1,9 +1,11 @@
 use crate::components::ai::polish_button::PolishButton;
+use crate::components::settings_panel::character_explosion_modal::CharacterExplosionModal;
+use crate::components::settings_panel::character_graph_view::CharacterGraphView;
 use crate::state::AppContext;
 use crate::tauri_api::invoke;
 use leptos::prelude::*;
 use serde::Serialize;
-use shared_types::{Character, CharacterRelation};
+use shared_types::{Character, CharacterRelation, ExplodedProfile};
 use std::collections::HashMap;
 
 #[derive(Serialize)]
@@ -49,7 +51,8 @@ struct DeleteRelationArgs {
 pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
     let characters = RwSignal::new(Vec::<Character>::new());
     let relations = RwSignal::new(Vec::<CharacterRelation>::new());
-    let active_sub_tab = RwSignal::new("cards".to_string()); // "cards" | "relations"
+    let active_sub_tab = RwSignal::new("cards".to_string()); // "cards" | "nebula" | "relations"
+    let inspecting_character = RwSignal::new(Option::<Character>::None);
 
     // New relation form inputs
     let new_from_id = RwSignal::new(String::new());
@@ -167,7 +170,7 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
 
     view! {
         <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
-            // Sub-tab switcher: Cards vs Relations Graph
+            // Sub-tab switcher: Cards vs Nebula Graph vs Relations Form
             <div class="flex items-center justify-between text-xs pb-1.5 border-b border-slate-200 dark:border-slate-800">
                 <div class="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-md text-[11px] font-medium">
                     <button
@@ -189,6 +192,21 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                         class=move || {
                             format!(
                                 "px-2 py-0.5 rounded transition-colors cursor-pointer {}",
+                                if active_sub_tab.get() == "nebula" {
+                                    "bg-white dark:bg-slate-900 font-bold text-amber-500 dark:text-amber-400 shadow-2xs"
+                                } else {
+                                    "text-slate-500 dark:text-slate-400 hover:text-slate-700"
+                                }
+                            )
+                        }
+                        on:click=move |_| active_sub_tab.set("nebula".to_string())
+                    >
+                        "🌌 星云爆炸图"
+                    </button>
+                    <button
+                        class=move || {
+                            format!(
+                                "px-2 py-0.5 rounded transition-colors cursor-pointer {}",
                                 if active_sub_tab.get() == "relations" {
                                     "bg-white dark:bg-slate-900 font-bold text-blue-600 dark:text-blue-400 shadow-2xs"
                                 } else {
@@ -198,7 +216,7 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                         }
                         on:click=move |_| active_sub_tab.set("relations".to_string())
                     >
-                        "🕸️ 关系图谱"
+                        "🔗 关系管理"
                     </button>
                 </div>
 
@@ -211,12 +229,18 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                             "+ 新增角色"
                         </button>
                     }.into_any()
+                } else if active_sub_tab.get() == "nebula" {
+                    view! {
+                        <span class="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                            "★ " {move || characters.get().len()} " 节点 / " {move || relations.get().len()} " 羁绊"
+                        </span>
+                    }.into_any()
                 } else {
                     view! { <span class="text-[10px] text-slate-400">"共 " {move || relations.get().len()} " 条关系"</span> }.into_any()
                 }}
             </div>
 
-            // Tab 1: Cards View
+            // View 1: Cards View
             {move || if active_sub_tab.get() == "cards" {
                 let query = app_ctx.settings_search_query.get().to_lowercase().trim().to_string();
                 let all_chars = characters.get();
@@ -244,9 +268,14 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                         {filtered.into_iter().map(|ch| {
                             let ch_id = ch.id.clone();
                             let del_id = ch.id.clone();
+                            let ch_modal = ch.clone();
                             let name = RwSignal::new(ch.name.clone());
                             let profile = RwSignal::new(ch.profile.clone());
                             let aliases = RwSignal::new(ch.aliases.clone());
+
+                            let ep = ExplodedProfile::parse_from_str(&ch.profile);
+                            let faction_name = if ep.faction.is_empty() { "默认阵营".to_string() } else { ep.faction };
+                            let has_exploded = !ep.core.desire.is_empty() || !ep.appearance.features.is_empty();
 
                             let save_char = move |new_name: String, new_profile: String, new_aliases: String| {
                                 if let Some(novel) = app_ctx.current_novel.get() {
@@ -286,8 +315,26 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                                                 prop:value=move || name.get()
                                                 on:input=move |ev| name.set(event_target_value(&ev))
                                             />
+                                            <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
+                                                {faction_name}
+                                            </span>
                                         </div>
                                         <div class="flex items-center gap-1 shrink-0">
+                                            // 6-Dimension Explosion Trigger Button
+                                            <button
+                                                class=format!(
+                                                    "text-[11px] px-2 py-0.5 rounded font-semibold transition-colors cursor-pointer border {}",
+                                                    if has_exploded {
+                                                        "bg-purple-50 dark:bg-purple-950/70 text-purple-600 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-100"
+                                                    } else {
+                                                        "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                                                    }
+                                                )
+                                                title="打开该角色的 6 维全息解构爆炸图"
+                                                on:click=move |_| inspecting_character.set(Some(ch_modal.clone()))
+                                            >
+                                                "💥 6维爆炸"
+                                            </button>
                                             <PolishButton module_key="character" content=profile />
                                             <button
                                                 class="text-slate-400 hover:text-rose-500 dark:hover:text-rose-400 text-xs p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
@@ -299,43 +346,59 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                                         </div>
                                     </div>
 
-                                    <textarea
-                                        class="w-full text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded p-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-500 min-h-[60px] leading-relaxed font-serif"
-                                        placeholder="输入人物外貌、性格动机、身份背景与关系网……"
-                                        prop:value=move || profile.get()
-                                        on:input=move |ev| profile.set(event_target_value(&ev))
-                                    ></textarea>
+                                    {if has_exploded {
+                                        view! {
+                                            <div class="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50/80 dark:bg-slate-850/80 border border-slate-200 dark:border-slate-800 rounded p-2 space-y-1">
+                                                {if !ep.core.desire.is_empty() {
+                                                    view! { <p class="truncate"><span class="text-purple-600 dark:text-purple-400 font-semibold">"欲求："</span> {ep.core.desire}</p> }.into_any()
+                                                } else { view! { <div></div> }.into_any() }}
+                                                {if !ep.core.flaw.is_empty() {
+                                                    view! { <p class="truncate"><span class="text-rose-600 dark:text-rose-400 font-semibold">"心魔："</span> {ep.core.flaw}</p> }.into_any()
+                                                } else { view! { <div></div> }.into_any() }}
+                                                {if !ep.appearance.features.is_empty() {
+                                                    view! { <p class="truncate text-slate-500"><span class="text-emerald-600 dark:text-emerald-400 font-semibold">"特征："</span> {ep.appearance.features}</p> }.into_any()
+                                                } else { view! { <div></div> }.into_any() }}
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <textarea
+                                                class="w-full text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded p-1.5 focus:outline-hidden focus:ring-1 focus:ring-blue-500 min-h-[55px] leading-relaxed font-serif"
+                                                placeholder="输入人物外貌、性格动机、身份背景与关系网，或点击右上角「💥 6维爆炸」进行立体拆解……"
+                                                prop:value=move || profile.get()
+                                                on:input=move |ev| profile.set(event_target_value(&ev))
+                                            ></textarea>
+                                        }.into_any()
+                                    }}
                                 </div>
                             }
                         }).collect::<Vec<_>>()}
                     </div>
                 }.into_any()
+            } else if active_sub_tab.get() == "nebula" {
+                // View 2: High-Performance Canvas 2D Nebula Graph View
+                view! {
+                    <CharacterGraphView
+                        characters=characters
+                        relations=relations
+                        on_inspect_character=Callback::new(move |ch| inspecting_character.set(Some(ch)))
+                    />
+                }.into_any()
             } else {
-                // Tab 2: Relations Graph View
+                // View 3: Relations List & Creation Form
                 let all_chars = characters.get();
                 let all_rels = relations.get();
 
-                // Compute node positions for SVG
-                let n = all_chars.len().max(1);
-                let cx = 135.0;
-                let cy = 115.0;
-                let r = 80.0;
-
                 let mut char_map = HashMap::new();
-                let mut pos_map = HashMap::new();
-                for (i, c) in all_chars.iter().enumerate() {
+                for c in all_chars.iter() {
                     char_map.insert(c.id.clone(), c.name.clone());
-                    let angle = (i as f64) * 2.0 * std::f64::consts::PI / (n as f64) - std::f64::consts::FRAC_PI_2;
-                    let x = cx + r * angle.cos();
-                    let y = cy + r * angle.sin();
-                    pos_map.insert(c.id.clone(), (x, y));
                 }
 
                 view! {
                     <div class="space-y-4">
-                        // 1. Add Relation Inline Form
+                        // 1. Add Relation Form
                         <div class="border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50/70 dark:bg-slate-850/70 space-y-2 text-xs">
-                            <span class="font-bold text-slate-700 dark:text-slate-300 text-[11px]">"➕ 建立新关系连接"</span>
+                            <span class="font-bold text-slate-700 dark:text-slate-300 text-[11px]">"➕ 建立新角色关系纽带"</span>
                             <div class="grid grid-cols-3 gap-1.5">
                                 <select
                                     class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-[11px] text-slate-800 dark:text-slate-200"
@@ -377,106 +440,14 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                                     class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded text-[11px] font-semibold transition-colors cursor-pointer shrink-0"
                                     on:click=on_create_relation
                                 >
-                                    "连接"
+                                    "建立纽带"
                                 </button>
                             </div>
                         </div>
 
-                        // 2. Interactive SVG Graph
-                        <div class="border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-white dark:bg-slate-900 shadow-2xs overflow-hidden flex flex-col items-center">
-                            <span class="text-[10px] text-slate-400 self-start mb-1 font-medium">"可视化角色拓扑图："</span>
-                            {if all_chars.is_empty() {
-                                view! {
-                                    <div class="py-12 text-center text-xs text-slate-400">
-                                        "请先添加至少两位角色"
-                                    </div>
-                                }.into_any()
-                            } else {
-                                view! {
-                                    <svg viewBox="0 0 270 230" class="w-full max-w-[270px] h-[230px]">
-                                        // Relation edges
-                                        {all_rels.iter().filter_map(|rel| {
-                                            if let (Some(&(x1, y1)), Some(&(x2, y2))) = (pos_map.get(&rel.from_char_id), pos_map.get(&rel.to_char_id)) {
-                                                let mid_x = (x1 + x2) / 2.0;
-                                                let mid_y = (y1 + y2) / 2.0;
-                                                Some(view! {
-                                                    <g>
-                                                        <line
-                                                            x1=x1 y1=y1 x2=x2 y2=y2
-                                                            stroke="#94a3b8"
-                                                            stroke-width="1.5"
-                                                            stroke-dasharray="3,2"
-                                                            opacity="0.8"
-                                                        />
-                                                        <rect
-                                                            x=mid_x - 18.0 y=mid_y - 7.0
-                                                            width="36" height="14"
-                                                            rx="3"
-                                                            fill="#f8fafc"
-                                                            stroke="#cbd5e1"
-                                                            stroke-width="0.5"
-                                                        />
-                                                        <text
-                                                            x=mid_x y=mid_y + 3.0
-                                                            font-size="8"
-                                                            text-anchor="middle"
-                                                            fill="#2563eb"
-                                                            font-weight="bold"
-                                                        >
-                                                            {rel.relation_name.clone()}
-                                                        </text>
-                                                    </g>
-                                                })
-                                            } else {
-                                                None
-                                            }
-                                        }).collect::<Vec<_>>()}
-
-                                        // Character nodes
-                                        {all_chars.iter().map(|ch| {
-                                            let (x, y) = pos_map.get(&ch.id).copied().unwrap_or((cx, cy));
-                                            let display_name: String = ch.name.chars().take(2).collect();
-                                            let full_name = ch.name.clone();
-
-                                            view! {
-                                                <g class="cursor-pointer group">
-                                                    <circle
-                                                        cx=x cy=y r="15"
-                                                        fill="#3b82f6"
-                                                        fill-opacity="0.15"
-                                                        stroke="#3b82f6"
-                                                        stroke-width="1.5"
-                                                    />
-                                                    <text
-                                                        x=x y=y + 3.5
-                                                        font-size="9"
-                                                        text-anchor="middle"
-                                                        font-weight="bold"
-                                                        fill="#1e293b"
-                                                        class="dark:fill-slate-100 select-none"
-                                                    >
-                                                        {display_name}
-                                                    </text>
-                                                    <text
-                                                        x=x y=y + 24.0
-                                                        font-size="8"
-                                                        text-anchor="middle"
-                                                        fill="#64748b"
-                                                        class="dark:fill-slate-400 select-none"
-                                                    >
-                                                        {full_name}
-                                                    </text>
-                                                </g>
-                                            }
-                                        }).collect::<Vec<_>>()}
-                                    </svg>
-                                }.into_any()
-                            }}
-                        </div>
-
-                        // 3. Relations Detailed List
+                        // 2. Relations Detailed List
                         <div class="space-y-2">
-                            <span class="text-xs font-bold text-slate-700 dark:text-slate-300">"已确认关系清单"</span>
+                            <span class="text-xs font-bold text-slate-700 dark:text-slate-300">"已确认关系清单 (" {all_rels.len()} ")"</span>
                             {if all_rels.is_empty() {
                                 view! {
                                     <div class="py-4 text-center text-xs text-slate-400">
@@ -531,6 +502,16 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                     </div>
                 }.into_any()
             }}
+
+            // 6-Dimension Exploded Modal Mount
+            <CharacterExplosionModal
+                app_ctx=app_ctx
+                character=inspecting_character
+                on_saved=Callback::new(move |_| {
+                    load_characters();
+                    load_relations();
+                })
+            />
         </div>
     }
 }

@@ -1,10 +1,12 @@
 {
   "name": "easy-writing",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build:bridge": "esbuild js/src/tiptap-bridge.js --bundle --minify --format=iife --global-name=TiptapBridge --outfile=frontend/public/tiptap-bridge.bundle.js",
+    "build:tiptap": "esbuild js/src/tiptap-bridge.js --bundle --minify --format=iife --global-name=TiptapBridge --outfile=frontend/public/tiptap-bridge.bundle.js",
+    "build:graph": "esbuild js/src/graph-bridge.js --bundle --minify --format=iife --global-name=CharacterGraphBridge --outfile=frontend/public/graph-bridge.bundle.js",
+    "build:bridge": "pnpm build:tiptap && pnpm build:graph",
     "build:css": "tailwindcss -i frontend/styles/main.css -o frontend/public/styles.css --minify",
     "build:assets": "pnpm build:bridge && pnpm build:css",
     "dev:frontend": "pnpm build:assets && trunk serve --open=false frontend/index.html",
@@ -21,6 +23,7 @@
     "@tiptap/extension-text-align": "^2.10.4",
     "@tiptap/extension-text-style": "^2.10.4",
     "@tiptap/extension-underline": "^2.10.4",
+    "@tiptap/pm": "^3.32.0",
     "@tiptap/starter-kit": "^2.10.4"
   },
   "devDependencies": {

@@ -20,6 +20,8 @@ pub struct AppContext {
     pub save_status: RwSignal<String>,
     pub word_count: RwSignal<u32>,
     pub is_editor_mounted: RwSignal<bool>,
+    pub is_ghost_completion_enabled: RwSignal<bool>,
+    pub lexicon_version: RwSignal<u32>,
 
     // App Preferences & Theme
     pub theme: RwSignal<String>,
@@ -46,6 +48,10 @@ pub struct AppContext {
     pub chapter_search_query: RwSignal<String>,
     pub chapter_status_filter: RwSignal<String>,
     pub is_import_modal_open: RwSignal<bool>,
+    pub is_update_modal_open: RwSignal<bool>,
+    pub available_update: RwSignal<Option<shared_types::AppUpdateInfo>>,
+    pub has_update_badge: RwSignal<bool>,
+    pub is_checking_update: RwSignal<bool>,
 }
 
 impl AppContext {
@@ -64,6 +70,8 @@ impl AppContext {
             save_status: RwSignal::new("saved".to_string()),
             word_count: RwSignal::new(0),
             is_editor_mounted: RwSignal::new(false),
+            is_ghost_completion_enabled: RwSignal::new(true),
+            lexicon_version: RwSignal::new(0),
 
             theme: RwSignal::new("system".to_string()),
             font_size: RwSignal::new(16),
@@ -87,6 +95,10 @@ impl AppContext {
             chapter_search_query: RwSignal::new(String::new()),
             chapter_status_filter: RwSignal::new("all".to_string()),
             is_import_modal_open: RwSignal::new(false),
+            is_update_modal_open: RwSignal::new(false),
+            available_update: RwSignal::new(None),
+            has_update_badge: RwSignal::new(false),
+            is_checking_update: RwSignal::new(false),
         }
     }
 }

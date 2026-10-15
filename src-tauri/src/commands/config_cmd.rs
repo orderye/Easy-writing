@@ -13,16 +13,25 @@ pub fn create_llm_profile(
     api_key: String,
     is_default: bool,
 ) -> Result<LlmProfile, String> {
+    let trimmed_key = api_key.trim();
+    if trimmed_key.is_empty() {
+        return Err("API Key 密钥不能为空，请输入以 sk- 开头的有效密钥".to_string());
+    }
+
     let conn = pool.get().map_err(|e| e.to_string())?;
     let key_ref = format!("llm-key-{}", uuid::Uuid::new_v4());
 
-    if !api_key.is_empty() {
-        crate::keyring::set_secret(&key_ref, &api_key)?;
-    }
+    crate::keyring::set_secret(&key_ref, trimmed_key)?;
+
+    let display_name = if name.trim().is_empty() {
+        model.clone()
+    } else {
+        name
+    };
 
     crate::db::llm_profile::create_profile(
         &conn,
-        &name,
+        &display_name,
         &protocol,
         &base_url,
         &key_ref,
@@ -65,6 +74,10 @@ pub async fn test_llm_connection(
     } else {
         String::new()
     };
+
+    if api_key.trim().is_empty() {
+        return Err("当前接口未检测到有效的 API Key 密钥，已在连接前拦截。请删除此配置后重新输入以 sk- 开头的有效密钥保存。".to_string());
+    }
 
     let gateway = AiGateway::new();
     gateway.test_connection(&profile, &api_key).await

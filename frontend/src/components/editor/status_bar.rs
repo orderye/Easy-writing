@@ -23,6 +23,31 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
 
             <div class="flex items-center gap-3 text-slate-400 dark:text-slate-500">
                 <button
+                    class=move || {
+                        if app_ctx.is_ghost_completion_enabled.get() {
+                            "hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1 transition-colors text-blue-600 dark:text-blue-400 font-medium"
+                        } else {
+                            "hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer flex items-center gap-1 transition-colors text-slate-400"
+                        }
+                    }
+                    title="点击切换：小说词库实时灰字预测补全 (按 Tab 键一键确认)"
+                    on:click=move |_| {
+                        app_ctx.is_ghost_completion_enabled.update(|v| *v = !*v);
+                    }
+                >
+                    <span>"⚡"</span>
+                    <span>
+                        {move || {
+                            if app_ctx.is_ghost_completion_enabled.get() {
+                                "词库补全: 开 (Tab确认)"
+                            } else {
+                                "词库补全: 关"
+                            }
+                        }}
+                    </span>
+                </button>
+                <span class="text-slate-300 dark:text-slate-600">"|"</span>
+                <button
                     class="hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1 transition-colors"
                     title="查看章节版本历史与时间轴回滚"
                     on:click=move |_| {

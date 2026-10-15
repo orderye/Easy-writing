@@ -267,3 +267,119 @@ pub struct PromptTemplate {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct ExplodedProfile {
+    pub core: CharacterCore,
+    pub appearance: CharacterAppearance,
+    pub voice: CharacterVoice,
+    pub assets: Vec<CharacterAssetItem>,
+    pub secret: CharacterSecret,
+    pub faction: String,
+    pub importance: i32, // 1(主角) ~ 5(龙套)
+    pub raw_notes: String,
+}
+
+impl ExplodedProfile {
+    pub fn parse_from_str(s: &str) -> Self {
+        if let Ok(exploded) = serde_json::from_str::<ExplodedProfile>(s) {
+            exploded
+        } else {
+            Self {
+                raw_notes: s.to_string(),
+                faction: "默认阵营".to_string(),
+                importance: 2,
+                ..Default::default()
+            }
+        }
+    }
+
+    pub fn to_json_string(&self) -> String {
+        serde_json::to_string(self).unwrap_or_else(|_| self.raw_notes.clone())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterCore {
+    pub desire: String,         // 渴望 (Want)
+    pub inner_need: String,     // 真正所需 (Need)
+    pub flaw: String,           // 心魔执念 (Lie / Ghost)
+    pub principle: String,      // 行事底线
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterAppearance {
+    pub features: String,       // 核心辨识点
+    pub clothing: String,       // 经典穿搭风格
+    pub gestures: String,       // 习惯性小动作
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterVoice {
+    pub tone: String,           // 说话语调
+    pub catchphrase: String,    // 经典口头禅
+    pub triggers: String,       // 情绪失控雷区
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterAssetItem {
+    pub name: String,
+    pub kind: String,           // 武器 / 信物 / 功法 / 资产
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CharacterSecret {
+    pub identity: String,       // 隐藏身份
+    pub weakness: String,       // 致命死穴
+    pub secret: String,         // 不可告人的秘密
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GraphNodeDto {
+    pub id: String,
+    pub name: String,
+    pub faction: String,
+    pub importance: i32,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GraphLinkDto {
+    pub id: String,
+    pub source: String,
+    pub target: String,
+    pub relation_name: String,
+    pub description: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LexiconEntry {
+    pub id: String,
+    pub novel_id: String,
+    pub term: String,
+    pub category: String, // "worldview" | "character" | "plot" | "corpus" | "custom"
+    pub frequency: i32,
+    pub source_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct AppUpdateAsset {
+    pub name: String,
+    pub size: u64,
+    pub browser_download_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct AppUpdateInfo {
+    pub current_version: String,
+    pub latest_version: String,
+    pub has_update: bool,
+    pub release_name: String,
+    pub release_notes: String,
+    pub published_at: String,
+    pub html_url: String,
+    pub download_url: String,
+    pub assets: Vec<AppUpdateAsset>,
+    pub is_prerelease: bool,
+}

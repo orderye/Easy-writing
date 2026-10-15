@@ -1,6 +1,7 @@
 use crate::components::ai::conflict_modal::ConflictModal;
 use crate::components::ai::extraction_modal::ExtractionModal;
 use crate::components::config::config_modal::ConfigModal;
+use crate::components::config::update_modal::UpdateModal;
 use crate::components::editor::revision_modal::RevisionModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::novel::import_modal::ImportModal;
@@ -15,8 +16,14 @@ use crate::tauri_api::invoke;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use serde::Serialize;
+use shared_types::AppUpdateInfo;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
+
+#[derive(Serialize)]
+struct CheckUpdateArgs {
+    force: bool,
+}
 
 #[component]
 pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
@@ -54,6 +61,33 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
         });
     });
 
+    // Background automatic update check on application launch (delayed 4 seconds)
+    Effect::new(move |_| {
+        let ctx = app_ctx;
+        leptos::task::spawn_local(async move {
+            TimeoutFuture::new(4000).await;
+            #[derive(Serialize)]
+            struct GetAppSettingArgs {
+                key: String,
+            }
+            let is_auto_enabled = if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_check_update".to_string() }).await {
+                val != "false"
+            } else {
+                true
+            };
+
+            if is_auto_enabled {
+                if let Ok(info) = invoke::<AppUpdateInfo, _>("check_app_update", &CheckUpdateArgs { force: false }).await {
+                    if info.has_update {
+                        ctx.available_update.set(Some(info));
+                        ctx.has_update_badge.set(true);
+                        ctx.is_update_modal_open.set(true);
+                    }
+                }
+            }
+        });
+    });
+
     view! {
         <div class="h-full w-full flex flex-row overflow-hidden bg-slate-100 dark:bg-slate-900">
             <SettingsPanel app_ctx=app_ctx />
@@ -61,6 +95,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <StructurePanel app_ctx=app_ctx />
 
             <ConfigModal is_open=app_ctx.is_config_open app_ctx=app_ctx />
+            
+            <UpdateModal is_open=app_ctx.is_update_modal_open app_ctx=app_ctx />
             
             <RevisionModal is_open=app_ctx.is_revisions_modal_open app_ctx=app_ctx />
             
