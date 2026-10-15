@@ -2,493 +2,94 @@
 
 <img src="src-tauri/icons/128x128@2x.png" width="88" alt="Easy-writing" align="right" />
 
-> 把**设定、大纲、章节正文**与**多个 AI Agent** 放进同一界面的本地写作工作台。
+> 把**设定、大纲、章节正文**与**多 AI Agent** 放进同一界面的本地写作工作台。
 >
-> 设定自己长出来 · 结构清晰 · 多 Agent 分工 · 数据完全自主
+> 设定自长成 · 结构清晰 · 多 Agent 协作 · 数据完全自主
 
-![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white)
-![Rust](https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white)
-![Leptos](https://img.shields.io/badge/Leptos-0.7_(WASM)-EF3939)
-![Tiptap](https://img.shields.io/badge/Tiptap-2.x-1C1C1C)
-![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)
-![Platform](https://img.shields.io/badge/平台-macOS_|_Windows-lightgrey)
-
-![Easy-writing 三栏工作台界面](Docs/images/ui-layout.png)
-
----
-
-## 目录
-
-- [项目简介](#项目简介)
-- [核心特性](#核心特性)
-- [界面布局](#界面布局)
-- [技术栈](#技术栈)
-- [系统架构](#系统架构)
-- [目录结构](#目录结构)
-- [快速开始](#快速开始)
-- [配置指南](#配置指南)
-- [数据与安全](#数据与安全)
-- [数据库设计](#数据库设计)
-- [后端命令一览](#后端命令一览)
-- [开发路线图与里程碑达成](#开发路线图与里程碑达成)
-- [相关文档](#相关文档)
-- [构建与发布](#构建与发布)
-
----
-
-## 项目简介
-
-**Easy-writing** 是一款面向独立中长篇小说创作者的**本地桌面写作工作台**，按 **100 万字 / 300 章**的单部体量进行数据流与渲染性能设计。
-
-它要解决四件事：
-
-1. **设定自己长出来** —— 世界观、角色、剧情、大纲可以一开始留空，写正文时由 AI 从章节内容中提炼成候选条目，你确认后才入库。
-2. **结构清晰** —— 作品按「卷 → 章」组织，右栏管理结构，中间只管写。
-3. **AI 贴身、多 Agent 分工** —— 六个预设 Agent 各司其职，可分别绑定不同的大模型接口；对话框只作用于正文，并严格按设定写作，冲突时先问你。
-4. **数据自主** —— 单机 SQLite 文件 + 图片文件夹，密钥存系统钥匙串，整库经 WebDAV 备份，不依赖第三方账号。
-
----
-
-## 核心特性
-
-| 模块 | 能力 | 状态 |
-| --- | --- | --- |
-| **作品管理** | 作品（小说名 + 全篇梗概）的增删改查、软删除 | ✅ MVP |
-| **设定管理** | 左栏四类设定：世界观条目、角色卡、剧情梳理（主线/冲突/伏笔 + 已埋/已回收）、大纲（全篇梗概 / 卷纲 / 章纲） | ✅ MVP |
-| **结构管理** | 卷目与章节的增删改、拖拽排序、跨卷移动、章节状态（草稿 / 修改中 / 定稿）、字数统计 | ✅ MVP |
-| **写作台** | 基于 Tiptap 的富文本编辑：H1–H3、加粗、斜体、下划线、对齐、引用、分隔线、列表、图片、撤销重做 | ✅ MVP |
-| **大纲单一事实源** | 大纲里的卷纲/章纲与右栏卷简介/章摘要共用同一份数据 | ✅ MVP |
-| **AI 修饰** | 六处输入框的「✨ AI 修饰」，原文与润色稿并排对比，采用 / 重试 / 放弃 | ✅ MVP |
-| **AI 对话** | 写作助手对话框，流式输出（40ms 微批处理）、自动装配设定上下文、插入光标 / 替换选中 | ✅ MVP |
-| **冲突检测** | 生成内容与设定冲突时弹出裁决卡：修改设定后继续 / 换一种写法 / 取消，改动留档 | ✅ MVP |
-| **AI 提炼** | 「提炼本章」触发世界观、角色、剧情、大纲四个 Agent 并行提炼（信号量限流），候选逐条采纳 / 编辑 / 忽略 | ✅ MVP |
-| **多模型接口** | OpenAI 兼容 / Anthropic 兼容两种协议，多套配置，测试连接，密钥入系统钥匙串 | ✅ MVP |
-| **WebDAV 同步** | 先增量上传图片（SHA-256 去重）→ SQLite 一致性快照 → gzip 压缩 → 原子上传；按时间列出备份并恢复 | ✅ MVP |
-| **深色模式** | 支持浅色 / 深色 / 跟随系统三档切换，设置面板与左栏底栏快捷切换，正文字号与行距实时动态生效 | ✅ MVP |
-| **防丢保护** | 手动保存（⌘/Ctrl+S）、脏标记、定时自动保存、切章未保存二次弹窗确认拦截 | ✅ MVP |
-| **CI 自动化发布** | GitHub Actions 工作流（`.github/workflows/release.yml`）自动化构建 macOS 与 Windows 客户端 | ✅ MVP |
-| **快捷 AI 浮标** | 编辑器选中文本即刻弹出快捷浮标（润色 / 扩写 / 缩写 / 续写）与并排 Diff 采纳 | ✅ v1.0.0 |
-| **版本快照回滚** | 手动保存与切章自动创建版本快照，支持时间轴抽屉查看与安全一键回滚 | ✅ v1.0.0 |
-| **冲突改动留档** | 详细记录 AI 裁决产生的设定变动细节与原因，提供一键撤销恢复原设定 | ✅ v1.0.0 |
-| **软删除回收站** | 卷目、章节、世界观、角色卡、剧情伏笔误删后集中存放，支持一键还原与彻底清空 | ✅ v1.0.0 |
-| **设定全文检索** | 世界观多级分组手风琴卡片，设定条目实时模糊全文搜索高亮 | ✅ v1.0.0 |
-| **章节即时筛选** | 结构面板支持按章节标题关键字模糊搜索与状态（草稿 / 修改中 / 定稿）胶囊过滤 | ✅ v1.0.0 |
-| **静默自动提炼** | 章节保存后后台异步 4 Agent 提取设定，导航栏小红点徽标提示作者空闲时集中审核 | ✅ v1.0.0 |
-| **退出静默同步** | 应用关闭时自动触发 WebDAV 数据库安全快照上传，保障跨设备数据一致 | ✅ v1.0.0 |
-| **长文批量导入** | 导入外部 `.txt` / `.md` 长篇文稿，正则智能识别「卷/章」生成结构树并事务入库 | ✅ v1.0.0 |
-| **角色关系图谱** | 设定面板提供交互式 SVG 角色关系拓扑网与纽带管理 | ✅ v1.0.0 |
-| **Prompt 模板管理** | 6 处修饰模块（世界观/角色/剧情/大纲/卷/章）独立提示词深度微调与一键恢复出厂 | ✅ v1.0.0 |
-| **长目录虚拟滚动** | 300+ 章节长目录视口虚拟渲染，DOM 节点维持 ~25 个，告别长篇连载卡顿 | ✅ v1.0.0 |
-| **角色深度档案爆破** | 深度立绘卡片：核心动机（渴望/所需/心魔/底线）、外貌特征、言谈口头禅、资产信物、致命秘密死穴、阵营与主配分级 | ✅ v0.2.0 |
-| **关系互动拓扑图谱** | 基于 Force-Graph 渲染关系网络拓扑图，支持节点拖拽、高亮关联亲友敌对链路、多级缩放漫游与关系直接编辑 | ✅ v0.2.0 |
-| **专有词库与语料提取** | 小说专有名词库管理与快速检索；设定条目自动提取同步；正文高频词快速扫描与词频热度追踪 | ✅ v0.2.0 |
-| **软件在线检查更新** | 支持 GitHub / CNB Releases API 语义化版本更新检测，自动识别系统架构安装包下载与弹窗提醒 | ✅ v0.2.0 |
-| **全文查找与快速替换** | 编辑器内置查找/替换面板（⌘F / Ctrl+F），支持大小写敏感、全词匹配、高亮当前匹配与批量替换 | ✅ v0.2.0 |
-
----
-
-## 界面布局
+[![Tauri 2](https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
+[![Rust 2021](https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Leptos 0.7](https://img.shields.io/badge/Leptos-0.7_(WASM)-EF3939)](https://leptos.dev/)
+[![Tiptap 2](https://img.shields.io/badge/Tiptap-2.x-1C1C1C)](https://tiptap.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ![Easy-writing 三栏工作台界面](Docs/images/ui-layout.png)
 
-<p align="center"><sub>Easy-writing v0.1 工作台主界面（macOS）</sub></p>
+---
 
-三栏结构如下：
+## 🌟 核心特性
 
-| 区域 | 内容 |
-| --- | --- |
-| **左栏 · 设定** | 顶部为可改名的小说名，下方四个标签页：世界观 / 角色 / 剧情 / 大纲，底部为**设置**入口 |
-| **中栏 · 写作台** | 自上而下为卷章导航条（当前位置、上/下一章、**提炼本章**）、格式工具栏、富文本正文区、底部状态栏（字数、保存状态、快捷键、自动保存提示），以及可折叠的 **AI 辅助写作助手**对话面板 |
-| **右栏 · 结构** | 顶部**保存按钮**（⌘S），下方卷目与章节树，支持新建卷 / 章与拖拽排序 |
-
-左右两栏都可折叠；左栏隐藏时小说名浮到写作台顶部，右栏隐藏时保存按钮与「目录」入口移到写作台顶部。
+- ✍️ **面向百万字长篇设计**：三栏沉浸布局（设定 / 写作台 / 目录），右栏长目录视口虚拟滚动（300+ 章节丝滑无卡顿），支持跨卷移动、拖拽排序与文稿批量导入智能拆卷拆章。
+- 🎭 **深度角色档案与互动拓扑**：
+  - **角色爆破卡片**：结构化立绘维度，涵盖核心动机（渴望/所需/心魔/底线）、外貌特征、言谈声线口头禅、重要资产信物、致命秘密死穴与阵营主配分级。
+  - **关系拓扑图谱**：基于引力物理引擎（Force-Graph）动态渲染人物关系网，支持节点拖拽、高亮关联路径与纽带快速编辑。
+- 📖 **专属小说词库与语料提取**：全书专有术语词典管理，世界观与角色条目自动双向提取入库，正文高频词智能扫描与词频热度追踪。
+- 🤖 **多 Agent 协同与设定自长成**：
+  - 设定初始可留空，正文保存后 4 个 Agent 后台异步提炼世界观、角色、剧情和细纲；
+  - 正文写作助手严格遵循设定，遭遇矛盾即刻弹出冲突裁决与改动留档审计；
+  - 选中文本即刻弹出快捷 AI 浮标（润色 / 扩写 / 缩写 / 续写 + 并排 Diff 对比采纳）。
+- 📝 **专业富文本与编辑体验**：基于 Tiptap 2 + ProseMirror，支持全文查找替换（<kbd>⌘F</kbd> / <kbd>Ctrl+F</kbd>）、版本历史时间轴一键回滚、精细化汉字/词数统计与预计阅读时长。
+- 🔒 **数据绝对自主与安全**：单机 SQLite 本地存储，API Key 与 WebDAV 密码存入系统钥匙串；支持原子级 WebDAV 快照备份与软删除回收站。
+- 🚀 **软件在线自动更新**：集成 GitHub / CNB Releases API 语义化版本检测，跨平台安装包智能匹配与一键更新。
 
 ---
 
-## 技术栈
+## 🛠️ 技术栈
 
-| 层级 | 选型 | 说明 |
-| --- | --- | --- |
-| 桌面运行时 | **Tauri 2.x** (Rust) | 原生安全、打包体积小（~15MB）、资源占用低 |
-| 前端 UI | **Leptos 0.7**（CSR / WASM） | 细粒度响应式，无虚拟 DOM 开销 |
-| 前端构建 | **Trunk 0.21+** | Rust WASM 构建流水线 |
-| 富文本核心 | **Tiptap 2 + ProseMirror** (JS) | 成熟可扩展文档模型，JSON schema 直接对接存储 |
-| JS 打包 | **esbuild** | 将 Tiptap 与 Bridge 打成自包含 IIFE Bundle |
-| 样式 | **Tailwind CSS 3** | utility-first，`darkMode: "class"` |
-| 本地数据库 | **SQLite 3**（`rusqlite` + `r2d2`） | 单文件、ACID，天然契合整库镜像备份 |
-| 数据库迁移 | 内嵌 SQL（`V001__init.sql`） | 启动时 `execute_batch`，幂等 `IF NOT EXISTS` |
-| 密钥存储 | **`keyring` crate** | macOS Keychain / Windows Credential Manager |
-| 网络请求 | **`reqwest`**（异步流式） | OpenAI / Anthropic SSE 与 WebDAV |
-| 序列化 | **`serde` / `serde_json`** | Rust / WASM / JS 统一规范 |
+| 模块 | 技术选型 | 说明 |
+| :--- | :--- | :--- |
+| **桌面运行时** | **Tauri 2.x** (Rust) | 原生安全跨平台，打包仅 ~18MB，极低内存占用 |
+| **前端框架** | **Leptos 0.7** (CSR / WASM) | 细粒度响应式驱动，零虚拟 DOM 开销 |
+| **富文本核心** | **Tiptap 2 + ProseMirror** | 结构化文档模型，切章不销毁实例，无缝脏检查 |
+| **本地数据** | **SQLite 3** (`rusqlite` + WAL) | 单文件 ACID，支持一致性快照与安全热备份 |
+| **安全密钥** | **系统钥匙串** (`keyring`) | macOS Keychain / Windows 凭据管理器，密钥永不入库 |
 
 ---
 
-## 系统架构
+## 🚀 快速开始
 
-```mermaid
-flowchart TB
-    subgraph WebView["Tauri WebView 渲染进程"]
-        subgraph WASM["Leptos (Rust → WASM)"]
-            Shell["三栏工作台外壳"]
-            SettingsView["设定模块"]
-            StructureView["结构管理"]
-            ChatUI["AI 对话面板"]
-            PolishUI["AI 修饰浮层"]
-            ExtractUI["提炼确认看板"]
-        end
-        subgraph JSBridge["JavaScript Runtime"]
-            Bridge["Tiptap Bridge (IIFE Bundle)"]
-            TiptapCore["Tiptap 2 编辑器实例"]
-        end
-        WASM <-->|"wasm-bindgen"| Bridge
-        Bridge <--> TiptapCore
-    end
+### 准备环境
+- **Node.js** ≥ 18 & **pnpm** ≥ 9
+- **Rust** (stable) 并添加 WASM 目标：`rustup target add wasm32-unknown-unknown`
+- **Trunk**：`cargo install trunk --locked`
 
-    subgraph Core["Tauri 2 原生核心进程 (Rust)"]
-        IPC["Tauri IPC Commands & Events"]
-        DBService["数据持久化 (rusqlite 连接池 / WAL)"]
-        Dispatcher["Agent 路由与上下文装配"]
-        AIGateway["统一 AI 网关 (OpenAI / Anthropic 流式)"]
-        Consistency["设定冲突检测引擎"]
-        SyncService["WebDAV 同步与快照服务"]
-        KeyringService["系统钥匙串安全代理"]
-    end
-
-    WebView <-->|"invoke / listen"| IPC
-    IPC --> DBService
-    IPC --> Dispatcher
-    Dispatcher --> AIGateway
-    AIGateway <-->|"HTTPS SSE"| ExternalLLM["外部大模型 API"]
-    SyncService <-->|"WebDAV"| CloudWebDAV["云端备份存储"]
-    DBService <-->|"嵌入式文件"| SQLiteFile[("Local SQLite.db")]
-    KeyringService <-->|"OS API"| OSVault[("系统钥匙串")]
-```
-
-**关键工程设计**
-
-- **Tiptap 两段式构建**：`esbuild` 打包 `window.TiptapBridge` → Trunk 静态注入 → `wasm-bindgen` 外部符号绑定。
-- **切章不销毁编辑器**：切章时先抓取草稿 JSON 做脏检查，仅调用 `set_content` 替换 ProseMirror 文档树，避免白屏与光标抖动。
-- **流式节流**：SSE 数据块经 **40ms 微批处理缓冲**后再 emit，避免高频 IPC 拖垮 WASM 渲染。
-- **提炼限流**：4 个 Agent 并行提炼时以 `tokio::sync::Semaphore` 限制并发，单个 Agent 失败不影响其余产出。
-- **密钥隔离**：API Key 与 WebDAV 密码只经原生层与系统钥匙串，界面仅掩码显示。
-
----
-
-## 目录结构
-
-```
-easy-writing/
-├── src-tauri/                       # Tauri 2 后端（服务层）
-│   ├── src/
-│   │   ├── lib.rs                    # 应用入口、Command 注册
-│   │   ├── main.rs
-│   │   ├── db/                       # 数据访问层（连接池 + PRAGMA 定制）
-│   │   │   ├── mod.rs                # init_db、WAL / 外键 / busy_timeout
-│   │   │   ├── novel.rs  volume.rs  chapter.rs
-│   │   │   ├── chapter_revision.rs   # 章节历史版本与回滚
-│   │   │   ├── settings.rs           # 世界观 / 角色 / 剧情
-│   │   │   ├── character_relation.rs # 人物关系
-│   │   │   ├── trash.rs              # 软删除回收站
-│   │   │   ├── prompt_template.rs    # 六处修饰模板
-│   │   │   ├── agent.rs  extraction.rs  llm_profile.rs  app_setting.rs
-│   │   ├── ai/                       # AI 网关层
-│   │   │   ├── gateway.rs            # 统一转发、流式缓冲、错误归一化
-│   │   │   ├── openai.rs             # OpenAI 兼容协议
-│   │   │   ├── anthropic.rs          # Anthropic 兼容协议
-│   │   │   ├── context.rs            # 上下文装配与裁剪
-│   │   │   └── consistency.rs        # 设定一致性检测
-│   │   ├── agent/                    # Agent 调度层
-│   │   │   ├── dispatcher.rs         # Agent → 接口 → 密钥 解析
-│   │   │   ├── polish.rs             # 六处 AI 修饰提示词
-│   │   │   └── extraction.rs         # 4 Agent 并行提炼 + 去重
-│   │   ├── sync/                     # WebDAV 同步
-│   │   │   ├── webdav.rs             # PROPFIND / MKCOL / PUT / GET
-│   │   │   ├── backup.rs             # 增量图片 + SQLite 快照 + gzip
-│   │   │   └── restore.rs            # 覆盖恢复与补图
-│   │   ├── import/                  # 长篇文稿导入与智能拆卷拆章
-│   │   ├── commands/                 # 暴露给前端的 Tauri Command
-│   │   ├── asset.rs                  # 图片哈希、落盘与入库
-│   │   └── keyring.rs                # 系统钥匙串读写
-│   ├── migrations/V001__init.sql     # 完整建表 DDL 与初始数据
-│   ├── icons/                        # 应用图标
-│   └── tauri.conf.json
-│
-├── frontend/                         # Leptos 前端（Rust → WASM）
-│   ├── src/
-│   │   ├── app.rs                    # 根组件与启动引导
-│   │   ├── state/mod.rs              # AppContext（全局响应式 Signal）
-│   │   ├── bridge/                  # wasm-bindgen JS 绑定声明
-│   │   │   ├── tiptap.rs             # 编辑器操作（挂载 / 取内容 / 插入 / 选区）
-│   │   │   └── theme.rs              # 深色模式、跟随系统、编辑器字号行距
-│   │   ├── tauri_api/mod.rs          # invoke 包装（含参数兜底）
-│   │   └── components/
-│   │       ├── layout/               # app_shell / writing_stage / panel_toggle
-│   │       ├── settings_panel/       # worldview / characters / plot_lines / outline
-│   │       │                          # + trash_modal（回收站）
-│   │       │                          # + setting_changes_modal（设定改动留档与撤销）
-│   │       ├── structure_panel/      # save_button / volume_list / chapter_list
-│   │       ├── editor/               # chapter_nav / editor_wrapper / toolbar / status_bar
-│   │       │                          # + bubble_menu（选中文字 AI 浮标）
-│   │       │                          # + revision_modal（版本时间轴与回滚）
-│   │       ├── ai/                   # chat_box / polish_* / extraction_modal / conflict_modal
-│   │       ├── novel/                # import_modal（批量导入与拆卷拆章）
-│   │       └── config/               # config_modal（模型 / Agent / WebDAV / 偏好）
-│   ├── styles/main.css               # Tailwind 入口 + 主题 CSS 变量
-│   ├── public/                       # 构建产物（bridge bundle、styles）
-│   └── Trunk.toml
-│
-├── js/src/tiptap-bridge.js           # Tiptap 核心与 WASM 通信实现
-├── shared-types/src/lib.rs           # 前后端共享数据结构
-├── Docs/                             # PRD、实施计划、界面截图
-├── .github/workflows/release.yml     # 推送 tag 触发 macOS / Windows 自动构建发布
-├── LICENSE                           # MIT
-├── Cargo.toml                        # Rust workspace 根
-├── package.json                      # 前端脚本与 npm 依赖
-└── tailwind.config.js
-```
-
----
-
-## 快速开始
-
-### 环境要求
-
-| 依赖 | 版本 | 备注 |
-| --- | --- | --- |
-| Node.js | ≥ 18 | 用于 esbuild / Tailwind |
-| pnpm | ≥ 8 | 包管理器 |
-| Rust | stable（≥ 1.77） | 含 `cargo` |
-| `wasm32-unknown-unknown` | — | `rustup target add wasm32-unknown-unknown` |
-| Trunk | ≥ 0.21 | `cargo install trunk --locked` |
-| Tauri 系统依赖 | — | macOS：Xcode Command Line Tools；Windows：WebView2 + MSVC 生成工具 |
-
-### 安装
-
+### 本地开发
 ```bash
+# 1. 安装依赖
 pnpm install
-rustup target add wasm32-unknown-unknown
-# 若未安装 Trunk：
-cargo install trunk --locked
+
+# 2. 启动开发（支持前端热重载与 Tauri 原生调试）
+pnpm dev:frontend   # 终端 A: 启动 Trunk WASM 服务 (http://127.0.0.1:8080)
+pnpm tauri dev      # 终端 B: 启动 Tauri 桌面应用
 ```
 
-### 开发运行
-
-Tauri 配置里的 `beforeDevCommand` 只负责构建前端静态资源，不启动开发服务器，因此需要**两个终端**：
-
+### 生产打包
 ```bash
-# 终端 A：启动 Trunk 开发服务器（http://127.0.0.1:8080，含热重载）
-pnpm dev:frontend
-
-# 终端 B：启动 Tauri 桌面壳
-pnpm tauri dev
+pnpm build          # 自动编译静态资源、WASM 并生成当前平台桌面安装包
 ```
-
-> 也可以先执行一次 `pnpm build:assets` 再用 `pnpm tauri dev`，此时 WebView 从 `frontend/dist` 读取已构建产物。
-
-### 生产构建
-
-```bash
-pnpm build     # = pnpm build:assets && tauri build
-```
-
-构建产物位于 `src-tauri/target/release/bundle/`（macOS：`.app` / `.dmg`；Windows：`.msi` / `.exe`）。
-
-### npm 脚本
-
-| 脚本 | 作用 |
-| --- | --- |
-| `pnpm build:bridge` | 用 esbuild 打包 Tiptap Bridge 到 `frontend/public/tiptap-bridge.bundle.js` |
-| `pnpm build:css` | 用 Tailwind 生成 `frontend/public/styles.css` |
-| `pnpm build:assets` | `build:bridge` + `build:css` |
-| `pnpm dev:frontend` | 构建资源并启动 `trunk serve` |
-| `pnpm tauri` | 透传 Tauri CLI |
-| `pnpm dev` | 构建资源后启动 `tauri dev` |
-| `pnpm build` | 构建资源后执行 `tauri build` |
-
-### 常用校验
-
-```bash
-cargo check --workspace          # 校验 Rust workspace（后端 + WASM 前端 + 共享类型）
-cargo test  --workspace          # 运行测试
-```
+构建产物输出于 `src-tauri/target/release/bundle/`。
 
 ---
 
-## 配置指南
+## 📦 下载与安装
 
-首次启动时应用会自动创建一部「未命名长篇小说」、第一卷与第一章，可直接开始写作。
+已提供预编译正式发行版：
 
-打开左栏底部的 **⚙ 设置**，界面分四个标签页：
-
-### 1. 大模型接口（LLM）
-
-| 字段 | 说明 |
-| --- | --- |
-| 名称 | 配置的标识名 |
-| 接口协议 | `openai`（OpenAI 兼容）或 `anthropic`（Anthropic 兼容） |
-| Base URL | 接口地址，支持第三方中转 |
-| 模型名称 | 手动填写 |
-| API Key | 存入**系统钥匙串**，不入库、不上传；界面掩码显示 |
-| 是否为默认 | 未被 Agent 绑定时使用的接口 |
-
-填写后可点「测试连接」发送一条最小请求验证。
-
-### 2. 预设 Agent
-
-| Agent | 负责模块 | 主要任务 |
-| --- | --- | --- |
-| 世界观 Agent | 世界观 | 修饰条目；提炼时代 / 地点 / 规则 / 术语 |
-| 角色 Agent | 角色设定 | 修饰角色卡；提炼人物、别名与关系变化 |
-| 剧情 Agent | 剧情梳理 | 修饰条目；提炼事件、冲突、伏笔与回收 |
-| 大纲 Agent | 大纲管理 | 修饰全篇梗概 / 卷纲 / 章纲；提炼章摘要 |
-| 卷章 Agent | 卷目 / 章节管理 | 从卷章入口修饰卷简介与章摘要 |
-| 写作助手 | 写作台对话框 | 修改 / 重写 / 创作正文，严格遵循设定 |
-
-每个 Agent 可**单独绑定一套接口**，并自定义系统提示词与启用开关；取消绑定则回退到默认接口。
-
-### 3. WebDAV
-
-- 填写服务器地址、用户名、密码、远程目录（默认 `/EasyWritingBackup`），点「保存配置」会同时做一次连通性测试（PROPFIND）。
-- 密码存系统钥匙串，不入库。
-- **立即备份**：先把新增图片按内容哈希增量上传 → 用 SQLite Backup API 生成一致性快照 → gzip 压缩 → 上传为带时间戳的库文件（不覆盖旧备份）。
-- **从云端恢复**：按时间倒序列出远程备份，手动选择；恢复前自动留本地快照，恢复后补下载缺失图片。
-
-### 4. 偏好
-
-- 自动保存间隔（默认 30 秒）。
+| 平台 | 格式 | 下载渠道 |
+| :--- | :--- | :--- |
+| **macOS (Apple Silicon)** | `.dmg` / `.zip` | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
+| **Windows (x64)** | `.msi` / `.zip` | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
 
 ---
 
-## 数据与安全
+## 📚 详细设计文档
 
-| 项目 | 位置 |
-| --- | --- |
-| 数据目录 | macOS：`~/Library/Application Support/com.easywriting.app`<br>Windows：`%APPDATA%\com.easywriting.app` |
-| 数据库 | `easy-writing.db`（附 `-wal` / `-shm`） |
-| 图片文件夹 | `<数据目录>/images/`，文件名为内容 SHA-256 |
-| 密钥 | 系统钥匙串（服务名 `easy-writing`） |
-| 配置/设定/正文 | SQLite |
-
-**安全约定**
-
-- API Key、WebDAV 密码**只存系统钥匙串**，库内仅存 `key_ref` / `pwd_ref` 索引，因此整库上传不含密钥。
-- 连接池每个连接强制 `PRAGMA foreign_keys = ON; journal_mode = WAL; synchronous = NORMAL; busy_timeout = 5000;`。
-- 删除采用软删除（`deleted_at`），为回收站预留。
-- 备份走 SQLite Backup API 生成**一致性快照**，不直接复制写入中的库文件。
-- 图片通过 Tauri `asset://` 协议按 `$APPDATA/images/**` 白名单访问。
+- [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 完整产品定位、核心场景、AI 协同模型与交互规格
+- [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与四阶段工程设计
+- [演进交付计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>) —— 里程碑交付记录与技术指标追踪
 
 ---
 
-## 数据库设计
+## 📄 开源协议
 
-单文件 SQLite，共 19 张表（见 [V001__init.sql](src-tauri/migrations/V001__init.sql) 与 [lexicon](src-tauri/src/db/lexicon.rs)）。
-
-| 分类 | 表 |
-| --- | --- |
-| 作品与内容 | `novel`、`volume`、`chapter`、`chapter_revision`、`asset` |
-| 设定与词库 | `worldview_entry`、`character`、`character_relation`、`plot_item`、`lexicon` |
-| AI 与设置 | `agent`、`chat_session`、`chat_message`、`extraction_candidate`、`setting_change`、`prompt_template`、`llm_profile`、`webdav_config`、`app_setting` |
-
-**通用约定**
-
-- 主键 UUID；业务表带 `created_at` / `updated_at` / `deleted_at`；有序数据用 `sort_order`。
-- 章节列表查询不读 `content`，只取 `summary` / `word_count` 等轻量字段，正文按章单独加载。
-- `chapter.extracted_hash` 记录最近一次提炼的正文指纹，正文未变则不重复提炼。
-- **大纲不单独建表**，由 `novel.synopsis`（全篇梗概）、`volume.summary`（卷纲）、`chapter.summary`（章纲）三层合成。
-
-**软删除与还原**
-
-卷目、章节、世界观、角色卡、剧情条目均采用软删除：删除只写入 `deleted_at`，记录进入回收站，可一键还原或彻底清空（物理删除）。
-
-**版本快照与留档**
-
-- `chapter_revision` 保存章节历史版本，手动保存与切章时自动创建，支持时间轴查看与一键回滚。
-- `setting_change` 记录 AI 冲突裁决产生的设定改动前后内容与原因，支持一键撤销恢复。
-- `character_relation` 独立存储人物关系，角色面板提供可视化关系拓扑图。
-- `lexicon` 存储全书专有词库与语料热词，支持频次统计与设定自动双向提取。
-
----
-
-## 后端命令一览
-
-<details>
-<summary>共 77 个 Tauri Command（点击展开）</summary>
-
-| 分组 | 命令 |
-| --- | --- |
-| 作品 | `create_novel` `list_novels` `get_novel` `update_novel` `delete_novel` |
-| 卷目 | `create_volume` `list_volumes` `update_volume` `reorder_volumes` `delete_volume` |
-| 章节 | `create_chapter` `list_chapter_headers` `list_all_chapter_headers_for_novel` `get_chapter` `save_chapter_content` `update_chapter_meta` `move_chapter` `reorder_chapters` `delete_chapter` |
-| 章节版本 | `create_manual_chapter_revision` `list_chapter_revisions` `get_chapter_revision` `revert_chapter_to_revision` |
-| 设定 | `list_worldview` `save_worldview` `delete_worldview` `list_characters` `save_character` `delete_character` `list_plots` `save_plot` `delete_plot` |
-| 设定改动 | `list_setting_changes` `revert_setting_change` `apply_conflict_setting_update` |
-| 角色关系 | `list_character_relations` `save_character_relation` `delete_character_relation` |
-| 词库与语料 | `list_lexicon` `save_lexicon_term` `delete_lexicon_term` `record_lexicon_usage` `sync_lexicon_from_novel` `import_lexicon_terms` |
-| 回收站 | `list_trash_items` `restore_trash_item` `purge_trash_item` `empty_trash` |
-| 文稿导入 | `parse_import_document` `commit_import_novel` |
-| 图片资源 | `save_image_asset` |
-| 模板配置 | `list_prompt_templates` `save_prompt_template` `reset_prompt_template` |
-| AI 核心 | `ai_polish` `ai_chat_stream` `ai_check_conflict` `trigger_chapter_extract` `list_extraction_candidates` `resolve_candidate` |
-| 模型与Agent | `create_llm_profile` `list_llm_profiles` `delete_llm_profile` `test_llm_connection` `list_agents` `update_agent` |
-| 应用偏好 | `get_app_setting` `set_app_setting` |
-| WebDAV 同步 | `webdav_save_config` `webdav_get_config` `webdav_test_connection` `webdav_backup_now` `webdav_list_backups` `webdav_restore_backup` |
-| 软件在线更新 | `check_app_update` `open_external_url` `set_ignored_update_version` |
-
-</details>
-
----
-
-## 开发路线图与里程碑达成
-
-| 阶段 | 内容 | 状态 | 成果 / 交付物 |
-| --- | --- | :---: | --- |
-| **Phase 0** | MVP 发布收尾：全局深色模式、正文字号与行距实时动态生效、未保存切章确认拦截、Windows CI 工作流 | ✅ 已交付 | `c92802a` |
-| **Phase 1** | 核心体验与安全：选中文本 Bubble 浮标（润/扩/缩/续 + Diff 对比）、章节版本时间轴与回滚、设定冲突改动审计与撤销、软删除回收站 | ✅ 已交付 | `5ddf4c9` `06f0cab` `7d9bd6d` `64f7712` |
-| **Phase 2** | 规模与自动化：设定库全文模糊检索与多级分组折叠、章节目录状态与标题筛选、保存后后台静默提炼与候选红点、退出应用静默 WebDAV 快照同步 | ✅ 已交付 | `3cb4190` `1622a2e` `5bbe934` `126e980` |
-| **Phase 3** | 生态与架构演进：外部长篇文稿批量导入拆卷拆章、角色关系图谱与动态 SVG 拓扑网络、6 处修饰模块独立 Prompt 模板管理、300+ 章节长目录虚拟滚动（Virtual Scrolling） | ✅ 已交付 | `fcf360c` `6a08888` `57e4350` `aeb1ef0` |
-| **Phase 4 (v0.2.0)** | 深度档案与工作流升级：人物深度爆破卡、Force-Graph 拓扑关系网络可视化、小说专有词库与语料提取、全文查找替换（⌘F）、GitHub/CNB Releases 在线版本检测更新系统 | ✅ 已交付 | `v0.2.0` |
-
-详见 [实施计划](<Docs/Easy-writing · 实施计划.md>) 与 [全面后续研发与演进计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>)。
-
----
-
-## 相关文档
-
-- [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 产品需求、界面、AI 能力、数据库与风险应对
-- [实施计划](<Docs/Easy-writing · 实施计划.md>) —— 技术选型、架构设计、完整 DDL、四阶段排期与核心时序图
-- [全面后续研发与演进计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>) —— Phase 0 ~ Phase 3 全部 16 项任务交付成果与架构说明
-
----
-
-## 构建与发布
-
-本地打包：
-
-```bash
-pnpm build     # = pnpm build:assets && tauri build
-```
-
-产物位于 `src-tauri/target/release/bundle/`。
-
-**自动发布**：仓库内置 GitHub Actions 工作流 `.github/workflows/release.yml`，推送 `v*` 标签即自动构建并创建 Release：
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
-
-| 平台 | 构建目标 | 产物 |
-| --- | --- | --- |
-| macOS | `aarch64-apple-darwin` | `.app` / `.dmg` |
-| Windows | x64 | `.msi` / `.exe` |
-
----
-
-## 说明与开源协议
-
-- 目前为**单用户本地桌面版**，数据完全属于用户，无强制网络依赖、无第三方账户。
-- 目标平台涵盖 **macOS (Apple Silicon / Intel)** 与 **Windows (x64)**。
-- 采用 [MIT License](LICENSE) 开源协议，欢迎交流共建。
-
----
-
-<sub>Built with Tauri · Leptos · Tiptap · SQLite</sub>
+本项目基于 [MIT License](LICENSE) 开源协议发布。
