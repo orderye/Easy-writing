@@ -1,21 +1,11 @@
 use crate::components::ai::polish_button::PolishButton;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::{
-    Character, CharacterAppearance, CharacterAssetItem, CharacterCore, CharacterSecret, CharacterVoice,
-    ExplodedProfile,
+    Character, CharacterAppearance, CharacterAssetItem, CharacterCore, CharacterSecret,
+    CharacterVoice, ExplodedProfile,
 };
-
-#[derive(Serialize)]
-struct SaveCharacterArgs {
-    id: Option<String>,
-    novel_id: String,
-    name: String,
-    aliases: String,
-    profile: String,
-}
 
 #[component]
 pub fn CharacterExplosionModal(
@@ -69,7 +59,11 @@ pub fn CharacterExplosionModal(
             sec_weakness.set(ep.secret.weakness);
             sec_secret.set(ep.secret.secret);
 
-            faction.set(if ep.faction.is_empty() { "默认阵营".to_string() } else { ep.faction });
+            faction.set(if ep.faction.is_empty() {
+                "默认阵营".to_string()
+            } else {
+                ep.faction
+            });
             importance.set(if ep.importance == 0 { 2 } else { ep.importance });
             assets.set(ep.assets);
             raw_notes.set(ep.raw_notes);
@@ -113,17 +107,14 @@ pub fn CharacterExplosionModal(
             let nid = novel.id;
 
             leptos::task::spawn_local(async move {
-                let _ = invoke::<Character, _>(
-                    "save_character",
-                    &SaveCharacterArgs {
-                        id: Some(cid),
-                        novel_id: nid,
-                        name: cname,
-                        aliases: caliases,
-                        profile: json_str,
-                    },
-                )
-                .await;
+                let _ = invoke_cmd("save_character")
+                    .opt("id", Some(cid))
+                    .arg("novel_id", nid)
+                    .arg("name", cname)
+                    .arg("aliases", caliases)
+                    .arg("profile", json_str)
+                    .send::<Character>()
+                    .await;
                 character.set(None); // close modal
                 on_saved.run(());
             });

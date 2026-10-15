@@ -1,51 +1,12 @@
 use crate::components::ai::polish_button::PolishButton;
 use crate::components::settings_panel::character_explosion_modal::CharacterExplosionModal;
 use crate::components::settings_panel::character_graph_view::CharacterGraphView;
+use crate::components::settings_panel::loaders::load_list_for_novel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::{Character, CharacterRelation, ExplodedProfile};
 use std::collections::HashMap;
-
-#[derive(Serialize)]
-struct ListCharacterArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct SaveCharacterArgs {
-    id: Option<String>,
-    novel_id: String,
-    name: String,
-    aliases: String,
-    profile: String,
-}
-
-#[derive(Serialize)]
-struct DeleteCharacterArgs {
-    id: String,
-}
-
-#[derive(Serialize)]
-struct ListRelationsArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct SaveRelationArgs {
-    id: Option<String>,
-    novel_id: String,
-    from_char_id: String,
-    to_char_id: String,
-    relation_name: String,
-    description: String,
-}
-
-#[derive(Serialize)]
-struct DeleteRelationArgs {
-    id: String,
-}
 
 #[component]
 pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
@@ -61,29 +22,11 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
     let new_desc = RwSignal::new(String::new());
 
     let load_characters = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let novel_id = novel.id;
-            leptos::task::spawn_local(async move {
-                if let Ok(list) =
-                    invoke::<Vec<Character>, _>("list_characters", &ListCharacterArgs { novel_id }).await
-                {
-                    characters.set(list);
-                }
-            });
-        }
+        load_list_for_novel(app_ctx, "list_characters", characters);
     };
 
     let load_relations = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let novel_id = novel.id;
-            leptos::task::spawn_local(async move {
-                if let Ok(list) =
-                    invoke::<Vec<CharacterRelation>, _>("list_character_relations", &ListRelationsArgs { novel_id }).await
-                {
-                    relations.set(list);
-                }
-            });
-        }
+        load_list_for_novel(app_ctx, "list_character_relations", relations);
     };
 
     Effect::new(move |_| {
@@ -95,17 +38,14 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let res = invoke::<Character, _>(
-                    "save_character",
-                    &SaveCharacterArgs {
-                        id: None,
-                        novel_id,
-                        name: "新角色".to_string(),
-                        aliases: "[]".to_string(),
-                        profile: "".to_string(),
-                    },
-                )
-                .await;
+                let res = invoke_cmd("save_character")
+                    .opt("id", None::<String>)
+                    .arg("novel_id", novel_id)
+                    .arg("name", "新角色".to_string())
+                    .arg("aliases", "[]".to_string())
+                    .arg("profile", "".to_string())
+                    .send::<Character>()
+                    .await;
 
                 if let Ok(new_ch) = res {
                     let mut list = characters.get();
@@ -118,7 +58,10 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
 
     let on_delete_char = move |id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_character", &DeleteCharacterArgs { id }).await;
+            let _ = invoke_cmd("delete_character")
+                .arg("id", id)
+                .send_unit()
+                .await;
             load_characters();
             load_relations();
         });
@@ -130,25 +73,23 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
         let rel_name = new_rel_name.get();
         let desc = new_desc.get();
 
-        if from_id.is_empty() || to_id.is_empty() || rel_name.trim().is_empty() || from_id == to_id {
+        if from_id.is_empty() || to_id.is_empty() || rel_name.trim().is_empty() || from_id == to_id
+        {
             return;
         }
 
         if let Some(novel) = app_ctx.current_novel.get() {
             let nid = novel.id;
             leptos::task::spawn_local(async move {
-                let res = invoke::<CharacterRelation, _>(
-                    "save_character_relation",
-                    &SaveRelationArgs {
-                        id: None,
-                        novel_id: nid,
-                        from_char_id: from_id,
-                        to_char_id: to_id,
-                        relation_name: rel_name.trim().to_string(),
-                        description: desc.trim().to_string(),
-                    },
-                )
-                .await;
+                let res = invoke_cmd("save_character_relation")
+                    .opt("id", None::<String>)
+                    .arg("novel_id", nid)
+                    .arg("from_char_id", from_id)
+                    .arg("to_char_id", to_id)
+                    .arg("relation_name", rel_name.trim().to_string())
+                    .arg("description", desc.trim().to_string())
+                    .send::<CharacterRelation>()
+                    .await;
 
                 if let Ok(new_rel) = res {
                     let mut list = relations.get();
@@ -163,7 +104,10 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
 
     let on_delete_relation = move |rel_id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_character_relation", &DeleteRelationArgs { id: rel_id }).await;
+            let _ = invoke_cmd("delete_character_relation")
+                .arg("id", rel_id)
+                .send_unit()
+                .await;
             load_relations();
         });
     };
@@ -282,17 +226,14 @@ pub fn CharactersView(app_ctx: AppContext) -> impl IntoView {
                                     let nid = novel.id;
                                     let cid = ch_id.clone();
                                     leptos::task::spawn_local(async move {
-                                        let _ = invoke::<Character, _>(
-                                            "save_character",
-                                            &SaveCharacterArgs {
-                                                id: Some(cid),
-                                                novel_id: nid,
-                                                name: new_name,
-                                                aliases: new_aliases,
-                                                profile: new_profile,
-                                            },
-                                        )
-                                        .await;
+                                        let _ = invoke_cmd("save_character")
+                                            .opt("id", Some(cid))
+                                            .arg("novel_id", nid)
+                                            .arg("name", new_name)
+                                            .arg("aliases", new_aliases)
+                                            .arg("profile", new_profile)
+                                            .send::<Character>()
+                                            .await;
                                     });
                                 }
                             };

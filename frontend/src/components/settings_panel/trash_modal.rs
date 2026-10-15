@@ -1,35 +1,8 @@
+use crate::components::settings_panel::loaders::load_for_novel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::TrashItem;
-
-#[derive(Serialize)]
-struct ListTrashArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct RestoreTrashArgs {
-    item_type: String,
-    item_id: String,
-}
-
-#[derive(Serialize)]
-struct PurgeTrashArgs {
-    item_type: String,
-    item_id: String,
-}
-
-#[derive(Serialize)]
-struct EmptyTrashArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct ListVolumesArgs {
-    novel_id: String,
-}
 
 #[component]
 pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
@@ -40,21 +13,10 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
     let show_confirm_empty = RwSignal::new(false);
 
     let load_trash = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let nid = novel.id;
-            is_loading.set(true);
-            leptos::task::spawn_local(async move {
-                if let Ok(list) = invoke::<Vec<TrashItem>, _>(
-                    "list_trash_items",
-                    &ListTrashArgs { novel_id: nid },
-                )
-                .await
-                {
-                    items.set(list);
-                }
-                is_loading.set(false);
-            });
-        }
+        is_loading.set(true);
+        load_for_novel(app_ctx, "list_trash_items", items, move || {
+            is_loading.set(false);
+        });
     };
 
     Effect::new(move |_| {
@@ -67,11 +29,10 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
         if let Some(novel) = app_ctx.current_novel.get() {
             let nid = novel.id;
             leptos::task::spawn_local(async move {
-                if let Ok(vols) = invoke::<Vec<shared_types::Volume>, _>(
-                    "list_volumes",
-                    &ListVolumesArgs { novel_id: nid },
-                )
-                .await
+                if let Ok(vols) = invoke_cmd("list_volumes")
+                    .arg("novel_id", nid)
+                    .send::<Vec<shared_types::Volume>>()
+                    .await
                 {
                     app_ctx.volumes_list.set(vols);
                 }
@@ -83,14 +44,11 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
         operating_id.set(Some(item_id.clone()));
         let t = item_type.clone();
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>(
-                "restore_trash_item",
-                &RestoreTrashArgs {
-                    item_type: item_type.clone(),
-                    item_id,
-                },
-            )
-            .await;
+            let _ = invoke_cmd("restore_trash_item")
+                .arg("item_type", item_type.clone())
+                .arg("item_id", item_id)
+                .send_unit()
+                .await;
             operating_id.set(None);
             load_trash();
             if t == "volume" || t == "chapter" {
@@ -102,14 +60,11 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
     let handle_purge = move |item_type: String, item_id: String| {
         operating_id.set(Some(item_id.clone()));
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>(
-                "purge_trash_item",
-                &PurgeTrashArgs {
-                    item_type,
-                    item_id,
-                },
-            )
-            .await;
+            let _ = invoke_cmd("purge_trash_item")
+                .arg("item_type", item_type)
+                .arg("item_id", item_id)
+                .send_unit()
+                .await;
             operating_id.set(None);
             load_trash();
         });
@@ -119,11 +74,10 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
         if let Some(novel) = app_ctx.current_novel.get() {
             let nid = novel.id;
             leptos::task::spawn_local(async move {
-                let _ = invoke::<(), _>(
-                    "empty_trash",
-                    &EmptyTrashArgs { novel_id: nid },
-                )
-                .await;
+                let _ = invoke_cmd("empty_trash")
+                    .arg("novel_id", nid)
+                    .send_unit()
+                    .await;
                 show_confirm_empty.set(false);
                 load_trash();
             });

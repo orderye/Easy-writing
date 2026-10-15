@@ -2,23 +2,10 @@ use crate::components::structure_panel::chapter_list::{
     create_chapter_in_volume, delete_chapter_by_id, request_switch_chapter,
 };
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::{ChapterHeader, Volume};
 use std::collections::HashSet;
-
-#[derive(Serialize)]
-struct CreateVolumeArgs {
-    novel_id: String,
-    title: String,
-    summary: String,
-}
-
-#[derive(Serialize)]
-struct DeleteVolumeArgs {
-    id: String,
-}
 
 const ITEM_HEIGHT: f64 = 34.0;
 
@@ -61,15 +48,12 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let res = invoke::<Volume, _>(
-                    "create_volume",
-                    &CreateVolumeArgs {
-                        novel_id,
-                        title: "新卷".to_string(),
-                        summary: "".to_string(),
-                    },
-                )
-                .await;
+                let res = invoke_cmd("create_volume")
+                    .arg("novel_id", novel_id)
+                    .arg("title", "新卷".to_string())
+                    .arg("summary", "".to_string())
+                    .send::<Volume>()
+                    .await;
 
                 if let Ok(new_vol) = res {
                     let mut list = app_ctx.volumes_list.get();
@@ -82,7 +66,10 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
 
     let on_delete_volume = move |v_id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_volume", &DeleteVolumeArgs { id: v_id.clone() }).await;
+            let _ = invoke_cmd("delete_volume")
+                .arg("id", v_id.clone())
+                .send_unit()
+                .await;
             let mut list = app_ctx.volumes_list.get();
             list.retain(|v| v.id != v_id);
             app_ctx.volumes_list.set(list);
@@ -93,7 +80,12 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
     let flat_tree_nodes = move || {
         let volumes = app_ctx.volumes_list.get();
         let all_chapters = app_ctx.chapters_map.get();
-        let query = app_ctx.chapter_search_query.get().to_lowercase().trim().to_string();
+        let query = app_ctx
+            .chapter_search_query
+            .get()
+            .to_lowercase()
+            .trim()
+            .to_string();
         let status_filter = app_ctx.chapter_status_filter.get();
         let is_filtering = !query.is_empty() || status_filter != "all";
         let collapsed = collapsed_volumes.get();
@@ -191,12 +183,17 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
         if let Some(curr) = app_ctx.current_chapter.get() {
             let cid = curr.id;
             let (nodes, _, _) = flat_tree_nodes();
-            if let Some(idx) = nodes.iter().position(|n| matches!(n, TreeNode::ChapterRow { header } if header.id == cid)) {
+            if let Some(idx) = nodes
+                .iter()
+                .position(|n| matches!(n, TreeNode::ChapterRow { header } if header.id == cid))
+            {
                 if let Some(el) = container_ref.get() {
                     let target_top = idx as f64 * ITEM_HEIGHT;
                     let current_top = el.scroll_top() as f64;
                     let current_bottom = current_top + el.client_height() as f64;
-                    if current_bottom > current_top && (target_top < current_top || target_top + ITEM_HEIGHT > current_bottom) {
+                    if current_bottom > current_top
+                        && (target_top < current_top || target_top + ITEM_HEIGHT > current_bottom)
+                    {
                         el.set_scroll_top((target_top - 60.0).max(0.0) as i32);
                     }
                 }

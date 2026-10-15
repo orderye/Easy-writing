@@ -1,6 +1,16 @@
+use super::mapper::query_list;
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use shared_types::{ChatMessage, ChatSession};
 use uuid::Uuid;
+
+/// 会话列清单：第 7 列固定为 message_count（非列表查询时以 NULL 占位，
+/// 由 map_session 归一化为 0）。列序与 map_session 严格对应。
+const SESSION_COLS: &str =
+    "id, novel_id, chapter_id, title, created_at, updated_at, NULL AS message_count";
+
+/// 会话列清单（带真实消息条数），用于列表查询。
+const SESSION_COLS_WITH_COUNT: &str = "s.id, s.novel_id, s.chapter_id, s.title, s.created_at, s.updated_at,
+     (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id)";
 
 /// 找到（或新建）某作品 + 某章节的对话会话。
 /// chapter_id 为 None 时表示该作品下不区分章节的会话（写作台未选中章节）。
@@ -39,22 +49,26 @@ pub fn find_session(
     let row = match chapter_id {
         Some(cid) => conn
             .query_row(
-                "SELECT id, novel_id, chapter_id, title, created_at, updated_at
-                 FROM chat_session
-                 WHERE novel_id = ?1 AND chapter_id = ?2
-                 ORDER BY updated_at DESC, rowid DESC
-                 LIMIT 1",
+                &format!(
+                    "SELECT {} FROM chat_session
+                     WHERE novel_id = ?1 AND chapter_id = ?2
+                     ORDER BY updated_at DESC, rowid DESC
+                     LIMIT 1",
+                    SESSION_COLS
+                ),
                 params![novel_id, cid],
                 map_session,
             )
             .optional()?,
         None => conn
             .query_row(
-                "SELECT id, novel_id, chapter_id, title, created_at, updated_at
-                 FROM chat_session
-                 WHERE novel_id = ?1 AND chapter_id IS NULL
-                 ORDER BY updated_at DESC, rowid DESC
-                 LIMIT 1",
+                &format!(
+                    "SELECT {} FROM chat_session
+                     WHERE novel_id = ?1 AND chapter_id IS NULL
+                     ORDER BY updated_at DESC, rowid DESC
+                     LIMIT 1",
+                    SESSION_COLS
+                ),
                 params![novel_id],
                 map_session,
             )
@@ -65,8 +79,7 @@ pub fn find_session(
 
 pub fn get_session(conn: &Connection, id: &str) -> Result<Option<ChatSession>> {
     conn.query_row(
-        "SELECT id, novel_id, chapter_id, title, created_at, updated_at
-         FROM chat_session WHERE id = ?1",
+        &format!("SELECT {} FROM chat_session WHERE id = ?1", SESSION_COLS),
         params![id],
         map_session,
     )
@@ -80,35 +93,30 @@ pub fn list_sessions(
     novel_id: &str,
     chapter_id: Option<&str>,
 ) -> Result<Vec<ChatSession>> {
-    let sql_all = "SELECT s.id, s.novel_id, s.chapter_id, s.title, s.created_at, s.updated_at,
-                          (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id)
-                   FROM chat_session s
-                   WHERE s.novel_id = ?1
-                   ORDER BY s.updated_at DESC, s.rowid DESC";
-    let sql_chapter = "SELECT s.id, s.novel_id, s.chapter_id, s.title, s.created_at, s.updated_at,
-                              (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id)
-                       FROM chat_session s
-                       WHERE s.novel_id = ?1 AND s.chapter_id = ?2
-                       ORDER BY s.updated_at DESC, s.rowid DESC";
-
-    let mut out = Vec::new();
     match chapter_id {
-        Some(cid) => {
-            let mut stmt = conn.prepare(sql_chapter)?;
-            let rows = stmt.query_map(params![novel_id, cid], map_session_with_count)?;
-            for r in rows {
-                out.push(r?);
-            }
-        }
-        None => {
-            let mut stmt = conn.prepare(sql_all)?;
-            let rows = stmt.query_map(params![novel_id], map_session_with_count)?;
-            for r in rows {
-                out.push(r?);
-            }
-        }
+        Some(cid) => query_list(
+            conn,
+            &format!(
+                "SELECT {} FROM chat_session s
+                 WHERE s.novel_id = ?1 AND s.chapter_id = ?2
+                 ORDER BY s.updated_at DESC, s.rowid DESC",
+                SESSION_COLS_WITH_COUNT
+            ),
+            params![novel_id, cid],
+            map_session,
+        ),
+        None => query_list(
+            conn,
+            &format!(
+                "SELECT {} FROM chat_session s
+                 WHERE s.novel_id = ?1
+                 ORDER BY s.updated_at DESC, s.rowid DESC",
+                SESSION_COLS_WITH_COUNT
+            ),
+            params![novel_id],
+            map_session,
+        ),
     }
-    Ok(out)
 }
 
 pub fn delete_session(conn: &Connection, id: &str) -> Result<()> {
@@ -189,27 +197,17 @@ pub fn clear_messages(conn: &Connection, session_id: &str) -> Result<()> {
     Ok(())
 }
 
+/// 会话映射器。第 7 列（下标 6）为可选的 message_count：
+/// 列查询时读出真实条数，非列查询时为 NULL → 0。两个变体合并为一个。
 fn map_session(row: &rusqlite::Row<'_>) -> Result<ChatSession> {
     Ok(ChatSession {
         id: row.get(0)?,
         novel_id: row.get(1)?,
         chapter_id: row.get(2)?,
         title: row.get(3)?,
-        message_count: 0,
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
-    })
-}
-
-fn map_session_with_count(row: &rusqlite::Row<'_>) -> Result<ChatSession> {
-    Ok(ChatSession {
-        id: row.get(0)?,
-        novel_id: row.get(1)?,
-        chapter_id: row.get(2)?,
-        title: row.get(3)?,
-        created_at: row.get(4)?,
-        updated_at: row.get(5)?,
-        message_count: row.get(6)?,
+        message_count: row.get::<_, Option<i32>>(6)?.unwrap_or(0),
     })
 }
 

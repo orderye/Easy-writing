@@ -1,6 +1,37 @@
+use super::mapper::{
+    query_list, query_optional, REVISION_COLS, REVISION_HEADER_COLS,
+};
 use rusqlite::{params, Connection, Result};
 use shared_types::{Chapter, ChapterRevision, ChapterRevisionHeader};
 use uuid::Uuid;
+
+fn map_revision_header(row: &rusqlite::Row<'_>) -> Result<ChapterRevisionHeader> {
+    Ok(ChapterRevisionHeader {
+        id: row.get(0)?,
+        chapter_id: row.get(1)?,
+        novel_id: row.get(2)?,
+        title: row.get(3)?,
+        word_count: row.get(4)?,
+        revision_type: row.get(5)?,
+        note: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
+fn map_revision(row: &rusqlite::Row<'_>) -> Result<ChapterRevision> {
+    Ok(ChapterRevision {
+        id: row.get(0)?,
+        chapter_id: row.get(1)?,
+        novel_id: row.get(2)?,
+        title: row.get(3)?,
+        content: row.get(4)?,
+        content_plain: row.get(5)?,
+        word_count: row.get(6)?,
+        revision_type: row.get(7)?,
+        note: row.get(8)?,
+        created_at: row.get(9)?,
+    })
+}
 
 pub fn create_revision(
     conn: &Connection,
@@ -30,92 +61,45 @@ pub fn list_revisions_for_chapter(
     conn: &Connection,
     chapter_id: &str,
 ) -> Result<Vec<ChapterRevisionHeader>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, chapter_id, novel_id, title, word_count, revision_type, note, created_at 
-         FROM chapter_revision 
-         WHERE chapter_id = ?1 
-         ORDER BY created_at DESC, rowid DESC 
-         LIMIT 100",
-    )?;
-
-    let rows = stmt.query_map(params![chapter_id], |row| {
-        Ok(ChapterRevisionHeader {
-            id: row.get(0)?,
-            chapter_id: row.get(1)?,
-            novel_id: row.get(2)?,
-            title: row.get(3)?,
-            word_count: row.get(4)?,
-            revision_type: row.get(5)?,
-            note: row.get(6)?,
-            created_at: row.get(7)?,
-        })
-    })?;
-
-    let mut list = Vec::new();
-    for r in rows {
-        list.push(r?);
-    }
-    Ok(list)
+    query_list(
+        conn,
+        &format!(
+            "SELECT {} FROM chapter_revision 
+             WHERE chapter_id = ?1 
+             ORDER BY created_at DESC, rowid DESC 
+             LIMIT 100",
+            REVISION_HEADER_COLS
+        ),
+        params![chapter_id],
+        map_revision_header,
+    )
 }
 
 pub fn get_revision(conn: &Connection, id: &str) -> Result<Option<ChapterRevision>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, chapter_id, novel_id, title, content, content_plain, word_count, revision_type, note, created_at 
-         FROM chapter_revision 
-         WHERE id = ?1",
-    )?;
-
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(ChapterRevision {
-            id: row.get(0)?,
-            chapter_id: row.get(1)?,
-            novel_id: row.get(2)?,
-            title: row.get(3)?,
-            content: row.get(4)?,
-            content_plain: row.get(5)?,
-            word_count: row.get(6)?,
-            revision_type: row.get(7)?,
-            note: row.get(8)?,
-            created_at: row.get(9)?,
-        })
-    })?;
-
-    if let Some(res) = rows.next() {
-        Ok(Some(res?))
-    } else {
-        Ok(None)
-    }
+    query_optional(
+        conn,
+        &format!(
+            "SELECT {} FROM chapter_revision WHERE id = ?1",
+            REVISION_COLS
+        ),
+        params![id],
+        map_revision,
+    )
 }
 
 pub fn get_latest_revision(conn: &Connection, chapter_id: &str) -> Result<Option<ChapterRevision>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, chapter_id, novel_id, title, content, content_plain, word_count, revision_type, note, created_at 
-         FROM chapter_revision 
-         WHERE chapter_id = ?1 
-         ORDER BY created_at DESC, rowid DESC 
-         LIMIT 1",
-    )?;
-
-    let mut rows = stmt.query_map(params![chapter_id], |row| {
-        Ok(ChapterRevision {
-            id: row.get(0)?,
-            chapter_id: row.get(1)?,
-            novel_id: row.get(2)?,
-            title: row.get(3)?,
-            content: row.get(4)?,
-            content_plain: row.get(5)?,
-            word_count: row.get(6)?,
-            revision_type: row.get(7)?,
-            note: row.get(8)?,
-            created_at: row.get(9)?,
-        })
-    })?;
-
-    if let Some(res) = rows.next() {
-        Ok(Some(res?))
-    } else {
-        Ok(None)
-    }
+    query_optional(
+        conn,
+        &format!(
+            "SELECT {} FROM chapter_revision 
+             WHERE chapter_id = ?1 
+             ORDER BY created_at DESC, rowid DESC 
+             LIMIT 1",
+            REVISION_COLS
+        ),
+        params![chapter_id],
+        map_revision,
+    )
 }
 
 pub fn revert_chapter_to_revision(

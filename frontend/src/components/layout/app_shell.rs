@@ -12,18 +12,12 @@ use crate::components::structure_panel::chapter_list::do_switch_chapter;
 use crate::components::structure_panel::save_button::perform_save;
 use crate::components::structure_panel::StructurePanel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::AppUpdateInfo;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
-
-#[derive(Serialize)]
-struct CheckUpdateArgs {
-    force: bool,
-}
 
 #[component]
 pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
@@ -66,18 +60,22 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
         let ctx = app_ctx;
         leptos::task::spawn_local(async move {
             TimeoutFuture::new(4000).await;
-            #[derive(Serialize)]
-            struct GetAppSettingArgs {
-                key: String,
-            }
-            let is_auto_enabled = if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_check_update".to_string() }).await {
+            let is_auto_enabled = if let Ok(Some(val)) = invoke_cmd("get_app_setting")
+                .arg("key", "auto_check_update".to_string())
+                .send::<Option<String>>()
+                .await
+            {
                 val != "false"
             } else {
                 true
             };
 
             if is_auto_enabled {
-                if let Ok(info) = invoke::<AppUpdateInfo, _>("check_app_update", &CheckUpdateArgs { force: false }).await {
+                if let Ok(info) = invoke_cmd("check_app_update")
+                    .arg("force", false)
+                    .send::<AppUpdateInfo>()
+                    .await
+                {
                     if info.has_update {
                         ctx.available_update.set(Some(info));
                         ctx.has_update_badge.set(true);
@@ -95,15 +93,15 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <StructurePanel app_ctx=app_ctx />
 
             <ConfigModal is_open=app_ctx.is_config_open app_ctx=app_ctx />
-            
+
             <UpdateModal is_open=app_ctx.is_update_modal_open app_ctx=app_ctx />
-            
+
             <RevisionModal is_open=app_ctx.is_revisions_modal_open app_ctx=app_ctx />
-            
+
             <SettingChangesModal is_open=app_ctx.is_setting_changes_modal_open app_ctx=app_ctx />
 
             <TrashModal is_open=app_ctx.is_trash_modal_open app_ctx=app_ctx />
-            
+
             <ImportModal is_open=app_ctx.is_import_modal_open app_ctx=app_ctx />
 
             <ExtractionModal
@@ -112,7 +110,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                 candidates=app_ctx.extraction_candidates
                 is_extracting=app_ctx.is_extracting
             />
-            
+
             <ConflictModal
                 is_open=app_ctx.is_conflict_modal_open
                 conflict_info=app_ctx.current_conflict
@@ -125,23 +123,15 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                         let reason = conflict.reason.clone();
                         let new_val = new_setting.clone();
                         leptos::task::spawn_local(async move {
-                            #[derive(Serialize)]
-                            struct ApplyConflictArgs {
-                                novel_id: String,
-                                chapter_id: Option<String>,
-                                setting_module: String,
-                                setting_title: String,
-                                new_content: String,
-                                reason: String,
-                            }
-                            let _ = invoke::<(), _>("apply_conflict_setting_update", &ApplyConflictArgs {
-                                novel_id: nid,
-                                chapter_id: cid,
-                                setting_module: mod_name,
-                                setting_title: title,
-                                new_content: new_val,
-                                reason: format!("AI冲突消除覆盖: {}", reason),
-                            }).await;
+                            let _ = invoke_cmd("apply_conflict_setting_update")
+                                .arg("novel_id", nid)
+                                .opt("chapter_id", cid)
+                                .arg("setting_module", mod_name)
+                                .arg("setting_title", title)
+                                .arg("new_content", new_val)
+                                .arg("reason", format!("AI冲突消除覆盖: {}", reason))
+                                .send_unit()
+                                .await;
                         });
                     }
                     if let Some(text) = app_ctx.pending_conflict_text.get() {

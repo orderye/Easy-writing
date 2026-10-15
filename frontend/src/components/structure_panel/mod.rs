@@ -7,17 +7,8 @@ use crate::components::layout::panel_toggle::RightToggle;
 use crate::components::structure_panel::save_button::SaveButton;
 use crate::components::structure_panel::volume_list::VolumeList;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct UpdateChapterMetaArgs {
-    id: String,
-    title: String,
-    summary: String,
-    status: String,
-}
 
 #[component]
 pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
@@ -51,16 +42,13 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
                 let cid = ch.id;
                 let ctitle = ch.title;
                 leptos::task::spawn_local(async move {
-                    let _ = invoke::<(), _>(
-                        "update_chapter_meta",
-                        &UpdateChapterMetaArgs {
-                            id: cid,
-                            title: ctitle,
-                            summary: new_summary,
-                            status: new_status,
-                        },
-                    )
-                    .await;
+                    let _ = invoke_cmd("update_chapter_meta")
+                        .arg("id", cid)
+                        .arg("title", ctitle)
+                        .arg("summary", new_summary)
+                        .arg("status", new_status)
+                        .send_unit()
+                        .await;
                 });
             }
         }

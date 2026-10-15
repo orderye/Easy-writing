@@ -1,27 +1,10 @@
 use crate::bridge::tiptap;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::LexiconEntry;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
-
-#[derive(Serialize)]
-struct ListLexiconArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct RecordUsageArgs {
-    novel_id: String,
-    term: String,
-}
-
-#[derive(Serialize)]
-struct SyncLexiconArgs {
-    novel_id: String,
-}
 
 #[component]
 pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
@@ -59,11 +42,11 @@ pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
                         if let Some(novel) = current_novel.get_untracked() {
                             let novel_id = novel.id;
                             leptos::task::spawn_local(async move {
-                                let _ = invoke::<(), _>(
-                                    "record_lexicon_usage",
-                                    &RecordUsageArgs { novel_id, term },
-                                )
-                                .await;
+                                let _ = invoke_cmd("record_lexicon_usage")
+                                    .arg("novel_id", novel_id)
+                                    .arg("term", term)
+                                    .send_unit()
+                                    .await;
                             });
                         }
                     }) as Box<dyn FnMut(String)>)
@@ -83,31 +66,24 @@ pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let list_res = invoke::<Vec<LexiconEntry>, _>(
-                    "list_lexicon",
-                    &ListLexiconArgs {
-                        novel_id: novel_id.clone(),
-                    },
-                )
-                .await;
+                let list_res = invoke_cmd("list_lexicon")
+                    .arg("novel_id", novel_id.clone())
+                    .send::<Vec<LexiconEntry>>()
+                    .await;
 
                 match list_res {
                     Ok(list) => {
                         if list.is_empty() {
                             // Automatically initialize lexicon from settings & chapters
-                            let _ = invoke::<usize, _>(
-                                "sync_lexicon_from_novel",
-                                &SyncLexiconArgs {
-                                    novel_id: novel_id.clone(),
-                                },
-                            )
-                            .await;
+                            let _ = invoke_cmd("sync_lexicon_from_novel")
+                                .arg("novel_id", novel_id.clone())
+                                .send::<usize>()
+                                .await;
                             // Fetch again
-                            if let Ok(refreshed) = invoke::<Vec<LexiconEntry>, _>(
-                                "list_lexicon",
-                                &ListLexiconArgs { novel_id },
-                            )
-                            .await
+                            if let Ok(refreshed) = invoke_cmd("list_lexicon")
+                                .arg("novel_id", novel_id)
+                                .send::<Vec<LexiconEntry>>()
+                                .await
                             {
                                 if let Ok(json_str) = serde_json::to_string(&refreshed) {
                                     tiptap::set_lexicon(&json_str);

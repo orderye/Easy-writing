@@ -1,46 +1,16 @@
 use crate::components::ai::polish_button::PolishButton;
+use crate::components::settings_panel::loaders::load_list_for_novel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::PlotItem;
-
-#[derive(Serialize)]
-struct ListPlotArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct SavePlotArgs {
-    id: Option<String>,
-    novel_id: String,
-    title: String,
-    content: String,
-    kind: String,
-    status: String,
-    chapter_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct DeletePlotArgs {
-    id: String,
-}
 
 #[component]
 pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
     let plots = RwSignal::new(Vec::<PlotItem>::new());
 
     let load_plots = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let novel_id = novel.id;
-            leptos::task::spawn_local(async move {
-                if let Ok(list) =
-                    invoke::<Vec<PlotItem>, _>("list_plots", &ListPlotArgs { novel_id }).await
-                {
-                    plots.set(list);
-                }
-            });
-        }
+        load_list_for_novel(app_ctx, "list_plots", plots);
     };
 
     Effect::new(move |_| {
@@ -51,19 +21,16 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let res = invoke::<PlotItem, _>(
-                    "save_plot",
-                    &SavePlotArgs {
-                        id: None,
-                        novel_id,
-                        title: "新事件/伏笔".to_string(),
-                        content: "".to_string(),
-                        kind: "foreshadow".to_string(),
-                        status: "planted".to_string(),
-                        chapter_id: None,
-                    },
-                )
-                .await;
+                let res = invoke_cmd("save_plot")
+                    .opt("id", None::<String>)
+                    .arg("novel_id", novel_id)
+                    .arg("title", "新事件/伏笔".to_string())
+                    .arg("content", "".to_string())
+                    .arg("kind", "foreshadow".to_string())
+                    .arg("status", "planted".to_string())
+                    .opt("chapter_id", None::<String>)
+                    .send::<PlotItem>()
+                    .await;
 
                 if let Ok(new_p) = res {
                     let mut list = plots.get();
@@ -76,7 +43,7 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
 
     let on_delete_plot = move |id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_plot", &DeletePlotArgs { id }).await;
+            let _ = invoke_cmd("delete_plot").arg("id", id).send_unit().await;
             load_plots();
         });
     };
@@ -130,19 +97,16 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
                                     let pid = p_id.clone();
                                     let k = kind.clone();
                                     leptos::task::spawn_local(async move {
-                                        let _ = invoke::<PlotItem, _>(
-                                            "save_plot",
-                                            &SavePlotArgs {
-                                                id: Some(pid),
-                                                novel_id: nid,
-                                                title: new_title,
-                                                content: new_content,
-                                                kind: k,
-                                                status: new_status,
-                                                chapter_id: None,
-                                            },
-                                        )
-                                        .await;
+                                        let _ = invoke_cmd("save_plot")
+                                            .opt("id", Some(pid))
+                                            .arg("novel_id", nid)
+                                            .arg("title", new_title)
+                                            .arg("content", new_content)
+                                            .arg("kind", k)
+                                            .arg("status", new_status)
+                                            .opt("chapter_id", None::<String>)
+                                            .send::<PlotItem>()
+                                            .await;
                                     });
                                 }
                             };

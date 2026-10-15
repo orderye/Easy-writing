@@ -1,18 +1,8 @@
+use crate::components::settings_panel::loaders::load_for_novel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::SettingChange;
-
-#[derive(Serialize)]
-struct ListSettingChangesArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct RevertSettingChangeArgs {
-    change_id: String,
-}
 
 #[component]
 pub fn SettingChangesModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
@@ -22,21 +12,10 @@ pub fn SettingChangesModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl
     let filter_module = RwSignal::new("all".to_string());
 
     let load_changes = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let nid = novel.id;
-            is_loading.set(true);
-            leptos::task::spawn_local(async move {
-                if let Ok(list) = invoke::<Vec<SettingChange>, _>(
-                    "list_setting_changes",
-                    &ListSettingChangesArgs { novel_id: nid },
-                )
-                .await
-                {
-                    changes.set(list);
-                }
-                is_loading.set(false);
-            });
-        }
+        is_loading.set(true);
+        load_for_novel(app_ctx, "list_setting_changes", changes, move || {
+            is_loading.set(false);
+        });
     };
 
     Effect::new(move |_| {
@@ -48,11 +27,10 @@ pub fn SettingChangesModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl
     let handle_revert = move |change_id: String| {
         reverting_id.set(Some(change_id.clone()));
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>(
-                "revert_setting_change",
-                &RevertSettingChangeArgs { change_id },
-            )
-            .await;
+            let _ = invoke_cmd("revert_setting_change")
+                .arg("change_id", change_id)
+                .send_unit()
+                .await;
             reverting_id.set(None);
             load_changes();
         });

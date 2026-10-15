@@ -1,98 +1,13 @@
+use crate::components::config::agent_tab::AgentTab;
+use crate::components::config::pref_tab::PrefTab;
+use crate::components::config::prompt_tab::PromptTab;
+use crate::components::config::webdav_tab::WebdavTab;
 use crate::state::AppContext;
-use crate::tauri_api::{invoke, invoke_no_args};
+use crate::tauri_api::{invoke_cmd, invoke_no_args};
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::{
-    Agent, AppUpdateInfo, BackupFileInfo, GenerationParams, LlmProfile, PromptTemplate, RemoteModel,
-    WebdavConfig,
+    Agent, AppUpdateInfo, GenerationParams, LlmProfile, PromptTemplate, RemoteModel,
 };
-
-#[derive(Serialize)]
-struct CreateProfileArgs {
-    name: String,
-    protocol: String,
-    base_url: String,
-    model: String,
-    api_key: String,
-    is_default: bool,
-    temperature: Option<f32>,
-    max_tokens: Option<u32>,
-    stream: Option<bool>,
-}
-
-#[derive(Serialize)]
-struct UpdateProfileArgs {
-    id: String,
-    name: String,
-    protocol: String,
-    base_url: String,
-    model: String,
-    is_default: bool,
-    temperature: Option<f32>,
-    max_tokens: Option<u32>,
-    stream: Option<bool>,
-}
-
-#[derive(Serialize)]
-struct FetchModelsArgs {
-    protocol: String,
-    base_url: String,
-    api_key: Option<String>,
-    profile_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct DeleteProfileArgs {
-    id: String,
-}
-
-#[derive(Serialize)]
-struct TestConnectionArgs {
-    profile_id: String,
-}
-
-#[allow(dead_code)]
-#[derive(Serialize)]
-struct UpdateAgentArgs {
-    key: String,
-    system_prompt: String,
-    llm_profile_id: Option<String>,
-    enabled: bool,
-}
-
-#[derive(Serialize)]
-struct SaveWebdavArgs {
-    url: String,
-    username: String,
-    password: Option<String>,
-    remote_dir: String,
-}
-
-#[derive(Serialize)]
-struct RestoreBackupArgs {
-    filename: String,
-}
-
-#[derive(Serialize)]
-struct GetAppSettingArgs {
-    key: String,
-}
-
-#[derive(Serialize)]
-struct SetAppSettingArgs {
-    key: String,
-    value: String,
-}
-
-#[derive(Serialize)]
-struct CheckUpdateArgs {
-    force: bool,
-}
-
-#[derive(Serialize)]
-struct OpenUrlArgs {
-    url: String,
-}
 
 /// 把 llm_profile.params 里的生成参数渲染成一行摘要文案（PRD §5.1 P0）。
 fn gen_params_summary(params_json: &str) -> String {
@@ -115,8 +30,29 @@ fn gen_params_summary(params_json: &str) -> String {
         "生成参数：temperature {} · 最大输出长度 {} · {}",
         temp,
         max_tokens,
-        if stream { "流式输出" } else { "一次性返回" }
+        if stream {
+            "流式输出"
+        } else {
+            "一次性返回"
+        }
     )
+}
+
+/// 读取一条应用偏好。
+async fn read_setting(key: &str) -> Result<Option<String>, String> {
+    invoke_cmd("get_app_setting")
+        .arg("key", key.to_string())
+        .send::<Option<String>>()
+        .await
+}
+
+/// 写入一条应用偏好。
+async fn write_setting(key: &str, value: String) -> Result<(), String> {
+    invoke_cmd("set_app_setting")
+        .arg("key", key.to_string())
+        .arg("value", value)
+        .send_unit()
+        .await
 }
 
 #[component]
@@ -150,24 +86,6 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
     let test_status = RwSignal::new(String::new());
 
-    // WebDAV state
-    let webdav_url = RwSignal::new("https://dav.jianguoyun.com/dav/".to_string());
-    let webdav_user = RwSignal::new(String::new());
-    let webdav_pwd = RwSignal::new(String::new());
-    let webdav_dir = RwSignal::new("/EasyWritingBackup".to_string());
-    let webdav_status = RwSignal::new(String::new());
-    let is_webdav_syncing = RwSignal::new(false);
-    let backups_list = RwSignal::new(Vec::<BackupFileInfo>::new());
-
-    // App Preferences state
-    let theme = RwSignal::new("system".to_string());
-    let font_size = RwSignal::new("16".to_string());
-    let line_height = RwSignal::new("1.8".to_string());
-    let auto_save_interval = RwSignal::new("30".to_string());
-    // 保存章节后自动提炼（PRD §4.2 P1，默认关闭）
-    let auto_extract = RwSignal::new(false);
-    let pref_status = RwSignal::new(String::new());
-
     // App Update state
     let auto_check_update = RwSignal::new(true);
     let custom_update_url = RwSignal::new(String::new());
@@ -183,48 +101,19 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                 agents.set(list);
             }
 
-            // Load WebDAV Config
-            if let Ok(Some(cfg)) = invoke_no_args::<Option<WebdavConfig>>("webdav_get_config").await {
-                webdav_url.set(cfg.url);
-                webdav_user.set(cfg.username);
-                webdav_dir.set(cfg.remote_dir);
-            }
-
-            // Load WebDAV Backup List
-            if let Ok(list) = invoke_no_args::<Vec<BackupFileInfo>>("webdav_list_backups").await {
-                backups_list.set(list);
-            }
-
             // Load Prompt Templates
             if let Ok(list) = invoke_no_args::<Vec<PromptTemplate>>("list_prompt_templates").await {
                 prompt_templates.set(list);
             }
 
-            // Load Preferences
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "theme".to_string() }).await {
-                theme.set(val);
-            }
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "font_size".to_string() }).await {
-                font_size.set(val);
-            }
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "line_height".to_string() }).await {
-                line_height.set(val);
-            }
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_save_interval".to_string() }).await {
-                auto_save_interval.set(val);
-            }
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_extract".to_string() }).await {
-                auto_extract.set(val == "true" || val == "1");
-            }
-
             // Load Update Preferences
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "auto_check_update".to_string() }).await {
+            if let Ok(Some(val)) = read_setting("auto_check_update").await {
                 auto_check_update.set(val != "false");
             }
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "update_check_url".to_string() }).await {
+            if let Ok(Some(val)) = read_setting("update_check_url").await {
                 custom_update_url.set(val);
             }
-            if let Ok(Some(val)) = invoke::<Option<String>, _>("get_app_setting", &GetAppSettingArgs { key: "last_update_check_time".to_string() }).await {
+            if let Ok(Some(val)) = read_setting("last_update_check_time").await {
                 last_check_time_str.set(val);
             }
         });
@@ -261,7 +150,10 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let on_add_profile = move |_| {
         let key_val = form_api_key.get().trim().to_string();
         if key_val.is_empty() {
-            test_status.set("✕ 拦截提示：未填写 API Key 密钥，请输入以 sk- 开头的有效密钥后再保存配置".to_string());
+            test_status.set(
+                "✕ 拦截提示：未填写 API Key 密钥，请输入以 sk- 开头的有效密钥后再保存配置"
+                    .to_string(),
+            );
             return;
         }
 
@@ -281,21 +173,18 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         };
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<LlmProfile, _>(
-                "create_llm_profile",
-                &CreateProfileArgs {
-                    name: form_name.get(),
-                    protocol: form_protocol.get(),
-                    base_url: form_base_url.get(),
-                    model: form_model.get(),
-                    api_key: form_api_key.get(),
-                    is_default: profiles.get().is_empty(),
-                    temperature,
-                    max_tokens,
-                    stream: Some(form_stream.get()),
-                },
-            )
-            .await;
+            let res = invoke_cmd("create_llm_profile")
+                .arg("name", form_name.get())
+                .arg("protocol", form_protocol.get())
+                .arg("base_url", form_base_url.get())
+                .arg("model", form_model.get())
+                .arg("api_key", form_api_key.get())
+                .arg("is_default", profiles.get().is_empty())
+                .opt("temperature", temperature)
+                .opt("max_tokens", max_tokens)
+                .opt("stream", Some(form_stream.get()))
+                .send::<LlmProfile>()
+                .await;
 
             match res {
                 Ok(new_p) => {
@@ -309,7 +198,9 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                     form_max_tokens.set(String::new());
                     form_stream.set(true);
                     remote_models.set(Vec::new());
-                    test_status.set("✓ 接口配置已保存至钥匙串，可点击上方「测试连接」验证连通性".to_string());
+                    test_status.set(
+                        "✓ 接口配置已保存至钥匙串，可点击上方「测试连接」验证连通性".to_string(),
+                    );
                 }
                 Err(err) => {
                     test_status.set(format!("✕ 保存失败: {}", err));
@@ -329,16 +220,13 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         let api_key = if key.is_empty() { None } else { Some(key) };
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<Vec<RemoteModel>, _>(
-                "fetch_remote_models",
-                &FetchModelsArgs {
-                    protocol,
-                    base_url,
-                    api_key,
-                    profile_id: None,
-                },
-            )
-            .await;
+            let res = invoke_cmd("fetch_remote_models")
+                .arg("protocol", protocol)
+                .arg("base_url", base_url)
+                .opt("api_key", api_key)
+                .opt("profile_id", None::<String>)
+                .send::<Vec<RemoteModel>>()
+                .await;
 
             match res {
                 Ok(list) => {
@@ -374,21 +262,18 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
         let stream = Some(edit_stream.get());
         leptos::task::spawn_local(async move {
-            let res = invoke::<LlmProfile, _>(
-                "update_llm_profile",
-                &UpdateProfileArgs {
-                    id: profile.id.clone(),
-                    name: profile.name.clone(),
-                    protocol: profile.protocol.clone(),
-                    base_url: profile.base_url.clone(),
-                    model: profile.model.clone(),
-                    is_default: profile.is_default,
-                    temperature,
-                    max_tokens,
-                    stream,
-                },
-            )
-            .await;
+            let res = invoke_cmd("update_llm_profile")
+                .arg("id", profile.id.clone())
+                .arg("name", profile.name.clone())
+                .arg("protocol", profile.protocol.clone())
+                .arg("base_url", profile.base_url.clone())
+                .arg("model", profile.model.clone())
+                .arg("is_default", profile.is_default)
+                .opt("temperature", temperature)
+                .opt("max_tokens", max_tokens)
+                .opt("stream", stream)
+                .send::<LlmProfile>()
+                .await;
 
             match res {
                 Ok(updated) => {
@@ -410,7 +295,10 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let on_delete_profile = move |id: String| {
         let p_id = id.clone();
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_llm_profile", &DeleteProfileArgs { id: p_id.clone() }).await;
+            let _ = invoke_cmd("delete_llm_profile")
+                .arg("id", p_id.clone())
+                .send_unit()
+                .await;
             let mut list = profiles.get();
             list.retain(|p| p.id != p_id);
             profiles.set(list);
@@ -420,7 +308,10 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let on_test_profile = move |id: String| {
         test_status.set("正在测试连接...".to_string());
         leptos::task::spawn_local(async move {
-            let res = invoke::<(), _>("test_llm_connection", &TestConnectionArgs { profile_id: id }).await;
+            let res = invoke_cmd("test_llm_connection")
+                .arg("profile_id", id)
+                .send_unit()
+                .await;
             match res {
                 Ok(_) => test_status.set("✓ 连接成功！模型接口响应正常".to_string()),
                 Err(err) => test_status.set(format!("✕ 连接失败: {}", err)),
@@ -428,153 +319,30 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         });
     };
 
-    // WebDAV Actions
-    let on_save_webdav = move |_| {
-        webdav_status.set("正在保存并测试 WebDAV 连通性...".to_string());
-        let pwd_val = webdav_pwd.get();
-        let pwd_opt = if pwd_val.trim().is_empty() { None } else { Some(pwd_val) };
-
-        leptos::task::spawn_local(async move {
-            let save_res = invoke::<(), _>(
-                "webdav_save_config",
-                &SaveWebdavArgs {
-                    url: webdav_url.get(),
-                    username: webdav_user.get(),
-                    password: pwd_opt,
-                    remote_dir: webdav_dir.get(),
-                },
-            )
-            .await;
-
-            if let Err(e) = save_res {
-                webdav_status.set(format!("✕ 保存配置失败: {}", e));
-                return;
-            }
-
-            let test_res = invoke_no_args::<()>("webdav_test_connection").await;
-            match test_res {
-                Ok(_) => {
-                    webdav_status.set("✓ WebDAV 连接成功！配置已安全保存至系统钥匙串。".to_string());
-                    // Refresh backup list
-                    if let Ok(list) = invoke_no_args::<Vec<BackupFileInfo>>("webdav_list_backups").await {
-                        backups_list.set(list);
-                    }
-                }
-                Err(err) => {
-                    webdav_status.set(format!("✕ WebDAV 连接测试失败: {}", err));
-                }
-            }
-        });
-    };
-
-    let on_backup_now = move |_| {
-        is_webdav_syncing.set(true);
-        webdav_status.set("正在执行整库一致性快照与图片增量备份……".to_string());
-
-        leptos::task::spawn_local(async move {
-            let res = invoke_no_args::<String>("webdav_backup_now").await;
-            match res {
-                Ok(filename) => {
-                    webdav_status.set(format!("✓ 备份成功！云端快照包: {}", filename));
-                    if let Ok(list) = invoke_no_args::<Vec<BackupFileInfo>>("webdav_list_backups").await {
-                        backups_list.set(list);
-                    }
-                }
-                Err(e) => {
-                    webdav_status.set(format!("✕ 备份失败: {}", e));
-                }
-            }
-            is_webdav_syncing.set(false);
-        });
-    };
-
-    let on_restore_backup = move |filename: String| {
-        let fn_clone = filename.clone();
-        is_webdav_syncing.set(true);
-        webdav_status.set(format!("正在还原版本 {}，并自动在本地留存安全快照……", fn_clone));
-
-        leptos::task::spawn_local(async move {
-            let res = invoke::<(), _>(
-                "webdav_restore_backup",
-                &RestoreBackupArgs { filename: fn_clone.clone() },
-            )
-            .await;
-
-            match res {
-                Ok(_) => {
-                    webdav_status.set(format!("✓ 版本 {} 还原成功！本地旧版已留存至 backups/ 目录防覆写。", fn_clone));
-                }
-                Err(e) => {
-                    webdav_status.set(format!("✕ 还原失败: {}", e));
-                }
-            }
-            is_webdav_syncing.set(false);
-        });
-    };
-
-    // Save Preferences
-    let on_save_preferences = move |_| {
-        pref_status.set("正在保存偏好设置...".to_string());
-        let current_theme = theme.get();
-        let current_fs = font_size.get();
-        let current_lh = line_height.get();
-        let current_intv = auto_save_interval.get();
-        let current_auto_extract = auto_extract.get();
-
-        leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "theme".to_string(),
-                value: current_theme.clone(),
-            }).await;
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "font_size".to_string(),
-                value: current_fs.clone(),
-            }).await;
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "line_height".to_string(),
-                value: current_lh.clone(),
-            }).await;
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "auto_save_interval".to_string(),
-                value: current_intv.clone(),
-            }).await;
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "auto_extract".to_string(),
-                value: if current_auto_extract { "true".to_string() } else { "false".to_string() },
-            }).await;
-
-            // Apply live
-            app_ctx.theme.set(current_theme.clone());
-            crate::bridge::theme::apply_app_theme(&current_theme);
-
-            let fs_num = current_fs.parse::<u32>().unwrap_or(16);
-            app_ctx.font_size.set(fs_num);
-            app_ctx.line_height.set(current_lh.clone());
-            crate::bridge::theme::set_editor_style(fs_num, &current_lh);
-
-            if let Ok(intv_num) = current_intv.parse::<u32>() {
-                app_ctx.auto_save_interval.set(intv_num);
-            }
-
-            pref_status.set("✓ 偏好设置已更新并持久化！".to_string());
-        });
-    };
-
     let on_check_update_now = move |_| {
         app_ctx.is_checking_update.set(true);
         update_status_msg.set("正在连接远程版本源检查更新...".to_string());
         leptos::task::spawn_local(async move {
-            let res = invoke::<AppUpdateInfo, _>("check_app_update", &CheckUpdateArgs { force: true }).await;
+            let res = invoke_cmd("check_app_update")
+                .arg("force", true)
+                .send::<AppUpdateInfo>()
+                .await;
             app_ctx.is_checking_update.set(false);
             match res {
                 Ok(info) => {
                     if info.has_update {
-                        update_status_msg.set(format!("🎉 发现新版本 v{}！已为您打开更新详情", info.latest_version));
+                        update_status_msg.set(format!(
+                            "🎉 发现新版本 v{}！已为您打开更新详情",
+                            info.latest_version
+                        ));
                         app_ctx.available_update.set(Some(info));
                         app_ctx.has_update_badge.set(true);
                         app_ctx.is_update_modal_open.set(true);
                     } else {
-                        update_status_msg.set(format!("✓ 当前已是最新版本 (v{})，暂无新版本发布", info.current_version));
+                        update_status_msg.set(format!(
+                            "✓ 当前已是最新版本 (v{})，暂无新版本发布",
+                            info.current_version
+                        ));
                     }
                 }
                 Err(e) => {
@@ -588,21 +356,26 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         let is_auto = auto_check_update.get();
         let custom_url = custom_update_url.get().trim().to_string();
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "auto_check_update".to_string(),
-                value: if is_auto { "true".to_string() } else { "false".to_string() },
-            }).await;
-            let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                key: "update_check_url".to_string(),
-                value: custom_url,
-            }).await;
+            let _ = write_setting(
+                "auto_check_update",
+                if is_auto {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                },
+            )
+            .await;
+            let _ = write_setting("update_check_url", custom_url).await;
             update_status_msg.set("✓ 更新检测设置已保存！".to_string());
         });
     };
 
     let on_open_external = move |url: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("open_external_url", &OpenUrlArgs { url }).await;
+            let _ = invoke_cmd("open_external_url")
+                .arg("url", url)
+                .send_unit()
+                .await;
         });
     };
 
@@ -675,381 +448,12 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                             // Tab contents
                             <div class="flex-1 overflow-y-auto p-6 bg-white dark:bg-slate-800">
                                 {move || match tab.as_str() {
-                                    "agent" => view! {
-                                        <div class="space-y-4">
-                                            <p class="text-xs text-slate-500">"每个模块由独立预设 Agent 负责，各 Agent 可绑定不同的大模型 API 配置。"</p>
-                                            <div class="space-y-3">
-                                                <For
-                                                    each=move || agents.get()
-                                                    key=|a| a.id.clone()
-                                                    children=move |ag| {
-                                                        let prompt = RwSignal::new(ag.system_prompt.clone());
-                                                        view! {
-                                                            <div class="border border-slate-200 rounded-lg p-3 bg-white space-y-2">
-                                                                <div class="flex items-center justify-between">
-                                                                    <div class="flex items-center gap-2">
-                                                                        <span class="font-bold text-xs text-slate-800">{ag.name.clone()}</span>
-                                                                        <span class="text-[10px] text-slate-400 font-mono">"key: " {ag.key.clone()}</span>
-                                                                    </div>
-                                                                    <span class="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                                                                        "已启用"
-                                                                    </span>
-                                                                </div>
-                                                                <textarea
-                                                                    class="w-full text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded p-2 focus:bg-white focus:outline-blue-500 min-h-[50px]"
-                                                                    prop:value=move || prompt.get()
-                                                                    on:input=move |ev| prompt.set(event_target_value(&ev))
-                                                                ></textarea>
-                                                            </div>
-                                                        }
-                                                    }
-                                                />
-                                            </div>
-                                        </div>
-                                    }.into_any(),
+                                    "agent" => view! { <AgentTab agents=agents /> }.into_any(),
 
-                                    "prompt" => view! {
-                                        <div class="space-y-4">
-                                            <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-700">
-                                                <div>
-                                                    <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100">"6 处修饰模块独立 Prompt 模板"</h4>
-                                                    <p class="text-[11px] text-slate-500 dark:text-slate-400">"自定义世界观、角色卡、剧情伏笔、全篇梗概、卷简介及章摘要的 AI 润色修饰指令，支持一键恢复出厂预设。"</p>
-                                                </div>
-                                            </div>
+                                    "prompt" => view! { <PromptTab prompt_templates=prompt_templates /> }.into_any(),
 
-                                            <div class="space-y-3">
-                                                {move || {
-                                                    let tmpls = prompt_templates.get();
-                                                    tmpls.into_iter().map(|item| {
-                                                        let key = StoredValue::new(item.key);
-                                                        let name = item.name;
-                                                        let def_tmpl = StoredValue::new(item.default_template);
-                                                        let tmpl_signal = RwSignal::new(item.template);
-                                                        let save_msg = RwSignal::new(String::new());
-
-                                                        view! {
-                                                            <div class="border border-slate-200 dark:border-slate-700 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-850/50 space-y-2">
-                                                                <div class="flex items-center justify-between">
-                                                                    <div class="flex items-center gap-2">
-                                                                        <span class="font-bold text-xs text-slate-800 dark:text-slate-100">{name}</span>
-                                                                        <span class="text-[10px] font-mono px-1.5 py-0.2 bg-slate-200 dark:bg-slate-750 text-slate-600 dark:text-slate-300 rounded">
-                                                                            {move || key.get_value()}
-                                                                        </span>
-                                                                        {move || if tmpl_signal.get() != def_tmpl.get_value() {
-                                                                            view! {
-                                                                                <span class="text-[10px] px-1.5 py-0.2 bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 rounded border border-amber-200 dark:border-amber-700">
-                                                                                    "已自定义"
-                                                                                </span>
-                                                                            }.into_any()
-                                                                        } else {
-                                                                            view! {
-                                                                                <span class="text-[10px] px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 text-slate-400 rounded">
-                                                                                    "默认预设"
-                                                                                </span>
-                                                                            }.into_any()
-                                                                        }}
-                                                                    </div>
-                                                                    <div class="flex items-center gap-2">
-                                                                        <span class="text-[11px] text-emerald-600 dark:text-emerald-400">{move || save_msg.get()}</span>
-                                                                        {move || if tmpl_signal.get() != def_tmpl.get_value() {
-                                                                            view! {
-                                                                                <button
-                                                                                    class="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 px-2 py-1 rounded transition-colors cursor-pointer"
-                                                                                    on:click=move |_| {
-                                                                                        let k = key.get_value();
-                                                                                        let dt = def_tmpl.get_value();
-                                                                                        leptos::task::spawn_local(async move {
-                                                                                            #[derive(Serialize)]
-                                                                                            struct ResetTmplArgs {
-                                                                                                key: String,
-                                                                                            }
-                                                                                            if invoke::<(), _>("reset_prompt_template", &ResetTmplArgs { key: k }).await.is_ok() {
-                                                                                                tmpl_signal.set(dt);
-                                                                                                save_msg.set("已恢复出厂默认预设 ✓".to_string());
-                                                                                            }
-                                                                                        });
-                                                                                    }
-                                                                                >
-                                                                                    "恢复默认"
-                                                                                </button>
-                                                                            }.into_any()
-                                                                        } else {
-                                                                            view! { <div></div> }.into_any()
-                                                                        }}
-                                                                        <button
-                                                                            class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded font-medium shadow-xs transition-colors cursor-pointer"
-                                                                            on:click=move |_| {
-                                                                                let k = key.get_value();
-                                                                                let t = tmpl_signal.get();
-                                                                                leptos::task::spawn_local(async move {
-                                                                                    #[derive(Serialize)]
-                                                                                    struct SaveTmplArgs {
-                                                                                        key: String,
-                                                                                        template: String,
-                                                                                    }
-                                                                                    if invoke::<(), _>("save_prompt_template", &SaveTmplArgs { key: k, template: t }).await.is_ok() {
-                                                                                        save_msg.set("已保存自定义模板 ✓".to_string());
-                                                                                    }
-                                                                                });
-                                                                            }
-                                                                        >
-                                                                            "保存修改"
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                                <textarea
-                                                                    class="w-full text-xs text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md p-2 min-h-[70px] leading-relaxed font-mono focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-                                                                    prop:value=move || tmpl_signal.get()
-                                                                    on:input=move |ev| tmpl_signal.set(event_target_value(&ev))
-                                                                ></textarea>
-                                                            </div>
-                                                        }
-                                                    }).collect::<Vec<_>>()
-                                                }}
-                                            </div>
-                                        </div>
-                                    }.into_any(),
-
-                                    "webdav" => view! {
-                                        <div class="space-y-6 text-xs text-slate-700">
-                                            <div class="grid grid-cols-2 gap-6">
-                                                // Form
-                                                <div class="space-y-3">
-                                                    <h4 class="font-bold text-xs text-slate-800">"WebDAV 服务器凭据"</h4>
-                                                    <div class="space-y-1">
-                                                        <label class="font-medium text-slate-600">"WebDAV 服务器地址"</label>
-                                                        <input
-                                                            type="text"
-                                                            class="w-full p-2 border border-slate-300 rounded font-mono text-xs focus:outline-blue-500"
-                                                            placeholder="https://dav.jianguoyun.com/dav/"
-                                                            prop:value=move || webdav_url.get()
-                                                            on:input=move |ev| webdav_url.set(event_target_value(&ev))
-                                                        />
-                                                    </div>
-                                                    <div class="space-y-1">
-                                                        <label class="font-medium text-slate-600">"用户名"</label>
-                                                        <input
-                                                            type="text"
-                                                            class="w-full p-2 border border-slate-300 rounded text-xs focus:outline-blue-500"
-                                                            placeholder="user@example.com"
-                                                            prop:value=move || webdav_user.get()
-                                                            on:input=move |ev| webdav_user.set(event_target_value(&ev))
-                                                        />
-                                                    </div>
-                                                    <div class="space-y-1">
-                                                        <label class="font-medium text-slate-600">"应用专用密码 / Token（保存至系统钥匙串）"</label>
-                                                        <input
-                                                            type="password"
-                                                            class="w-full p-2 border border-slate-300 rounded text-xs focus:outline-blue-500 font-mono"
-                                                            placeholder="••••••••••••"
-                                                            prop:value=move || webdav_pwd.get()
-                                                            on:input=move |ev| webdav_pwd.set(event_target_value(&ev))
-                                                        />
-                                                    </div>
-                                                    <div class="space-y-1">
-                                                        <label class="font-medium text-slate-600">"远程备份目录"</label>
-                                                        <input
-                                                            type="text"
-                                                            class="w-full p-2 border border-slate-300 rounded text-xs focus:outline-blue-500 font-mono"
-                                                            placeholder="/EasyWritingBackup"
-                                                            prop:value=move || webdav_dir.get()
-                                                            on:input=move |ev| webdav_dir.set(event_target_value(&ev))
-                                                        />
-                                                    </div>
-
-                                                    <div class="flex items-center gap-2 pt-1">
-                                                        <button
-                                                            class="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer"
-                                                            on:click=on_save_webdav
-                                                        >
-                                                            "保存并测试连通性"
-                                                        </button>
-                                                        <button
-                                                            class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                                                            disabled=move || is_webdav_syncing.get()
-                                                            on:click=on_backup_now
-                                                        >
-                                                            {move || if is_webdav_syncing.get() { "正在备份..." } else { "立即整库备份" }}
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                // Cloud Backups List
-                                                <div class="space-y-3">
-                                                    <h4 class="font-bold text-xs text-slate-800">"云端备份快照历史（带防覆写恢复）"</h4>
-                                                    <div class="border border-slate-200 rounded-lg p-3 bg-slate-50 min-h-[220px] max-h-[320px] overflow-y-auto space-y-2">
-                                                        {move || {
-                                                            let list = backups_list.get();
-                                                            if list.is_empty() {
-                                                                view! {
-                                                                    <div class="text-center py-10 text-slate-400 text-xs">
-                                                                        "暂无云端备份文件，或未成功连接 WebDAV。"
-                                                                    </div>
-                                                                }.into_any()
-                                                            } else {
-                                                                view! {
-                                                                    <For
-                                                                        each=move || backups_list.get()
-                                                                        key=|b| b.filename.clone()
-                                                                        children=move |b| {
-                                                                            let fn_for_restore = b.filename.clone();
-                                                                            let kb = b.size_bytes / 1024;
-                                                                            view! {
-                                                                                <div class="flex items-center justify-between p-2 bg-white rounded border border-slate-200 text-xs shadow-2xs">
-                                                                                    <div>
-                                                                                        <div class="font-mono font-semibold text-slate-800 text-[11px]">
-                                                                                            {b.filename.clone()}
-                                                                                        </div>
-                                                                                        <div class="text-[10px] text-slate-400">
-                                                                                            {kb} " KB · " {b.modified_at.clone()}
-                                                                                        </div>
-                                                                                    </div>
-                                                                                    <button
-                                                                                        class="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-300 rounded text-[11px] font-medium cursor-pointer"
-                                                                                        title="安全还原此版本"
-                                                                                        on:click=move |_| on_restore_backup(fn_for_restore.clone())
-                                                                                    >
-                                                                                        "还原"
-                                                                                    </button>
-                                                                                </div>
-                                                                            }
-                                                                        }
-                                                                    />
-                                                                }.into_any()
-                                                            }
-                                                        }}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {move || if !webdav_status.get().is_empty() {
-                                                view! {
-                                                    <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-md text-xs font-semibold text-blue-800">
-                                                        {webdav_status.get()}
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! { <div></div> }.into_any()
-                                            }}
-                                        </div>
-                                    }.into_any(),
-
-                                    "pref" => view! {
-                                        <div class="max-w-md space-y-5 text-xs text-slate-700 dark:text-slate-300">
-                                            <div class="space-y-1.5">
-                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"外观主题"</label>
-                                                <div class="grid grid-cols-3 gap-2">
-                                                    <button
-                                                        type="button"
-                                                        class=move || format!(
-                                                            "px-3 py-2.5 rounded border text-center transition-colors cursor-pointer {}",
-                                                            if theme.get() == "system" {
-                                                                "border-blue-600 bg-blue-50 text-blue-700 font-bold dark:bg-blue-950/70 dark:border-blue-500 dark:text-blue-300"
-                                                            } else {
-                                                                "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60"
-                                                            }
-                                                        )
-                                                        on:click=move |_| {
-                                                            theme.set("system".to_string());
-                                                            crate::bridge::theme::apply_app_theme("system");
-                                                        }
-                                                    >
-                                                        "🌓 跟随系统"
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class=move || format!(
-                                                            "px-3 py-2.5 rounded border text-center transition-colors cursor-pointer {}",
-                                                            if theme.get() == "light" {
-                                                                "border-blue-600 bg-blue-50 text-blue-700 font-bold dark:bg-blue-950/70 dark:border-blue-500 dark:text-blue-300"
-                                                            } else {
-                                                                "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60"
-                                                            }
-                                                        )
-                                                        on:click=move |_| {
-                                                            theme.set("light".to_string());
-                                                            crate::bridge::theme::apply_app_theme("light");
-                                                        }
-                                                    >
-                                                        "☀️ 浅色模式"
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        class=move || format!(
-                                                            "px-3 py-2.5 rounded border text-center transition-colors cursor-pointer {}",
-                                                            if theme.get() == "dark" {
-                                                                "border-blue-600 bg-blue-50 text-blue-700 font-bold dark:bg-blue-950/70 dark:border-blue-500 dark:text-blue-300"
-                                                            } else {
-                                                                "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-700/60"
-                                                            }
-                                                        )
-                                                        on:click=move |_| {
-                                                            theme.set("dark".to_string());
-                                                            crate::bridge::theme::apply_app_theme("dark");
-                                                        }
-                                                    >
-                                                        "🌙 深色模式"
-                                                    </button>
-                                                </div>
-                                            </div>
-                                            <div class="space-y-1">
-                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"正文字号 (px)"</label>
-                                                <input
-                                                    type="number"
-                                                    class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
-                                                    prop:value=move || font_size.get()
-                                                    on:input=move |ev| font_size.set(event_target_value(&ev))
-                                                />
-                                            </div>
-                                            <div class="space-y-1">
-                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"正文行高"</label>
-                                                <input
-                                                    type="text"
-                                                    class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
-                                                    prop:value=move || line_height.get()
-                                                    on:input=move |ev| line_height.set(event_target_value(&ev))
-                                                />
-                                            </div>
-                                            <div class="space-y-1">
-                                                <label class="font-semibold block text-slate-800 dark:text-slate-200">"自动保存间隔 (秒)"</label>
-                                                <input
-                                                    type="number"
-                                                    class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
-                                                    prop:value=move || auto_save_interval.get()
-                                                    on:input=move |ev| auto_save_interval.set(event_target_value(&ev))
-                                                />
-                                            </div>
-                                            <div class="flex items-start justify-between gap-4 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                                                <div>
-                                                    <label class="font-semibold block text-slate-800 dark:text-slate-200">"保存章节后自动提炼"</label>
-                                                    <span class="text-[11px] text-slate-400 dark:text-slate-500">
-                                                        "开启后，保存正文时后台静默提炼世界观 / 角色 / 剧情 / 章摘要候选；默认关闭，仅手动点「提炼本章」。"</span>
-                                                </div>
-                                                <input
-                                                    type="checkbox"
-                                                    class="w-4 h-4 mt-0.5 text-blue-600 rounded cursor-pointer shrink-0"
-                                                    prop:checked=move || auto_extract.get()
-                                                    on:change=move |ev| auto_extract.set(event_target_checked(&ev))
-                                                />
-                                            </div>
-                                            <button
-                                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer"
-                                                on:click=on_save_preferences
-                                            >
-                                                "保存写作偏好"
-                                            </button>
-
-                                            {move || if !pref_status.get().is_empty() {
-                                                view! {
-                                                    <div class="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-md text-xs font-semibold text-emerald-800 dark:text-emerald-300">
-                                                        {pref_status.get()}
-                                                    </div>
-                                                }.into_any()
-                                            } else {
-                                                view! { <div></div> }.into_any()
-                                            }}
-                                        </div>
-                                    }.into_any(),
+                                    "webdav" => view! { <WebdavTab /> }.into_any(),
+                                    "pref" => view! { <PrefTab app_ctx=app_ctx /> }.into_any(),
 
                                     "update" => view! {
                                         <div class="space-y-6 max-w-2xl">

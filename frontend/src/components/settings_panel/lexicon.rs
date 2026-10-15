@@ -1,38 +1,8 @@
+use crate::components::settings_panel::loaders::load_list_for_novel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::LexiconEntry;
-
-#[derive(Serialize)]
-struct ListLexiconArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct SaveLexiconArgs {
-    novel_id: String,
-    term: String,
-    category: String,
-    source_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct DeleteLexiconArgs {
-    id: String,
-}
-
-#[derive(Serialize)]
-struct SyncLexiconArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct ImportLexiconArgs {
-    novel_id: String,
-    terms: Vec<String>,
-    category: String,
-}
 
 #[component]
 pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
@@ -48,16 +18,7 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
     let is_syncing = RwSignal::new(false);
 
     let load_terms = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let novel_id = novel.id;
-            leptos::task::spawn_local(async move {
-                if let Ok(list) =
-                    invoke::<Vec<LexiconEntry>, _>("list_lexicon", &ListLexiconArgs { novel_id }).await
-                {
-                    terms.set(list);
-                }
-            });
-        }
+        load_list_for_novel(app_ctx, "list_lexicon", terms);
     };
 
     // Reload when novel or lexicon_version updates
@@ -72,11 +33,10 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
             let novel_id = novel.id;
             is_syncing.set(true);
             leptos::task::spawn_local(async move {
-                let _ = invoke::<usize, _>(
-                    "sync_lexicon_from_novel",
-                    &SyncLexiconArgs { novel_id },
-                )
-                .await;
+                let _ = invoke_cmd("sync_lexicon_from_novel")
+                    .arg("novel_id", novel_id)
+                    .send_unit()
+                    .await;
                 is_syncing.set(false);
                 app_ctx.lexicon_version.update(|v| *v += 1);
             });
@@ -93,16 +53,13 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let _ = invoke::<LexiconEntry, _>(
-                    "save_lexicon_term",
-                    &SaveLexiconArgs {
-                        novel_id,
-                        term: t,
-                        category: cat,
-                        source_id: None,
-                    },
-                )
-                .await;
+                let _ = invoke_cmd("save_lexicon_term")
+                    .arg("novel_id", novel_id)
+                    .arg("term", t)
+                    .arg("category", cat)
+                    .opt("source_id", None::<String>)
+                    .send::<LexiconEntry>()
+                    .await;
                 new_term_text.set(String::new());
                 is_adding.set(false);
                 app_ctx.lexicon_version.update(|v| *v += 1);
@@ -113,7 +70,10 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
     // Delete single term
     let on_delete_term = move |id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_lexicon_term", &DeleteLexiconArgs { id }).await;
+            let _ = invoke_cmd("delete_lexicon_term")
+                .arg("id", id)
+                .send_unit()
+                .await;
             app_ctx.lexicon_version.update(|v| *v += 1);
         });
     };
@@ -135,15 +95,12 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let _ = invoke::<usize, _>(
-                    "import_lexicon_terms",
-                    &ImportLexiconArgs {
-                        novel_id,
-                        terms: list,
-                        category: cat,
-                    },
-                )
-                .await;
+                let _ = invoke_cmd("import_lexicon_terms")
+                    .arg("novel_id", novel_id)
+                    .arg("terms", list)
+                    .arg("category", cat)
+                    .send::<usize>()
+                    .await;
                 batch_input_text.set(String::new());
                 is_batch_modal_open.set(false);
                 app_ctx.lexicon_version.update(|v| *v += 1);
@@ -156,23 +113,40 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
         let cat = filter_category.get();
         let query = search_query.get().trim().to_lowercase();
 
-        list.into_iter().filter(|item| {
-            if cat != "all" && item.category != cat {
-                return false;
-            }
-            if !query.is_empty() && !item.term.to_lowercase().contains(&query) {
-                return false;
-            }
-            true
-        }).collect::<Vec<_>>()
+        list.into_iter()
+            .filter(|item| {
+                if cat != "all" && item.category != cat {
+                    return false;
+                }
+                if !query.is_empty() && !item.term.to_lowercase().contains(&query) {
+                    return false;
+                }
+                true
+            })
+            .collect::<Vec<_>>()
     };
 
     let category_badge = |cat: &str| match cat {
-        "worldview" => ("功法设定", "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"),
-        "character" => ("角色人名", "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"),
-        "corpus" => ("正文高频", "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"),
-        "plot" => ("剧情伏笔", "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"),
-        _ => ("自定义", "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"),
+        "worldview" => (
+            "功法设定",
+            "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+        ),
+        "character" => (
+            "角色人名",
+            "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        ),
+        "corpus" => (
+            "正文高频",
+            "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+        ),
+        "plot" => (
+            "剧情伏笔",
+            "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+        ),
+        _ => (
+            "自定义",
+            "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+        ),
     };
 
     view! {
@@ -381,7 +355,7 @@ pub fn LexiconView(app_ctx: AppContext) -> impl IntoView {
                                         "✕"
                                     </button>
                                 </div>
-                                
+
                                 <p class="text-xs text-slate-500 dark:text-slate-400">
                                     "每行输入一个词条（支持粘贴专有名词表、武功秘籍、地名等，2~40字）："
                                 </p>

@@ -1,11 +1,8 @@
 use crate::bridge::tiptap;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
-use shared_types::{
-    ChatMessage as ChatMessageDto, ChatSession, ConflictInfo,
-};
+use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ConflictInfo};
 
 /// 本地消息视图。seq 为客户端自增序号，用于 For key——同一角色重复内容也不会冲突。
 #[derive(Clone, Debug, PartialEq)]
@@ -13,37 +10,6 @@ pub struct ChatMsg {
     pub seq: u64,
     pub role: String,
     pub content: String,
-}
-
-#[derive(Serialize)]
-struct AiChatArgs {
-    novel_id: String,
-    chapter_id: Option<String>,
-    prompt: String,
-    event_name: String,
-}
-
-#[derive(Serialize)]
-struct CheckConflictArgs {
-    novel_id: String,
-    text: String,
-}
-
-#[derive(Serialize)]
-struct GetOrCreateSessionArgs {
-    novel_id: String,
-    chapter_id: Option<String>,
-}
-
-#[derive(Serialize)]
-struct ListMessagesArgs {
-    session_id: String,
-    limit: Option<i64>,
-}
-
-#[derive(Serialize)]
-struct ClearSessionArgs {
-    session_id: String,
 }
 
 const WELCOME: &str = "你好！我是你的专属写作助手。我的创作将严格遵循左栏的世界观、角色卡、剧情伏笔与大纲。请输入你的写作需求（如：续写本章情节、设计一段对话等）……";
@@ -78,28 +44,22 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
         };
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<ChatSession, _>(
-                "get_or_create_chat_session",
-                &GetOrCreateSessionArgs {
-                    novel_id: novel_id.clone(),
-                    chapter_id: chapter_id.clone(),
-                },
-            )
-            .await;
+            let res = invoke_cmd("get_or_create_chat_session")
+                .arg("novel_id", novel_id.clone())
+                .opt("chapter_id", chapter_id.clone())
+                .send::<ChatSession>()
+                .await;
 
             match res {
                 Ok(sess) => {
                     let s_id = sess.id.clone();
                     session.set(Some(sess));
 
-                    if let Ok(history) = invoke::<Vec<ChatMessageDto>, _>(
-                        "list_chat_messages",
-                        &ListMessagesArgs {
-                            session_id: s_id,
-                            limit: Some(200),
-                        },
-                    )
-                    .await
+                    if let Ok(history) = invoke_cmd("list_chat_messages")
+                        .arg("session_id", s_id)
+                        .opt("limit", Some(200i64))
+                        .send::<Vec<ChatMessageDto>>()
+                        .await
                     {
                         let mut loaded: Vec<ChatMsg> = Vec::new();
                         for m in history {
@@ -136,13 +96,10 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
     let do_clear_history = move |_| {
         if let Some(sess) = session.get() {
             leptos::task::spawn_local(async move {
-                let _ = invoke::<(), _>(
-                    "clear_chat_session",
-                    &ClearSessionArgs {
-                        session_id: sess.id,
-                    },
-                )
-                .await;
+                let _ = invoke_cmd("clear_chat_session")
+                    .arg("session_id", sess.id)
+                    .send_unit()
+                    .await;
             });
         }
         next_seq.set_value(1);
@@ -186,16 +143,13 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
 
             leptos::task::spawn_local(async move {
                 // ai_chat_stream 会在后端把用户消息与助手回复一并落库（PRD §4.1 P1）
-                let res = invoke::<String, _>(
-                    "ai_chat_stream",
-                    &AiChatArgs {
-                        novel_id,
-                        chapter_id,
-                        prompt: text,
-                        event_name: "chat-reply".to_string(),
-                    },
-                )
-                .await;
+                let res = invoke_cmd("ai_chat_stream")
+                    .arg("novel_id", novel_id)
+                    .opt("chapter_id", chapter_id)
+                    .arg("prompt", text)
+                    .arg("event_name", "chat-reply".to_string())
+                    .send::<String>()
+                    .await;
 
                 let mut current_msgs = messages.get();
                 if let Some(last) = current_msgs.last_mut() {
@@ -204,7 +158,10 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                             last.content = reply;
                         }
                         Err(err) => {
-                            last.content = format!("创作生成失败: {}\n请检查系统设置中的模型接口配置与 API Key。", err);
+                            last.content = format!(
+                                "创作生成失败: {}\n请检查系统设置中的模型接口配置与 API Key。",
+                                err
+                            );
                         }
                     }
                 }
@@ -219,14 +176,11 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
             let novel_id = novel.id;
             let text_to_insert = content.clone();
             leptos::task::spawn_local(async move {
-                let conflict_check = invoke::<Option<ConflictInfo>, _>(
-                    "ai_check_conflict",
-                    &CheckConflictArgs {
-                        novel_id,
-                        text: text_to_insert.clone(),
-                    },
-                )
-                .await;
+                let conflict_check = invoke_cmd("ai_check_conflict")
+                    .arg("novel_id", novel_id)
+                    .arg("text", text_to_insert.clone())
+                    .send::<Option<ConflictInfo>>()
+                    .await;
 
                 match conflict_check {
                     Ok(Some(conflict)) => {

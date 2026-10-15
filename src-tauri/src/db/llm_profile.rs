@@ -1,6 +1,23 @@
+use super::mapper::{int_to_bool, query_list, query_optional, LLM_PROFILE_COLS};
 use rusqlite::{params, Connection, Result};
 use shared_types::LlmProfile;
 use uuid::Uuid;
+
+fn map_profile(row: &rusqlite::Row<'_>) -> Result<LlmProfile> {
+    let is_default_int: i32 = row.get(7)?;
+    Ok(LlmProfile {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        protocol: row.get(2)?,
+        base_url: row.get(3)?,
+        key_ref: row.get(4)?,
+        model: row.get(5)?,
+        params: row.get(6)?,
+        is_default: int_to_bool(is_default_int),
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
+}
 
 pub fn create_profile(
     conn: &Connection,
@@ -39,62 +56,24 @@ pub fn create_profile(
 }
 
 pub fn list_profiles(conn: &Connection) -> Result<Vec<LlmProfile>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, protocol, base_url, key_ref, model, params, is_default, created_at, updated_at
-         FROM llm_profile
-         ORDER BY is_default DESC, created_at ASC",
-    )?;
-
-    let rows = stmt.query_map([], |row| {
-        let is_default_int: i32 = row.get(7)?;
-        Ok(LlmProfile {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            protocol: row.get(2)?,
-            base_url: row.get(3)?,
-            key_ref: row.get(4)?,
-            model: row.get(5)?,
-            params: row.get(6)?,
-            is_default: is_default_int == 1,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
-        })
-    })?;
-
-    let mut list = Vec::new();
-    for r in rows {
-        list.push(r?);
-    }
-    Ok(list)
+    query_list(
+        conn,
+        &format!(
+            "SELECT {} FROM llm_profile ORDER BY is_default DESC, created_at ASC",
+            LLM_PROFILE_COLS
+        ),
+        [],
+        map_profile,
+    )
 }
 
 pub fn get_profile(conn: &Connection, id: &str) -> Result<Option<LlmProfile>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, name, protocol, base_url, key_ref, model, params, is_default, created_at, updated_at
-         FROM llm_profile WHERE id = ?1",
-    )?;
-
-    let mut rows = stmt.query_map(params![id], |row| {
-        let is_default_int: i32 = row.get(7)?;
-        Ok(LlmProfile {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            protocol: row.get(2)?,
-            base_url: row.get(3)?,
-            key_ref: row.get(4)?,
-            model: row.get(5)?,
-            params: row.get(6)?,
-            is_default: is_default_int == 1,
-            created_at: row.get(8)?,
-            updated_at: row.get(9)?,
-        })
-    })?;
-
-    if let Some(r) = rows.next() {
-        Ok(Some(r?))
-    } else {
-        Ok(None)
-    }
+    query_optional(
+        conn,
+        &format!("SELECT {} FROM llm_profile WHERE id = ?1", LLM_PROFILE_COLS),
+        params![id],
+        map_profile,
+    )
 }
 
 pub fn update_profile(

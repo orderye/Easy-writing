@@ -13,6 +13,7 @@ pub mod character_relation;
 pub mod extraction;
 pub mod lexicon;
 pub mod llm_profile;
+pub mod mapper;
 pub mod novel;
 pub mod prompt_template;
 pub mod settings;

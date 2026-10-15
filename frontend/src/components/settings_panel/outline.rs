@@ -1,37 +1,9 @@
 use crate::bridge::tiptap;
 use crate::components::ai::polish_button::PolishButton;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::Chapter;
-
-#[derive(Serialize)]
-struct UpdateNovelArgs {
-    id: String,
-    title: String,
-    synopsis: String,
-}
-
-#[derive(Serialize)]
-struct UpdateVolumeArgs {
-    id: String,
-    title: String,
-    summary: String,
-}
-
-#[derive(Serialize)]
-struct UpdateChapterMetaArgs {
-    id: String,
-    title: String,
-    summary: String,
-    status: String,
-}
-
-#[derive(Serialize)]
-struct GetChapterArgs {
-    id: String,
-}
 
 #[component]
 pub fn OutlineView(app_ctx: AppContext) -> impl IntoView {
@@ -58,15 +30,12 @@ pub fn OutlineView(app_ctx: AppContext) -> impl IntoView {
                 novel.synopsis = val.clone();
                 app_ctx.current_novel.set(Some(novel.clone()));
                 leptos::task::spawn_local(async move {
-                    let _ = invoke::<(), _>(
-                        "update_novel",
-                        &UpdateNovelArgs {
-                            id: novel.id,
-                            title: novel.title,
-                            synopsis: val,
-                        },
-                    )
-                    .await;
+                    let _ = invoke_cmd("update_novel")
+                        .arg("id", novel.id)
+                        .arg("title", novel.title)
+                        .arg("synopsis", val)
+                        .send_unit()
+                        .await;
                 });
             }
         }
@@ -76,8 +45,10 @@ pub fn OutlineView(app_ctx: AppContext) -> impl IntoView {
 
     let on_jump_to_chapter = move |chapter_id: String| {
         leptos::task::spawn_local(async move {
-            if let Ok(Some(ch)) =
-                invoke::<Option<Chapter>, _>("get_chapter", &GetChapterArgs { id: chapter_id }).await
+            if let Ok(Some(ch)) = invoke_cmd("get_chapter")
+                .arg("id", chapter_id)
+                .send::<Option<Chapter>>()
+                .await
             {
                 tiptap::set_content(&ch.content);
                 app_ctx.current_chapter.set(Some(ch));
@@ -132,15 +103,12 @@ pub fn OutlineView(app_ctx: AppContext) -> impl IntoView {
                             let vid = v_id_for_save.clone();
                             let vtitle = v_title_for_save.clone();
                             leptos::task::spawn_local(async move {
-                                let _ = invoke::<(), _>(
-                                    "update_volume",
-                                    &UpdateVolumeArgs {
-                                        id: vid,
-                                        title: vtitle,
-                                        summary: new_val,
-                                    },
-                                )
-                                .await;
+                                let _ = invoke_cmd("update_volume")
+                                    .arg("id", vid)
+                                    .arg("title", vtitle)
+                                    .arg("summary", new_val)
+                                    .send_unit()
+                                    .await;
                             });
                         });
 
@@ -177,16 +145,13 @@ pub fn OutlineView(app_ctx: AppContext) -> impl IntoView {
                                                 let ctitle = c_title_for_save.clone();
                                                 let cstat = c_status_for_save.clone();
                                                 leptos::task::spawn_local(async move {
-                                                    let _ = invoke::<(), _>(
-                                                        "update_chapter_meta",
-                                                        &UpdateChapterMetaArgs {
-                                                            id: cid,
-                                                            title: ctitle,
-                                                            summary: new_s,
-                                                            status: cstat,
-                                                        },
-                                                    )
-                                                    .await;
+                                                    let _ = invoke_cmd("update_chapter_meta")
+                                                        .arg("id", cid)
+                                                        .arg("title", ctitle)
+                                                        .arg("summary", new_s)
+                                                        .arg("status", cstat)
+                                                        .send_unit()
+                                                        .await;
                                                 });
                                             });
 

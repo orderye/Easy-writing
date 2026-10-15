@@ -1,17 +1,6 @@
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct OpenUrlArgs {
-    url: String,
-}
-
-#[derive(Serialize)]
-struct IgnoreVersionArgs {
-    version: String,
-}
 
 #[component]
 pub fn UpdateModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
@@ -19,7 +8,10 @@ pub fn UpdateModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
     let on_open_download = move |url: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("open_external_url", &OpenUrlArgs { url }).await;
+            let _ = invoke_cmd("open_external_url")
+                .arg("url", url)
+                .send_unit()
+                .await;
         });
     };
 
@@ -27,7 +19,10 @@ pub fn UpdateModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         is_open.set(false);
         app_ctx.has_update_badge.set(false);
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("set_ignored_update_version", &IgnoreVersionArgs { version }).await;
+            let _ = invoke_cmd("set_ignored_update_version")
+                .arg("version", version)
+                .send_unit()
+                .await;
         });
     };
 

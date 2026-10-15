@@ -17,6 +17,15 @@ fn all_command_keys_resolve() {
     let novel_id = { let c = pool.get().unwrap(); db::novel::create_novel(&c, "T", "").unwrap().id };
     let volume_id = { let c = pool.get().unwrap(); db::volume::create_volume(&c, &novel_id, "V", "").unwrap().id };
     let chapter_id = { let c = pool.get().unwrap(); db::chapter::create_chapter(&c, &novel_id, &volume_id, "C", "").unwrap().id };
+    let session_id = {
+        let c = pool.get().unwrap();
+        db::chat::ensure_session(&c, &novel_id, Some(&chapter_id)).unwrap().id
+    };
+    // 仅用于 update_llm_profile 的参数键解析校验；不写钥匙串，故 key_ref 留空
+    let profile_id = {
+        let c = pool.get().unwrap();
+        db::llm_profile::create_profile(&c, "P", "openai", "http://127.0.0.1:1/v1", "", "m", "{}", false).unwrap().id
+    };
 
     let app = mock_builder()
         .invoke_handler(tauri::generate_handler![
@@ -83,6 +92,20 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::list_prompt_templates,
             easy_writing_lib::commands::save_prompt_template,
             easy_writing_lib::commands::reset_prompt_template,
+            easy_writing_lib::commands::list_lexicon,
+            easy_writing_lib::commands::save_lexicon_term,
+            easy_writing_lib::commands::delete_lexicon_term,
+            easy_writing_lib::commands::record_lexicon_usage,
+            easy_writing_lib::commands::sync_lexicon_from_novel,
+            easy_writing_lib::commands::import_lexicon_terms,
+            easy_writing_lib::commands::config_cmd::update_llm_profile,
+            easy_writing_lib::commands::config_cmd::fetch_remote_models,
+            easy_writing_lib::commands::ai_cmd::get_or_create_chat_session,
+            easy_writing_lib::commands::ai_cmd::list_chat_sessions,
+            easy_writing_lib::commands::ai_cmd::list_chat_messages,
+            easy_writing_lib::commands::ai_cmd::append_chat_message,
+            easy_writing_lib::commands::ai_cmd::clear_chat_session,
+            easy_writing_lib::commands::ai_cmd::delete_chat_session,
         ])
         .build(tauri::generate_context!()).unwrap();
     app.manage(pool);
@@ -152,12 +175,36 @@ fn all_command_keys_resolve() {
         ("list_prompt_templates", r#"{}"#),
         ("save_prompt_template", r#"{"key": "k", "template": "v"}"#),
         ("reset_prompt_template", r#"{"key": "k"}"#),
+        ("list_lexicon", r#"{"novel_id": "@@NOVEL@@"}"#),
+        ("save_lexicon_term", r#"{"novel_id": "@@NOVEL@@", "term": "术语甲", "category": "custom", "source_id": null}"#),
+        ("delete_lexicon_term", r#"{"id": "@@CHAPTER@@"}"#),
+        ("record_lexicon_usage", r#"{"novel_id": "@@NOVEL@@", "term": "术语甲"}"#),
+        ("sync_lexicon_from_novel", r#"{"novel_id": "@@NOVEL@@"}"#),
+        ("import_lexicon_terms", r#"{"novel_id": "@@NOVEL@@", "terms": ["术语甲"], "category": "custom"}"#),
+        // 生成参数：只校验参数键可解析，不关心网络结果
+        ("update_llm_profile", r#"{"id": "@@PROFILE@@", "name": "v", "protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "model": "v", "is_default": true, "temperature": 0.7, "max_tokens": 2048, "stream": false}"#),
+        // 指向必失败的地址：只要不是「参数缺失」被拒即算通过
+        ("fetch_remote_models", r#"{"protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "api_key": "sk-test", "profile_id": null}"#),
+        // 对话记录（PRD §4.1 P1）
+        ("get_or_create_chat_session", r#"{"novel_id": "@@NOVEL@@", "chapter_id": "@@CHAPTER@@"}"#),
+        ("list_chat_sessions", r#"{"novel_id": "@@NOVEL@@", "chapter_id": null}"#),
+        ("list_chat_messages", r#"{"session_id": "@@SESSION@@", "limit": 50}"#),
+        ("append_chat_message", r#"{"session_id": "@@SESSION@@", "role": "user", "content": "v"}"#),
+        ("clear_chat_session", r#"{"session_id": "@@SESSION@@"}"#),
+        ("delete_chat_session", r#"{"session_id": "@@SESSION@@"}"#),
     ];
+
+    // 说明：ai_chat_stream / save_chapter_content / save_image_asset /
+    // webdav_backup_now / webdav_restore_backup 的参数首参为 tauri::AppHandle，
+    // 在 MockRuntime 下无法注册（AppHandle 不实现 CommandArg<MockRuntime>），
+    // 因此不在本 sweep 覆盖范围内；它们的键名契约由 ipc_argcase.rs 兜底。
 
     let fill = |s: &str| {
         s.replace("@@NOVEL@@", &novel_id)
             .replace("@@VOLUME@@", &volume_id)
             .replace("@@CHAPTER@@", &chapter_id)
+            .replace("@@SESSION@@", &session_id)
+            .replace("@@PROFILE@@", &profile_id)
     };
 
     let mut rejected = Vec::new();

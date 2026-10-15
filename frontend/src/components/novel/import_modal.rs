@@ -1,33 +1,10 @@
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::{ChapterHeader, ImportPreview, Novel, Volume};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::{Event, FileReader, HtmlInputElement};
-
-#[derive(Serialize)]
-struct ParseImportArgs {
-    file_name: String,
-    raw_text: String,
-}
-
-#[derive(Serialize)]
-struct CommitImportArgs {
-    target_novel_id: Option<String>,
-    preview: ImportPreview,
-}
-
-#[derive(Serialize)]
-struct ListVolumesArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct ListChaptersArgs {
-    novel_id: String,
-}
 
 #[component]
 pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
@@ -42,7 +19,9 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
     let on_file_selected = move |ev: Event| {
         error_msg.set(None);
-        let target = ev.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok());
+        let target = ev
+            .target()
+            .and_then(|t| t.dyn_into::<HtmlInputElement>().ok());
         if let Some(input) = target {
             if let Some(files) = input.files() {
                 if let Some(file) = files.get(0) {
@@ -61,7 +40,8 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                     err_sig.set(Some("无法以 UTF-8 编码读取文本文件".to_string()));
                                 }
                             }
-                        }) as Box<dyn FnMut(_)>);
+                        })
+                            as Box<dyn FnMut(_)>);
 
                         reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
                         on_load.forget();
@@ -89,14 +69,11 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         error_msg.set(None);
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<ImportPreview, _>(
-                "parse_import_document",
-                &ParseImportArgs {
-                    file_name: fname,
-                    raw_text: text,
-                },
-            )
-            .await;
+            let res = invoke_cmd("parse_import_document")
+                .arg("file_name", fname)
+                .arg("raw_text", text)
+                .send::<ImportPreview>()
+                .await;
 
             is_parsing.set(false);
             match res {
@@ -122,20 +99,17 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
         error_msg.set(None);
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<Novel, _>(
-                "commit_import_novel",
-                &CommitImportArgs {
-                    target_novel_id,
-                    preview: prev,
-                },
-            )
-            .await;
+            let res = invoke_cmd("commit_import_novel")
+                .opt("target_novel_id", target_novel_id)
+                .arg("preview", prev)
+                .send::<Novel>()
+                .await;
 
             is_committing.set(false);
             match res {
                 Ok(novel) => {
                     // 1. Reload novel list
-                    if let Ok(novels) = invoke::<Vec<Novel>, _>("list_novels", &()).await {
+                    if let Ok(novels) = invoke_cmd("list_novels").send::<Vec<Novel>>().await {
                         app_ctx.novels_list.set(novels);
                     }
 
@@ -144,17 +118,18 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
                     // 3. Reload volumes and chapters
                     let nid = novel.id.clone();
-                    if let Ok(vols) =
-                        invoke::<Vec<Volume>, _>("list_volumes", &ListVolumesArgs { novel_id: nid.clone() }).await
+                    if let Ok(vols) = invoke_cmd("list_volumes")
+                        .arg("novel_id", nid.clone())
+                        .send::<Vec<Volume>>()
+                        .await
                     {
                         app_ctx.volumes_list.set(vols);
                     }
 
-                    if let Ok(chaps) = invoke::<Vec<ChapterHeader>, _>(
-                        "list_all_chapter_headers_for_novel",
-                        &ListChaptersArgs { novel_id: nid },
-                    )
-                    .await
+                    if let Ok(chaps) = invoke_cmd("list_all_chapter_headers_for_novel")
+                        .arg("novel_id", nid)
+                        .send::<Vec<ChapterHeader>>()
+                        .await
                     {
                         app_ctx.chapters_map.set(chaps.clone());
                         if let Some(first) = chaps.first() {

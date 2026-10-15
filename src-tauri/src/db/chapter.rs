@@ -1,6 +1,40 @@
+use super::mapper::{query_list, query_optional, CHAPTER_COLS, CHAPTER_HEADER_COLS};
 use rusqlite::{params, Connection, Result};
 use shared_types::{Chapter, ChapterHeader};
 use uuid::Uuid;
+
+fn map_chapter_header(row: &rusqlite::Row<'_>) -> Result<ChapterHeader> {
+    Ok(ChapterHeader {
+        id: row.get(0)?,
+        novel_id: row.get(1)?,
+        volume_id: row.get(2)?,
+        title: row.get(3)?,
+        summary: row.get(4)?,
+        word_count: row.get(5)?,
+        status: row.get(6)?,
+        sort_order: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
+}
+
+fn map_chapter(row: &rusqlite::Row<'_>) -> Result<Chapter> {
+    Ok(Chapter {
+        id: row.get(0)?,
+        novel_id: row.get(1)?,
+        volume_id: row.get(2)?,
+        title: row.get(3)?,
+        summary: row.get(4)?,
+        content: row.get(5)?,
+        content_plain: row.get(6)?,
+        word_count: row.get(7)?,
+        status: row.get(8)?,
+        extracted_hash: row.get(9)?,
+        sort_order: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        deleted_at: row.get(13)?,
+    })
+}
 
 pub fn create_chapter(
     conn: &Connection,
@@ -17,12 +51,10 @@ pub fn create_chapter(
         |row| row.get(0),
     ).unwrap_or(-1);
 
-    let next_order = max_order + 1;
-
     conn.execute(
         "INSERT INTO chapter (id, novel_id, volume_id, title, summary, content, content_plain, word_count, status, sort_order)
          VALUES (?1, ?2, ?3, ?4, ?5, '{}', '', 0, 'draft', ?6)",
-        params![id, novel_id, volume_id, title, summary, next_order],
+        params![id, novel_id, volume_id, title, summary, max_order + 1],
     )?;
 
     get_chapter(conn, &id).and_then(|opt| {
@@ -31,94 +63,43 @@ pub fn create_chapter(
 }
 
 pub fn list_chapter_headers(conn: &Connection, volume_id: &str) -> Result<Vec<ChapterHeader>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, novel_id, volume_id, title, summary, word_count, status, sort_order, updated_at 
-         FROM chapter 
-         WHERE volume_id = ?1 AND deleted_at IS NULL 
-         ORDER BY sort_order ASC, created_at ASC",
-    )?;
-
-    let rows = stmt.query_map(params![volume_id], |row| {
-        Ok(ChapterHeader {
-            id: row.get(0)?,
-            novel_id: row.get(1)?,
-            volume_id: row.get(2)?,
-            title: row.get(3)?,
-            summary: row.get(4)?,
-            word_count: row.get(5)?,
-            status: row.get(6)?,
-            sort_order: row.get(7)?,
-            updated_at: row.get(8)?,
-        })
-    })?;
-
-    let mut headers = Vec::new();
-    for r in rows {
-        headers.push(r?);
-    }
-    Ok(headers)
+    query_list(
+        conn,
+        &format!(
+            "SELECT {} FROM chapter 
+             WHERE volume_id = ?1 AND deleted_at IS NULL 
+             ORDER BY sort_order ASC, created_at ASC",
+            CHAPTER_HEADER_COLS
+        ),
+        params![volume_id],
+        map_chapter_header,
+    )
 }
 
 pub fn list_all_chapter_headers_for_novel(conn: &Connection, novel_id: &str) -> Result<Vec<ChapterHeader>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, novel_id, volume_id, title, summary, word_count, status, sort_order, updated_at 
-         FROM chapter 
-         WHERE novel_id = ?1 AND deleted_at IS NULL 
-         ORDER BY sort_order ASC, created_at ASC",
-    )?;
-
-    let rows = stmt.query_map(params![novel_id], |row| {
-        Ok(ChapterHeader {
-            id: row.get(0)?,
-            novel_id: row.get(1)?,
-            volume_id: row.get(2)?,
-            title: row.get(3)?,
-            summary: row.get(4)?,
-            word_count: row.get(5)?,
-            status: row.get(6)?,
-            sort_order: row.get(7)?,
-            updated_at: row.get(8)?,
-        })
-    })?;
-
-    let mut headers = Vec::new();
-    for r in rows {
-        headers.push(r?);
-    }
-    Ok(headers)
+    query_list(
+        conn,
+        &format!(
+            "SELECT {} FROM chapter 
+             WHERE novel_id = ?1 AND deleted_at IS NULL 
+             ORDER BY sort_order ASC, created_at ASC",
+            CHAPTER_HEADER_COLS
+        ),
+        params![novel_id],
+        map_chapter_header,
+    )
 }
 
 pub fn get_chapter(conn: &Connection, id: &str) -> Result<Option<Chapter>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, novel_id, volume_id, title, summary, content, content_plain, word_count, status, extracted_hash, sort_order, created_at, updated_at, deleted_at 
-         FROM chapter 
-         WHERE id = ?1 AND deleted_at IS NULL",
-    )?;
-
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(Chapter {
-            id: row.get(0)?,
-            novel_id: row.get(1)?,
-            volume_id: row.get(2)?,
-            title: row.get(3)?,
-            summary: row.get(4)?,
-            content: row.get(5)?,
-            content_plain: row.get(6)?,
-            word_count: row.get(7)?,
-            status: row.get(8)?,
-            extracted_hash: row.get(9)?,
-            sort_order: row.get(10)?,
-            created_at: row.get(11)?,
-            updated_at: row.get(12)?,
-            deleted_at: row.get(13)?,
-        })
-    })?;
-
-    if let Some(res) = rows.next() {
-        Ok(Some(res?))
-    } else {
-        Ok(None)
-    }
+    query_optional(
+        conn,
+        &format!(
+            "SELECT {} FROM chapter WHERE id = ?1 AND deleted_at IS NULL",
+            CHAPTER_COLS
+        ),
+        params![id],
+        map_chapter,
+    )
 }
 
 pub fn save_chapter_content(

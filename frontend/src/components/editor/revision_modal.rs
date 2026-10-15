@@ -1,31 +1,8 @@
 use crate::bridge::tiptap;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::{Chapter, ChapterRevision, ChapterRevisionHeader};
-
-#[derive(Serialize)]
-struct ListRevisionsArgs {
-    chapter_id: String,
-}
-
-#[derive(Serialize)]
-struct GetRevisionArgs {
-    id: String,
-}
-
-#[derive(Serialize)]
-struct CreateManualRevisionArgs {
-    chapter_id: String,
-    note: String,
-}
-
-#[derive(Serialize)]
-struct RevertRevisionArgs {
-    chapter_id: String,
-    revision_id: String,
-}
 
 #[component]
 pub fn RevisionModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
@@ -42,21 +19,19 @@ pub fn RevisionModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoV
             let cid = ch.id.clone();
             is_loading.set(true);
             leptos::task::spawn_local(async move {
-                if let Ok(list) = invoke::<Vec<ChapterRevisionHeader>, _>(
-                    "list_chapter_revisions",
-                    &ListRevisionsArgs { chapter_id: cid },
-                )
-                .await
+                if let Ok(list) = invoke_cmd("list_chapter_revisions")
+                    .arg("chapter_id", cid)
+                    .send::<Vec<ChapterRevisionHeader>>()
+                    .await
                 {
                     if let Some(first) = list.first() {
                         let fid = first.id.clone();
                         selected_id.set(Some(fid.clone()));
                         // Fetch full details of first revision
-                        if let Ok(Some(detail)) = invoke::<Option<ChapterRevision>, _>(
-                            "get_chapter_revision",
-                            &GetRevisionArgs { id: fid },
-                        )
-                        .await
+                        if let Ok(Some(detail)) = invoke_cmd("get_chapter_revision")
+                            .arg("id", fid)
+                            .send::<Option<ChapterRevision>>()
+                            .await
                         {
                             selected_revision.set(Some(detail));
                         }
@@ -80,11 +55,10 @@ pub fn RevisionModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoV
     let select_revision = move |id: String| {
         selected_id.set(Some(id.clone()));
         leptos::task::spawn_local(async move {
-            if let Ok(Some(detail)) = invoke::<Option<ChapterRevision>, _>(
-                "get_chapter_revision",
-                &GetRevisionArgs { id },
-            )
-            .await
+            if let Ok(Some(detail)) = invoke_cmd("get_chapter_revision")
+                .arg("id", id)
+                .send::<Option<ChapterRevision>>()
+                .await
             {
                 selected_revision.set(Some(detail));
             }
@@ -102,14 +76,11 @@ pub fn RevisionModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoV
                     note
                 };
 
-                if let Ok(new_rev) = invoke::<ChapterRevision, _>(
-                    "create_manual_chapter_revision",
-                    &CreateManualRevisionArgs {
-                        chapter_id: cid,
-                        note: note_val,
-                    },
-                )
-                .await
+                if let Ok(new_rev) = invoke_cmd("create_manual_chapter_revision")
+                    .arg("chapter_id", cid)
+                    .arg("note", note_val)
+                    .send::<ChapterRevision>()
+                    .await
                 {
                     snapshot_note.set(String::new());
                     selected_id.set(Some(new_rev.id.clone()));
@@ -125,14 +96,11 @@ pub fn RevisionModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoV
             let cid = ch.id.clone();
             is_reverting.set(true);
             leptos::task::spawn_local(async move {
-                if let Ok(reverted_ch) = invoke::<Chapter, _>(
-                    "revert_chapter_to_revision",
-                    &RevertRevisionArgs {
-                        chapter_id: cid,
-                        revision_id: rev_id,
-                    },
-                )
-                .await
+                if let Ok(reverted_ch) = invoke_cmd("revert_chapter_to_revision")
+                    .arg("chapter_id", cid)
+                    .arg("revision_id", rev_id)
+                    .send::<Chapter>()
+                    .await
                 {
                     tiptap::set_content(&reverted_ch.content);
                     app_ctx.current_chapter.set(Some(reverted_ch));

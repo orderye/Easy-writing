@@ -2,12 +2,12 @@ pub mod character_explosion_modal;
 pub mod character_graph_view;
 pub mod characters;
 pub mod lexicon;
+pub mod loaders;
 pub mod outline;
 pub mod plot_lines;
 pub mod setting_changes_modal;
 pub mod trash_modal;
 pub mod worldview;
-
 
 use crate::components::layout::panel_toggle::LeftToggle;
 use crate::components::settings_panel::characters::CharactersView;
@@ -16,22 +16,8 @@ use crate::components::settings_panel::outline::OutlineView;
 use crate::components::settings_panel::plot_lines::PlotLinesView;
 use crate::components::settings_panel::worldview::WorldviewView;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct UpdateNovelArgs {
-    id: String,
-    title: String,
-    synopsis: String,
-}
-
-#[derive(Serialize)]
-struct SetAppSettingArgs {
-    key: String,
-    value: String,
-}
 
 #[component]
 pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
@@ -51,15 +37,12 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             novel.title = val.clone();
             app_ctx.current_novel.set(Some(novel.clone()));
             leptos::task::spawn_local(async move {
-                let _ = invoke::<(), _>(
-                    "update_novel",
-                    &UpdateNovelArgs {
-                        id: novel.id,
-                        title: val,
-                        synopsis: novel.synopsis,
-                    },
-                )
-                .await;
+                let _ = invoke_cmd("update_novel")
+                    .arg("id", novel.id)
+                    .arg("title", val)
+                    .arg("synopsis", novel.synopsis)
+                    .send_unit()
+                    .await;
             });
         }
     };
@@ -237,10 +220,11 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                             crate::bridge::theme::apply_app_theme(next_theme);
                             let nt = next_theme.to_string();
                             leptos::task::spawn_local(async move {
-                                let _ = invoke::<(), _>("set_app_setting", &SetAppSettingArgs {
-                                    key: "theme".to_string(),
-                                    value: nt,
-                                }).await;
+                                let _ = invoke_cmd("set_app_setting")
+                                    .arg("key", "theme".to_string())
+                                    .arg("value", nt)
+                                    .send_unit()
+                                    .await;
                             });
                         }
                     >

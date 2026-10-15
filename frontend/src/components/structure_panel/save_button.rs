@@ -1,16 +1,7 @@
 use crate::bridge::tiptap;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct SaveChapterArgs {
-    id: String,
-    content: String,
-    content_plain: String,
-    word_count: i32,
-}
 
 pub fn perform_save(app_ctx: AppContext) {
     if let Some(mut chapter) = app_ctx.current_chapter.get() {
@@ -28,16 +19,13 @@ pub fn perform_save(app_ctx: AppContext) {
         let chapter_id = app_ctx.current_chapter.get().unwrap().id;
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<(), _>(
-                "save_chapter_content",
-                &SaveChapterArgs {
-                    id: chapter_id,
-                    content: content_json,
-                    content_plain,
-                    word_count,
-                },
-            )
-            .await;
+            let res = invoke_cmd("save_chapter_content")
+                .arg("id", chapter_id)
+                .arg("content", content_json)
+                .arg("content_plain", content_plain)
+                .arg("word_count", word_count)
+                .send_unit()
+                .await;
 
             match res {
                 Ok(_) => {

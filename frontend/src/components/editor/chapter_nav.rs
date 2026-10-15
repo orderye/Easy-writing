@@ -1,7 +1,6 @@
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 
 #[component]
 pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
@@ -63,15 +62,10 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let nid = novel.id;
             leptos::task::spawn_local(async move {
-                #[derive(Serialize)]
-                struct ListCandidatesArgs {
-                    novel_id: String,
-                }
-                if let Ok(cands) = invoke::<Vec<shared_types::ExtractionCandidate>, _>(
-                    "list_extraction_candidates",
-                    &ListCandidatesArgs { novel_id: nid },
-                )
-                .await
+                if let Ok(cands) = invoke_cmd("list_extraction_candidates")
+                    .arg("novel_id", nid)
+                    .send::<Vec<shared_types::ExtractionCandidate>>()
+                    .await
                 {
                     app_ctx.extraction_candidates.set(cands);
                 }
@@ -90,25 +84,20 @@ pub fn ChapterNav(app_ctx: AppContext) -> impl IntoView {
         let count = cand_count();
         if count > 0 {
             app_ctx.is_extract_modal_open.set(true);
-        } else if let (Some(novel), Some(chapter)) = (app_ctx.current_novel.get(), app_ctx.current_chapter.get()) {
+        } else if let (Some(novel), Some(chapter)) =
+            (app_ctx.current_novel.get(), app_ctx.current_chapter.get())
+        {
             let nid = novel.id;
             let cid = chapter.id;
             app_ctx.is_extract_modal_open.set(true);
             app_ctx.is_extracting.set(true);
             leptos::task::spawn_local(async move {
-                #[derive(Serialize)]
-                struct TriggerExtractArgs {
-                    novel_id: String,
-                    chapter_id: String,
-                }
-                if let Ok(candidates) = invoke::<Vec<shared_types::ExtractionCandidate>, _>(
-                    "trigger_chapter_extract",
-                    &TriggerExtractArgs {
-                        novel_id: nid,
-                        chapter_id: cid,
-                    },
-                )
-                .await {
+                if let Ok(candidates) = invoke_cmd("trigger_chapter_extract")
+                    .arg("novel_id", nid)
+                    .arg("chapter_id", cid)
+                    .send::<Vec<shared_types::ExtractionCandidate>>()
+                    .await
+                {
                     app_ctx.extraction_candidates.set(candidates);
                 }
                 app_ctx.is_extracting.set(false);

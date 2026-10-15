@@ -1,13 +1,6 @@
 use crate::components::ai::polish_modal::PolishModal;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct AiPolishArgs {
-    module_key: String,
-    current_content: String,
-}
 
 #[component]
 pub fn PolishButton(
@@ -31,21 +24,21 @@ pub fn PolishButton(
 
         let mod_key = module_key.to_string();
         leptos::task::spawn_local(async move {
-            let res = invoke::<String, _>(
-                "ai_polish",
-                &AiPolishArgs {
-                    module_key: mod_key,
-                    current_content: current_text,
-                },
-            )
-            .await;
+            let res = invoke_cmd("ai_polish")
+                .arg("module_key", mod_key)
+                .arg("current_content", current_text)
+                .send::<String>()
+                .await;
 
             match res {
                 Ok(result_text) => {
                     polished_draft.set(result_text);
                 }
                 Err(err) => {
-                    polished_draft.set(format!("修饰请求失败: {}\n请检查系统设置中的模型接口配置与 API Key。", err));
+                    polished_draft.set(format!(
+                        "修饰请求失败: {}\n请检查系统设置中的模型接口配置与 API Key。",
+                        err
+                    ));
                 }
             }
             is_loading.set(false);

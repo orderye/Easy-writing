@@ -40,7 +40,10 @@ fn every_command_declares_snake_case() {
             }
         }
     }
-    assert_eq!(total, 77, "command count changed — re-audit the frontend call sites");
+    // 77 → 85：PRD §4.1/§5.1 补齐 8 个命令（6 个对话记录 + update_llm_profile +
+    // fetch_remote_models）。已逐条确认均带 rename_all = "snake_case"，
+    // 且已加入 command_key_sweep 的参数键契约用例。
+    assert_eq!(total, 85, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

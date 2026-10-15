@@ -1,21 +1,7 @@
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::ExtractionCandidate;
-
-#[derive(Serialize)]
-struct ResolveCandidateArgs {
-    candidate_id: String,
-    action: String,
-    custom_payload: Option<String>,
-}
-
-#[derive(Serialize)]
-struct TriggerExtractArgs {
-    novel_id: String,
-    chapter_id: String,
-}
 
 #[component]
 pub fn ExtractionModal(
@@ -27,15 +13,12 @@ pub fn ExtractionModal(
     let on_resolve = move |candidate_id: String, action: &'static str| {
         let cid = candidate_id.clone();
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>(
-                "resolve_candidate",
-                &ResolveCandidateArgs {
-                    candidate_id: cid.clone(),
-                    action: action.to_string(),
-                    custom_payload: None,
-                },
-            )
-            .await;
+            let _ = invoke_cmd("resolve_candidate")
+                .arg("candidate_id", cid.clone())
+                .arg("action", action.to_string())
+                .opt("custom_payload", None::<String>)
+                .send_unit()
+                .await;
 
             let mut list = candidates.get();
             list.retain(|c| c.id != cid);
@@ -47,34 +30,30 @@ pub fn ExtractionModal(
         let current_list = candidates.get();
         leptos::task::spawn_local(async move {
             for c in current_list {
-                let _ = invoke::<(), _>(
-                    "resolve_candidate",
-                    &ResolveCandidateArgs {
-                        candidate_id: c.id,
-                        action: "accept".to_string(),
-                        custom_payload: None,
-                    },
-                )
-                .await;
+                let _ = invoke_cmd("resolve_candidate")
+                    .arg("candidate_id", c.id)
+                    .arg("action", "accept".to_string())
+                    .opt("custom_payload", None::<String>)
+                    .send_unit()
+                    .await;
             }
             candidates.set(Vec::new());
         });
     };
 
     let on_reextract = move |_| {
-        if let (Some(novel), Some(chapter)) = (app_ctx.current_novel.get(), app_ctx.current_chapter.get()) {
+        if let (Some(novel), Some(chapter)) =
+            (app_ctx.current_novel.get(), app_ctx.current_chapter.get())
+        {
             let nid = novel.id;
             let cid = chapter.id;
             is_extracting.set(true);
             leptos::task::spawn_local(async move {
-                if let Ok(cands) = invoke::<Vec<ExtractionCandidate>, _>(
-                    "trigger_chapter_extract",
-                    &TriggerExtractArgs {
-                        novel_id: nid,
-                        chapter_id: cid,
-                    },
-                )
-                .await
+                if let Ok(cands) = invoke_cmd("trigger_chapter_extract")
+                    .arg("novel_id", nid)
+                    .arg("chapter_id", cid)
+                    .send::<Vec<ExtractionCandidate>>()
+                    .await
                 {
                     candidates.set(cands);
                 }

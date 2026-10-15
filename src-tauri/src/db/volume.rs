@@ -1,10 +1,24 @@
+use super::mapper::{query_list, query_optional, VOLUME_COLS};
 use rusqlite::{params, Connection, Result};
 use shared_types::Volume;
 use uuid::Uuid;
 
+fn map_volume(row: &rusqlite::Row<'_>) -> Result<Volume> {
+    Ok(Volume {
+        id: row.get(0)?,
+        novel_id: row.get(1)?,
+        title: row.get(2)?,
+        summary: row.get(3)?,
+        sort_order: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        deleted_at: row.get(7)?,
+    })
+}
+
 pub fn create_volume(conn: &Connection, novel_id: &str, title: &str, summary: &str) -> Result<Volume> {
     let id = Uuid::new_v4().to_string();
-    
+
     // Find max sort_order
     let max_order: i32 = conn.query_row(
         "SELECT COALESCE(MAX(sort_order), -1) FROM volume WHERE novel_id = ?1 AND deleted_at IS NULL",
@@ -12,11 +26,9 @@ pub fn create_volume(conn: &Connection, novel_id: &str, title: &str, summary: &s
         |row| row.get(0),
     ).unwrap_or(-1);
 
-    let next_order = max_order + 1;
-
     conn.execute(
         "INSERT INTO volume (id, novel_id, title, summary, sort_order) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, novel_id, title, summary, next_order],
+        params![id, novel_id, title, summary, max_order + 1],
     )?;
 
     get_volume(conn, &id).and_then(|opt| {
@@ -25,58 +37,29 @@ pub fn create_volume(conn: &Connection, novel_id: &str, title: &str, summary: &s
 }
 
 pub fn list_volumes(conn: &Connection, novel_id: &str) -> Result<Vec<Volume>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, summary, sort_order, created_at, updated_at, deleted_at 
-         FROM volume 
-         WHERE novel_id = ?1 AND deleted_at IS NULL 
-         ORDER BY sort_order ASC, created_at ASC",
-    )?;
-
-    let rows = stmt.query_map(params![novel_id], |row| {
-        Ok(Volume {
-            id: row.get(0)?,
-            novel_id: row.get(1)?,
-            title: row.get(2)?,
-            summary: row.get(3)?,
-            sort_order: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-            deleted_at: row.get(7)?,
-        })
-    })?;
-
-    let mut volumes = Vec::new();
-    for r in rows {
-        volumes.push(r?);
-    }
-    Ok(volumes)
+    query_list(
+        conn,
+        &format!(
+            "SELECT {} FROM volume 
+             WHERE novel_id = ?1 AND deleted_at IS NULL 
+             ORDER BY sort_order ASC, created_at ASC",
+            VOLUME_COLS
+        ),
+        params![novel_id],
+        map_volume,
+    )
 }
 
 pub fn get_volume(conn: &Connection, id: &str) -> Result<Option<Volume>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, summary, sort_order, created_at, updated_at, deleted_at 
-         FROM volume 
-         WHERE id = ?1 AND deleted_at IS NULL",
-    )?;
-
-    let mut rows = stmt.query_map(params![id], |row| {
-        Ok(Volume {
-            id: row.get(0)?,
-            novel_id: row.get(1)?,
-            title: row.get(2)?,
-            summary: row.get(3)?,
-            sort_order: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-            deleted_at: row.get(7)?,
-        })
-    })?;
-
-    if let Some(res) = rows.next() {
-        Ok(Some(res?))
-    } else {
-        Ok(None)
-    }
+    query_optional(
+        conn,
+        &format!(
+            "SELECT {} FROM volume WHERE id = ?1 AND deleted_at IS NULL",
+            VOLUME_COLS
+        ),
+        params![id],
+        map_volume,
+    )
 }
 
 pub fn update_volume(conn: &Connection, id: &str, title: &str, summary: &str) -> Result<()> {

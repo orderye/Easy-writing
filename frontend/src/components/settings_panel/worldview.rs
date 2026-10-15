@@ -1,29 +1,10 @@
 use crate::components::ai::polish_button::PolishButton;
+use crate::components::settings_panel::loaders::load_list_for_novel;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::Serialize;
 use shared_types::WorldviewEntry;
 use std::collections::HashSet;
-
-#[derive(Serialize)]
-struct ListWorldviewArgs {
-    novel_id: String,
-}
-
-#[derive(Serialize)]
-struct SaveWorldviewArgs {
-    id: Option<String>,
-    novel_id: String,
-    group_name: String,
-    title: String,
-    content: String,
-}
-
-#[derive(Serialize)]
-struct DeleteWorldviewArgs {
-    id: String,
-}
 
 #[component]
 pub fn WorldviewView(app_ctx: AppContext) -> impl IntoView {
@@ -31,16 +12,7 @@ pub fn WorldviewView(app_ctx: AppContext) -> impl IntoView {
     let collapsed_groups = RwSignal::new(HashSet::<String>::new());
 
     let load_entries = move || {
-        if let Some(novel) = app_ctx.current_novel.get() {
-            let novel_id = novel.id;
-            leptos::task::spawn_local(async move {
-                if let Ok(list) =
-                    invoke::<Vec<WorldviewEntry>, _>("list_worldview", &ListWorldviewArgs { novel_id }).await
-                {
-                    entries.set(list);
-                }
-            });
-        }
+        load_list_for_novel(app_ctx, "list_worldview", entries);
     };
 
     Effect::new(move |_| {
@@ -51,17 +23,14 @@ pub fn WorldviewView(app_ctx: AppContext) -> impl IntoView {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {
-                let res = invoke::<WorldviewEntry, _>(
-                    "save_worldview",
-                    &SaveWorldviewArgs {
-                        id: None,
-                        novel_id,
-                        group_name,
-                        title: "新设定条目".to_string(),
-                        content: "".to_string(),
-                    },
-                )
-                .await;
+                let res = invoke_cmd("save_worldview")
+                    .opt("id", None::<String>)
+                    .arg("novel_id", novel_id)
+                    .arg("group_name", group_name)
+                    .arg("title", "新设定条目".to_string())
+                    .arg("content", "".to_string())
+                    .send::<WorldviewEntry>()
+                    .await;
 
                 if let Ok(new_entry) = res {
                     let mut list = entries.get();
@@ -74,7 +43,10 @@ pub fn WorldviewView(app_ctx: AppContext) -> impl IntoView {
 
     let on_delete_entry = move |id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke::<(), _>("delete_worldview", &DeleteWorldviewArgs { id }).await;
+            let _ = invoke_cmd("delete_worldview")
+                .arg("id", id)
+                .send_unit()
+                .await;
             load_entries();
         });
     };
@@ -229,17 +201,14 @@ pub fn WorldviewView(app_ctx: AppContext) -> impl IntoView {
                                                                 let nid = novel.id;
                                                                 let eid = e_id.clone();
                                                                 leptos::task::spawn_local(async move {
-                                                                    let _ = invoke::<WorldviewEntry, _>(
-                                                                        "save_worldview",
-                                                                        &SaveWorldviewArgs {
-                                                                            id: Some(eid),
-                                                                            novel_id: nid,
-                                                                            group_name: new_grp,
-                                                                            title: new_title,
-                                                                            content: new_content,
-                                                                        },
-                                                                    )
-                                                                    .await;
+                                                                    let _ = invoke_cmd("save_worldview")
+                                                                        .opt("id", Some(eid))
+                                                                        .arg("novel_id", nid)
+                                                                        .arg("group_name", new_grp)
+                                                                        .arg("title", new_title)
+                                                                        .arg("content", new_content)
+                                                                        .send::<WorldviewEntry>()
+                                                                        .await;
                                                                 });
                                                             }
                                                         };

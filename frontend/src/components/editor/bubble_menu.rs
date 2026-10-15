@@ -1,9 +1,9 @@
 use crate::bridge::tiptap;
 use crate::components::ai::polish_modal::PolishModal;
 use crate::state::AppContext;
-use crate::tauri_api::invoke;
+use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
@@ -13,12 +13,6 @@ struct SelectionCoords {
     #[allow(dead_code)]
     bottom: f64,
     left: f64,
-}
-
-#[derive(Serialize)]
-struct AiPolishArgs {
-    module_key: String,
-    current_content: String,
 }
 
 #[component]
@@ -76,14 +70,11 @@ pub fn BubbleMenu(app_ctx: AppContext) -> impl IntoView {
         is_visible.set(false);
 
         leptos::task::spawn_local(async move {
-            let res = invoke::<String, _>(
-                "ai_polish",
-                &AiPolishArgs {
-                    module_key: action_key.to_string(),
-                    current_content: text,
-                },
-            )
-            .await;
+            let res = invoke_cmd("ai_polish")
+                .arg("module_key", action_key.to_string())
+                .arg("current_content", text)
+                .send::<String>()
+                .await;
 
             is_loading.set(false);
             match res {
