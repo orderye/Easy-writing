@@ -138,6 +138,12 @@ pub fn get_or_create_chat_session(
         .map_err(|e| e.to_string())
 }
 
+/// 【预留】列出某作品（可按章节筛选）的全部会话。
+///
+/// 数据层已就绪（会话带消息条数、按最近活跃排序），但前端尚未设计
+/// 「一个章节下保留多轮独立对话并切换」的交互，故当前没有调用点。
+/// 接入该 UI 时请同时把它从 `tests/ipc_command_inventory.rs` 的
+/// `RESERVED_COMMANDS` 中移除（有测试盯着这一点）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_chat_sessions(
     pool: State<'_, DbPool>,
@@ -160,6 +166,12 @@ pub fn list_chat_messages(
         .map_err(|e| e.to_string())
 }
 
+/// 【预留】追加一条对话消息。
+///
+/// 注意：前端**不应该**调用它来记录本轮问答 —— `ai_chat_stream` 在返回回复前
+/// 已把 user/assistant 两条消息内部落库（见本文件上方），再调一次会写重复。
+/// 它服务的是将来「导入/补录历史对话」这类场景。接入时请一并更新
+/// `RESERVED_COMMANDS`。
 #[tauri::command(rename_all = "snake_case")]
 pub fn append_chat_message(
     pool: State<'_, DbPool>,
@@ -181,6 +193,10 @@ pub fn clear_chat_session(
     crate::db::chat::clear_messages(&conn, &session_id).map_err(|e| e.to_string())
 }
 
+/// 【预留】删除一个会话及其全部消息。
+///
+/// 与 `list_chat_sessions` 同属「多会话管理」这一尚未设计的交互。
+/// 接入时请一并更新 `RESERVED_COMMANDS`。
 #[tauri::command(rename_all = "snake_case")]
 pub fn delete_chat_session(
     pool: State<'_, DbPool>,

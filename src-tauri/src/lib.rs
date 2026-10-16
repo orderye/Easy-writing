@@ -47,7 +47,6 @@ pub fn run() {
             // Novel
             commands::create_novel,
             commands::list_novels,
-            commands::get_novel,
             commands::update_novel,
             commands::delete_novel,
             commands::list_deleted_novels,

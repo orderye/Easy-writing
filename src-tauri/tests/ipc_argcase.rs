@@ -48,7 +48,9 @@ fn every_command_declares_snake_case() {
     // 三者均确认带 snake_case 属性；其中 get_app_data_dir 首参为 AppHandle，
     // 在 MockRuntime 下无法注册（见 command_key_sweep 的说明），
     // 另两个已加入 sweep 用例。
-    assert_eq!(total, 88, "command count changed — re-audit the frontend call sites");
+    // 88 → 87：删除 get_novel 命令（前端无调用，等价数据源为 list_novels 与
+    // 前端持有的 current_novel；db::novel::get_novel 作为内部函数保留）。
+    assert_eq!(total, 87, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

@@ -27,11 +27,10 @@ pub fn list_novels(pool: State<DbPool>) -> Result<Vec<Novel>, String> {
     crate::db::novel::list_novels(&conn).map_err(|e| e.to_string())
 }
 
-#[tauri::command(rename_all = "snake_case")]
-pub fn get_novel(pool: State<DbPool>, id: String) -> Result<Option<Novel>, String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
-    crate::db::novel::get_novel(&conn, &id).map_err(|e| e.to_string())
-}
+// 注：这里原先有 get_novel 命令，因前端从不需要单查作品（等价数据源见
+// `list_novels` 与前端持有的 current_novel）而删除。
+// 数据库层的 db::novel::get_novel 保留 —— create_novel、AI 提炼、ai_chat_stream
+// 等 4+ 处内部逻辑依赖它。删命令不等于删函数。
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn update_novel(

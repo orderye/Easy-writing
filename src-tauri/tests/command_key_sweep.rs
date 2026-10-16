@@ -31,7 +31,6 @@ fn all_command_keys_resolve() {
         .invoke_handler(tauri::generate_handler![
             easy_writing_lib::commands::create_novel,
             easy_writing_lib::commands::list_novels,
-            easy_writing_lib::commands::get_novel,
             easy_writing_lib::commands::update_novel,
             easy_writing_lib::commands::delete_novel,
             easy_writing_lib::commands::list_deleted_novels,
@@ -116,7 +115,6 @@ fn all_command_keys_resolve() {
     let cases: &[(&str, &str)] = &[
         ("create_novel", r#"{"title": "v", "synopsis": "v"}"#),
         ("list_novels", r#"{}"#),
-        ("get_novel", r#"{"id": "@@CHAPTER@@"}"#),
         ("update_novel", r#"{"id": "@@CHAPTER@@", "title": "v", "synopsis": "v"}"#),
         ("delete_novel", r#"{"id": "@@CHAPTER@@"}"#),
         ("list_deleted_novels", r#"{}"#),

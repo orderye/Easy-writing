@@ -21,6 +21,18 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+/// 有意的预留命令：后端先行、UI 尚未设计。列入此表即表示「不是遗漏」。
+///
+/// 本表有测试守护（见下方两个用例）：清单里的名字必须真实存在于后端，
+/// 且必须**尚未**被前端调用——一旦接上 UI，就必须把它从这里摘掉，
+/// 否则「预留」会退化成一句无人维护的注释。
+const RESERVED_COMMANDS: &[&str] = &[
+    // 「一个章节下保留多轮独立对话并切换/删除」这一交互尚未设计。
+    "append_chat_message",
+    "list_chat_sessions",
+    "delete_chat_session",
+];
+
 /// 仓库根目录（本测试文件位于 src-tauri/tests/）。
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -210,6 +222,46 @@ fn extractors_actually_extract() {
     assert!(!frontend.contains("this_command_does_not_exist"));
 }
 
+/// 预留清单必须指向真实存在的后端命令。
+///
+/// 防的是：清单里写错字、或某条预留命令被误删——两者都会让「预留」这个标签
+/// 指向一个不存在的东西，而反向报告看起来仍然正常。
+#[test]
+fn reserved_commands_exist_in_backend() {
+    let backend = backend_commands();
+    let missing: Vec<&str> = RESERVED_COMMANDS
+        .iter()
+        .copied()
+        .filter(|c| !backend.contains(*c))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "RESERVED_COMMANDS 里这些名字在后端不存在（拼写错误，或命令已被删除）：\n  {}",
+        missing.join("\n  ")
+    );
+}
+
+/// 预留清单必须确实是「尚未接入」的。
+///
+/// 防的是：某条命令已经接上 UI，却还挂在预留清单里——此时清单开始说谎，
+/// 后来者会以为那仍是未开发的功能。接入的同时必须把名字从清单移除。
+#[test]
+fn reserved_commands_are_not_yet_wired() {
+    let frontend = frontend_commands();
+    let wired: Vec<&str> = RESERVED_COMMANDS
+        .iter()
+        .copied()
+        .filter(|c| frontend.contains(*c))
+        .collect();
+
+    assert!(
+        wired.is_empty(),
+        "以下命令已被前端调用，但仍留在 RESERVED_COMMANDS 中——请把它们从清单里移除：\n  {}",
+        wired.join("\n  ")
+    );
+}
+
 /// 反向检查：后端定义了但前端从未调用的命令。
 ///
 /// 这一项**只告警不失败**——后端保留一些暂未被 UI 使用的命令是合理的
@@ -222,13 +274,28 @@ fn report_backend_commands_never_invoked_by_frontend() {
 
     let unused: Vec<&String> = backend.difference(&frontend).collect();
 
+    let mut reserved_unused: Vec<&String> = Vec::new();
+    let mut pending_unused: Vec<&String> = Vec::new();
+    for c in &unused {
+        if RESERVED_COMMANDS.contains(&c.as_str()) {
+            reserved_unused.push(c);
+        } else {
+            pending_unused.push(c);
+        }
+    }
+
     println!(
         "后端共 {} 个命令，其中 {} 个未被前端调用：",
         backend.len(),
         unused.len()
     );
-    for c in &unused {
-        println!("  - {c}");
+    println!("  【预留·有意保留】{} 个：", reserved_unused.len());
+    for c in &reserved_unused {
+        println!("    - {c}");
+    }
+    println!("  【待确认·可能遗漏】{} 个：", pending_unused.len());
+    for c in &pending_unused {
+        println!("    - {c}");
     }
 
     let covered = backend.len() - unused.len();
