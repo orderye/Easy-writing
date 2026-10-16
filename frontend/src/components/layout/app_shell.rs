@@ -2,6 +2,7 @@ use crate::components::ai::conflict_modal::ConflictModal;
 use crate::components::ai::extraction_modal::ExtractionModal;
 use crate::components::config::config_modal::ConfigModal;
 use crate::components::config::update_modal::UpdateModal;
+use crate::components::editor::asset_gallery::AssetGalleryModal;
 use crate::components::editor::revision_modal::RevisionModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::novel::import_modal::ImportModal;
@@ -98,6 +99,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <UpdateModal is_open=app_ctx.is_update_modal_open app_ctx=app_ctx />
 
             <RevisionModal is_open=app_ctx.is_revisions_modal_open app_ctx=app_ctx />
+
+            <AssetGalleryModal app_ctx=app_ctx />
 
             <SettingChangesModal is_open=app_ctx.is_setting_changes_modal_open app_ctx=app_ctx />
 

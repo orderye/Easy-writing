@@ -50,6 +50,8 @@ pub struct AppContext {
     pub chapter_search_query: RwSignal<String>,
     pub chapter_status_filter: RwSignal<String>,
     pub is_import_modal_open: RwSignal<bool>,
+    /// 图库（浏览本作品图片资产、把已入库图片插回正文）
+    pub is_asset_gallery_open: RwSignal<bool>,
     pub is_update_modal_open: RwSignal<bool>,
     pub available_update: RwSignal<Option<shared_types::AppUpdateInfo>>,
     pub has_update_badge: RwSignal<bool>,
@@ -98,6 +100,7 @@ impl AppContext {
             chapter_search_query: RwSignal::new(String::new()),
             chapter_status_filter: RwSignal::new("all".to_string()),
             is_import_modal_open: RwSignal::new(false),
+            is_asset_gallery_open: RwSignal::new(false),
             is_update_modal_open: RwSignal::new(false),
             available_update: RwSignal::new(None),
             has_update_badge: RwSignal::new(false),

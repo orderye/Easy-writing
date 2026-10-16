@@ -36,3 +36,32 @@ extern "C" {
 pub fn resolve_asset_url(rel_path: &str, app_data_dir: &str) -> String {
     asset_rel_to_url(rel_path, app_data_dir)
 }
+#[wasm_bindgen(inline_js = r#"
+export function copy_text_to_clipboard(text) {
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(text);
+      return true;
+    }
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch (e) {
+    return false;
+  }
+}
+"#)]
+extern "C" {
+    fn copy_text_to_clipboard(text: &str) -> bool;
+}
+
+/// 复制文本到剪贴板（图库的「复制路径」用）。失败返回 false，不 panic。
+pub fn copy_asset_path(text: &str) -> bool {
+    copy_text_to_clipboard(text)
+}
