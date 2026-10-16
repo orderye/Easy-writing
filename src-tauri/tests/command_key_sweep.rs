@@ -13,13 +13,19 @@ use tauri::Manager;
 fn all_command_keys_resolve() {
     let dir = std::env::temp_dir().join(format!("ew_sweep_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let pool = db::init_db(dir).unwrap();
+    let pool = db::init_db(dir.clone()).unwrap();
     let novel_id = { let c = pool.get().unwrap(); db::novel::create_novel(&c, "T", "").unwrap().id };
     let volume_id = { let c = pool.get().unwrap(); db::volume::create_volume(&c, &novel_id, "V", "").unwrap().id };
     let chapter_id = { let c = pool.get().unwrap(); db::chapter::create_chapter(&c, &novel_id, &volume_id, "C", "").unwrap().id };
     let session_id = {
         let c = pool.get().unwrap();
         db::chat::ensure_session(&c, &novel_id, Some(&chapter_id)).unwrap().id
+    };
+    // 图片资产：供图库相关命令的参数键解析校验（save_image 返回 rel_path，故再查一次拿 id）
+    let asset_id = {
+        let c = pool.get().unwrap();
+        easy_writing_lib::asset::save_image(&c, &dir, &novel_id, "pic.png", "image/png", "aGVsbG8=").unwrap();
+        easy_writing_lib::asset::list_assets(&c, &novel_id).unwrap()[0].id.clone()
     };
     // 仅用于 update_llm_profile 的参数键解析校验；不写钥匙串，故 key_ref 留空
     let profile_id = {
@@ -35,6 +41,12 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::delete_novel,
             easy_writing_lib::commands::list_deleted_novels,
             easy_writing_lib::commands::list_image_assets,
+            easy_writing_lib::commands::rename_image_asset,
+            easy_writing_lib::commands::delete_image_asset,
+            easy_writing_lib::commands::list_deleted_image_assets,
+            easy_writing_lib::commands::restore_image_asset,
+            easy_writing_lib::commands::purge_image_asset,
+            easy_writing_lib::commands::get_image_asset_usage,
             easy_writing_lib::commands::create_volume,
             easy_writing_lib::commands::list_volumes,
             easy_writing_lib::commands::update_volume,
@@ -119,6 +131,12 @@ fn all_command_keys_resolve() {
         ("delete_novel", r#"{"id": "@@CHAPTER@@"}"#),
         ("list_deleted_novels", r#"{}"#),
         ("list_image_assets", r#"{"novel_id": "@@NOVEL@@"}"#),
+        ("rename_image_asset", r#"{"asset_id": "@@ASSET@@", "name": "v"}"#),
+        ("delete_image_asset", r#"{"asset_id": "@@ASSET@@"}"#),
+        ("list_deleted_image_assets", r#"{"novel_id": "@@NOVEL@@"}"#),
+        ("get_image_asset_usage", r#"{"asset_id": "@@ASSET@@"}"#),
+        ("restore_image_asset", r#"{"asset_id": "@@ASSET@@"}"#),
+        ("purge_image_asset", r#"{"asset_id": "@@ASSET@@"}"#),
         ("create_volume", r#"{"novel_id": "@@NOVEL@@", "title": "v", "summary": "v"}"#),
         ("list_volumes", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("update_volume", r#"{"id": "@@CHAPTER@@", "title": "v", "summary": "v"}"#),
@@ -205,6 +223,7 @@ fn all_command_keys_resolve() {
         s.replace("@@NOVEL@@", &novel_id)
             .replace("@@VOLUME@@", &volume_id)
             .replace("@@CHAPTER@@", &chapter_id)
+            .replace("@@ASSET@@", &asset_id)
             .replace("@@SESSION@@", &session_id)
             .replace("@@PROFILE@@", &profile_id)
     };

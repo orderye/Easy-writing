@@ -50,7 +50,10 @@ fn every_command_declares_snake_case() {
     // 另两个已加入 sweep 用例。
     // 88 → 87：删除 get_novel 命令（前端无调用，等价数据源为 list_novels 与
     // 前端持有的 current_novel；db::novel::get_novel 作为内部函数保留）。
-    assert_eq!(total, 87, "command count changed — re-audit the frontend call sites");
+    // 87 → 93：图库素材管理补齐 6 个命令（rename/delete/list_deleted/restore/
+    // purge/get_image_asset_usage），均确认带 rename_all = "snake_case"
+    // 并已加入 command_key_sweep 的参数键用例。
+    assert_eq!(total, 93, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
@@ -180,6 +183,16 @@ fn settings_and_assets_write_paths() {
         .expect("list_plots");
     assert_eq!(plots.as_array().unwrap().len(), 1);
 
+    // 资产读取路径（原先本函数名为 settings_and_assets_write_paths，却没有任何
+    // 一条资产调用——list_image_assets 因此长期没有参数键覆盖）。
+    call(&app, "list_image_assets", serde_json::json!({ "novel_id": novel_id }))
+        .expect("list_image_assets");
+    call(
+        &app,
+        "list_deleted_image_assets",
+        serde_json::json!({ "novel_id": novel_id }),
+    )
+    .expect("list_deleted_image_assets");
     call(&app, "list_trash_items", serde_json::json!({ "novel_id": novel_id }))
         .expect("list_trash_items");
     call(&app, "list_setting_changes", serde_json::json!({ "novel_id": novel_id }))
@@ -255,6 +268,8 @@ fn app_with_pool() -> (tauri::App<tauri::test::MockRuntime>, String) {
             easy_writing_lib::commands::list_characters,
             easy_writing_lib::commands::save_plot,
             easy_writing_lib::commands::list_plots,
+            easy_writing_lib::commands::list_image_assets,
+            easy_writing_lib::commands::list_deleted_image_assets,
             easy_writing_lib::commands::list_trash_items,
             easy_writing_lib::commands::list_setting_changes,
             easy_writing_lib::commands::empty_trash,

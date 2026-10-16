@@ -512,6 +512,61 @@ pub fn list_image_assets(
     crate::asset::list_assets(&conn, &novel_id).map_err(|e| e.to_string())
 }
 
+/// 重命名图片资产：只改显示名。磁盘文件名是内容哈希，不受影响，
+/// 因此不会影响正文引用，也不会影响 WebDAV 增量上传。
+#[tauri::command(rename_all = "snake_case")]
+pub fn rename_image_asset(
+    pool: State<DbPool>,
+    asset_id: String,
+    name: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::rename_asset(&conn, &asset_id, &name).map_err(|e| e.to_string())
+}
+
+/// 从图库移除一张图片：软删除，可恢复；**不动磁盘文件**。
+///
+/// 文件回收交由图库「维护」里的孤儿清理完成——那里会先确认该文件没有任何
+/// 资产记录引用、也没有任何正文/历史版本引用，才真正删盘。
+#[tauri::command(rename_all = "snake_case")]
+pub fn delete_image_asset(pool: State<DbPool>, asset_id: String) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::soft_delete_asset(&conn, &asset_id).map_err(|e| e.to_string())
+}
+
+/// 列出某作品已移除（软删除）的图片，供恢复。
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_deleted_image_assets(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<Vec<shared_types::AssetInfo>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::list_deleted_assets(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn restore_image_asset(pool: State<DbPool>, asset_id: String) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::restore_asset(&conn, &asset_id).map_err(|e| e.to_string())
+}
+
+/// 彻底删除资产记录（不可恢复）。仅删记录，磁盘文件留给孤儿清理判断。
+#[tauri::command(rename_all = "snake_case")]
+pub fn purge_image_asset(pool: State<DbPool>, asset_id: String) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::purge_asset(&conn, &asset_id).map_err(|e| e.to_string())
+}
+
+/// 查询一张图的引用规模（正文 / 历史版本 / 同文件的其余记录），用于删除前提示。
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_image_asset_usage(
+    pool: State<DbPool>,
+    asset_id: String,
+) -> Result<shared_types::ImageAssetUsage, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::asset_usage(&conn, &asset_id).map_err(|e| e.to_string())
+}
+
 // Trash / Recycle Bin commands
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_trash_items(pool: State<DbPool>, novel_id: String) -> Result<Vec<TrashItem>, String> {

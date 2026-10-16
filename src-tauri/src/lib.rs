@@ -89,6 +89,12 @@ pub fn run() {
             commands::save_image_asset,
             commands::get_app_data_dir,
             commands::list_image_assets,
+            commands::rename_image_asset,
+            commands::delete_image_asset,
+            commands::list_deleted_image_assets,
+            commands::restore_image_asset,
+            commands::purge_image_asset,
+            commands::get_image_asset_usage,
             // AI commands
             commands::ai_cmd::ai_polish,
             commands::ai_cmd::ai_chat_stream,

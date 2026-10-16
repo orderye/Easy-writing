@@ -402,6 +402,21 @@ pub struct AssetInfo {
     pub size: i64,
     pub hash: String,
     pub created_at: String,
+    /// 软删除时间；`None` 表示在库（图库可见），`Some` 表示已移除、可恢复。
+    pub deleted_at: Option<String>,
+}
+
+/// 一张图片资产的引用规模，用于删除前的风险提示。
+///
+/// - `referencing_chapters`：正文里引用了该图的章节数（含已进回收站的章节，
+///   因为恢复后仍会引用）；
+/// - `referencing_revisions`：历史版本里引用了该图的条数（版本回退后会引用）；
+/// - `shared_records`：同文件的**其他**资产记录数（内容哈希去重，一行不等于一文件）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImageAssetUsage {
+    pub referencing_chapters: i64,
+    pub referencing_revisions: i64,
+    pub shared_records: i64,
 }
 
 /// 对话记录（PRD §4.1 P1：对话记录随作品保存，可按章节筛选）。

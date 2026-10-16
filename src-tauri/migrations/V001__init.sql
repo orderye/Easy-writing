@@ -81,7 +81,9 @@ CREATE TABLE IF NOT EXISTS asset (
     rel_path    TEXT NOT NULL,
     size        INTEGER NOT NULL DEFAULT 0,
     hash        TEXT NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    -- 软删除时间；NULL 表示在库。与作品/卷/章一致：移除可恢复。
+    deleted_at  TEXT
 );
 
 -- 6. 世界观设定

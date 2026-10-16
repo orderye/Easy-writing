@@ -99,5 +99,9 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
         CREATE INDEX IF NOT EXISTS idx_lexicon_novel ON novel_lexicon(novel_id);",
     );
 
+    // 图库（素材管理）：为旧库补齐 asset.deleted_at。
+    // 与作品/卷/章一致，图片移除走软删除；列可空，失败忽略（新库已由 V001 建好）。
+    let _ = conn.execute("ALTER TABLE asset ADD COLUMN deleted_at TEXT", []);
+
     Ok(pool)
 }
