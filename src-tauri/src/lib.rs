@@ -95,6 +95,8 @@ pub fn run() {
             commands::restore_image_asset,
             commands::purge_image_asset,
             commands::get_image_asset_usage,
+            commands::scan_image_storage,
+            commands::prune_orphan_images,
             // AI commands
             commands::ai_cmd::ai_polish,
             commands::ai_cmd::ai_chat_stream,

@@ -200,3 +200,102 @@ fn purge_novel_leaves_image_files_on_disk() {
         "但文件仍留在磁盘上（孤儿），需要「维护」来回收"
     );
 }
+
+// ---------- 阶段 4：存储对账与孤儿清理 ----------
+
+#[test]
+fn scan_reports_orphans_and_missing_records() {
+    let dir = temp_dir("scan");
+    let pool = db::init_db(dir.clone()).unwrap();
+    let conn = pool.get().unwrap();
+    let novel = db::novel::create_novel(&conn, "N", "").unwrap().id;
+
+    let rel = asset::save_image(&conn, &dir, &novel, "one.png", "image/png", BLOB_A).unwrap();
+    let id = asset::list_assets(&conn, &novel).unwrap()[0].id.clone();
+
+    // 一切正常时既无孤儿、也无缺失
+    let report = asset::scan_storage(&conn, &dir).unwrap();
+    assert!(report.orphan_files.is_empty());
+    assert!(report.missing_records.is_empty());
+
+    // 记录被彻底删除、文件留在磁盘 → 孤儿
+    asset::purge_asset(&conn, &id).unwrap();
+    let report = asset::scan_storage(&conn, &dir).unwrap();
+    assert_eq!(report.orphan_files.len(), 1);
+    assert_eq!(report.orphan_files[0].rel_path, rel);
+    assert!(
+        !report.orphan_files[0].referenced_by_content,
+        "没有任何正文引用它"
+    );
+
+    // 记录在库、文件却没了 → 缺失记录（WebDAV 恢复未补齐的痕迹）
+    let rel2 = asset::save_image(&conn, &dir, &novel, "two.png", "image/png", BLOB_B).unwrap();
+    std::fs::remove_file(dir.join(&rel2)).unwrap();
+    let report = asset::scan_storage(&conn, &dir).unwrap();
+    assert_eq!(report.missing_records.len(), 1);
+    assert_eq!(report.missing_records[0].rel_path, rel2);
+}
+
+#[test]
+fn soft_deleted_records_keep_their_file_out_of_the_orphan_list() {
+    // 软删除的记录仍占着文件（随时可恢复），因此不能被当成孤儿清掉。
+    let dir = temp_dir("keepalive");
+    let pool = db::init_db(dir.clone()).unwrap();
+    let conn = pool.get().unwrap();
+    let novel = db::novel::create_novel(&conn, "N", "").unwrap().id;
+
+    let rel = asset::save_image(&conn, &dir, &novel, "one.png", "image/png", BLOB_A).unwrap();
+    let id = asset::list_assets(&conn, &novel).unwrap()[0].id.clone();
+    asset::soft_delete_asset(&conn, &id).unwrap();
+
+    let report = asset::scan_storage(&conn, &dir).unwrap();
+    assert!(
+        report.orphan_files.is_empty(),
+        "还有（软删除的）记录指向该文件，它不算孤儿"
+    );
+    assert_eq!(asset::prune_orphan_images(&conn, &dir).unwrap(), 0);
+    assert!(dir.join(&rel).exists(), "可恢复的文件不得被清理");
+}
+
+#[test]
+fn prune_removes_only_orphans_that_no_text_references() {
+    let dir = temp_dir("prunefilter");
+    let pool = db::init_db(dir.clone()).unwrap();
+    let conn = pool.get().unwrap();
+    let novel = db::novel::create_novel(&conn, "N", "").unwrap().id;
+    let vol = db::volume::create_volume(&conn, &novel, "V", "").unwrap().id;
+    let chap = db::chapter::create_chapter(&conn, &novel, &vol, "C", "").unwrap().id;
+
+    // 1) 孤儿，但正文仍引用它 → 只报告，不删
+    let rel_ref = asset::save_image(&conn, &dir, &novel, "ref.png", "image/png", BLOB_A).unwrap();
+    let target = asset::list_assets(&conn, &novel).unwrap()[0].clone();
+    let content = format!(
+        "{{\"type\":\"image\",\"attrs\":{{\"src\":\"asset://localhost/%2Ftmp%2Fimages%2F{}.png\"}}}}",
+        target.hash
+    );
+    db::chapter::save_chapter_content(&conn, &chap, &content, "[图片]", 4).unwrap();
+    assert_eq!(asset::content_reference_count(&conn, &target.hash).unwrap(), 1);
+    asset::purge_asset(&conn, &target.id).unwrap();
+
+    let report = asset::scan_storage(&conn, &dir).unwrap();
+    assert_eq!(report.orphan_files.len(), 1);
+    assert!(
+        report.orphan_files[0].referenced_by_content,
+        "正文还引用着，必须被标记出来"
+    );
+    assert_eq!(
+        asset::prune_orphan_images(&conn, &dir).unwrap(),
+        0,
+        "被正文引用的孤儿不得删除，否则正文当场裂图"
+    );
+    assert!(dir.join(&rel_ref).exists());
+
+    // 2) 孤儿且无人引用 → 可以清理
+    let rel_free = asset::save_image(&conn, &dir, &novel, "free.png", "image/png", BLOB_B).unwrap();
+    let free_id = asset::list_assets(&conn, &novel).unwrap()[0].id.clone();
+    asset::purge_asset(&conn, &free_id).unwrap();
+
+    assert_eq!(asset::prune_orphan_images(&conn, &dir).unwrap(), 1);
+    assert!(!dir.join(&rel_free).exists(), "无人引用的孤儿应被回收");
+    assert!(dir.join(&rel_ref).exists(), "被引用的那个必须还在");
+}

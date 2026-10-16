@@ -12,7 +12,7 @@
 
 use base64::Engine;
 use rusqlite::{params, Connection};
-use shared_types::{AssetInfo, ImageAssetUsage};
+use shared_types::{AssetInfo, ImageAssetUsage, ImageScanReport, OrphanImageFile};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
@@ -200,6 +200,12 @@ pub fn purge_asset(conn: &Connection, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 按 LIKE 模式数行数（正文引用检查的公共形态）。
+fn count_like(conn: &Connection, sql: &str, like: &str) -> Result<i64, String> {
+    conn.query_row(sql, params![like], |r| r.get(0))
+        .map_err(|e| e.to_string())
+}
+
 /// 统计一张图的引用规模。删除/彻底删除前的风险提示就来自这里。
 ///
 /// 按 hash 匹配而不是按 rel_path：正文里存的是含绝对路径的 asset URL，
@@ -210,20 +216,13 @@ pub fn asset_usage(conn: &Connection, asset_id: &str) -> Result<ImageAssetUsage,
     };
     let like = format!("%{}%", target.hash);
 
-    let referencing_chapters: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM chapter WHERE content LIKE ?1",
-            params![like],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())?;
-    let referencing_revisions: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM chapter_revision WHERE content LIKE ?1",
-            params![like],
-            |r| r.get(0),
-        )
-        .map_err(|e| e.to_string())?;
+    let referencing_chapters =
+        count_like(conn, "SELECT COUNT(*) FROM chapter WHERE content LIKE ?1", &like)?;
+    let referencing_revisions = count_like(
+        conn,
+        "SELECT COUNT(*) FROM chapter_revision WHERE content LIKE ?1",
+        &like,
+    )?;
     let shared_records: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM asset WHERE rel_path = ?1 AND id <> ?2",
@@ -237,4 +236,120 @@ pub fn asset_usage(conn: &Connection, asset_id: &str) -> Result<ImageAssetUsage,
         referencing_revisions,
         shared_records,
     })
+}
+
+// ---------- 存储对账（全库作用域） ----------
+//
+// 孤儿文件的来源是真实存在的：purge_novel 会随外键 CASCADE 删掉 asset 行，
+// 但磁盘文件不会被删（tests/asset_gallery.rs 有反向复现用例钉着这一点）。
+
+/// 全部**在库**资产（跨作品），供存储对账使用。
+pub fn list_all_assets(conn: &Connection) -> Result<Vec<AssetInfo>, String> {
+    query_list(
+        conn,
+        &format!(
+            "SELECT {} FROM asset WHERE deleted_at IS NULL ORDER BY created_at DESC, rowid DESC",
+            ASSET_COLS
+        ),
+        [],
+        map_asset,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// 从「sha256.ext」形式的文件名里取出哈希；命名规则不符时返回 None。
+fn hash_from_file_name(file_name: &str) -> Option<&str> {
+    let stem = file_name.split('.').next().unwrap_or("");
+    if stem.len() == 64 && stem.chars().all(|c| c.is_ascii_hexdigit()) {
+        Some(stem)
+    } else {
+        None
+    }
+}
+
+/// 该哈希是否仍被正文或历史版本引用（两者任一即算引用）。
+pub fn content_reference_count(conn: &Connection, hash: &str) -> Result<i64, String> {
+    let like = format!("%{}%", hash);
+    count_like(
+        conn,
+        "SELECT (SELECT COUNT(*) FROM chapter WHERE content LIKE ?1)
+              + (SELECT COUNT(*) FROM chapter_revision WHERE content LIKE ?1)",
+        &like,
+    )
+}
+
+/// 对账：磁盘上有哪些文件已经没有记录（孤儿），表里哪些记录已经没有文件。
+///
+/// 判定口径：
+/// - 孤儿 = 磁盘文件存在，且 asset 表里**任何**记录（含软删除）都不指向它。
+///   软删除的记录仍然占着文件，因为它随时可能被恢复——所以不把它们算作孤儿。
+/// - 另外标记 referenced_by_content：文件虽无记录，但正文/历史版本还引用着，
+///   这种文件**不能清理**，否则正文当场裂图。
+pub fn scan_storage(conn: &Connection, app_data_dir: &Path) -> Result<ImageScanReport, String> {
+    let images_dir = app_data_dir.join("images");
+
+    let mut stmt = conn
+        .prepare("SELECT rel_path FROM asset")
+        .map_err(|e| e.to_string())?;
+    let known: std::collections::HashSet<String> = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut orphan_files = Vec::new();
+    if let Ok(entries) = fs::read_dir(&images_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let rel_path = format!("images/{}", file_name);
+            if known.contains(&rel_path) {
+                continue;
+            }
+            let size = entry.metadata().map(|m| m.len() as i64).unwrap_or(0);
+            let referenced_by_content = match hash_from_file_name(&file_name) {
+                Some(hash) => content_reference_count(conn, hash)? > 0,
+                None => false,
+            };
+            orphan_files.push(OrphanImageFile {
+                rel_path,
+                size,
+                referenced_by_content,
+            });
+        }
+    }
+    orphan_files.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
+
+    let mut missing_records = Vec::new();
+    for asset in list_all_assets(conn)? {
+        if !app_data_dir.join(&asset.rel_path).exists() {
+            missing_records.push(asset);
+        }
+    }
+
+    Ok(ImageScanReport {
+        orphan_files,
+        missing_records,
+    })
+}
+
+/// 清理可以安全清理的孤儿文件，返回实际删除数。
+///
+/// 「安全」= 无任何记录引用（含软删除记录）且正文/历史版本也不引用。
+/// 被正文引用着的孤儿只报告、不删除。
+pub fn prune_orphan_images(conn: &Connection, app_data_dir: &Path) -> Result<i64, String> {
+    let report = scan_storage(conn, app_data_dir)?;
+    let mut removed = 0i64;
+    for orphan in report.orphan_files {
+        if orphan.referenced_by_content {
+            continue;
+        }
+        if fs::remove_file(app_data_dir.join(&orphan.rel_path)).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }

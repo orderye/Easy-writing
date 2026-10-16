@@ -2,7 +2,7 @@ use crate::components::editor::image_upload::{pick_and_save_image, UploadEvent};
 use crate::state::AppContext;
 use crate::tauri_api::{invoke_cmd, invoke_no_args};
 use leptos::prelude::*;
-use shared_types::{AssetInfo, ImageAssetUsage};
+use shared_types::{AssetInfo, ImageAssetUsage, ImageScanReport};
 use std::collections::HashSet;
 
 /// 字节数 → 人类可读体积。
@@ -58,6 +58,10 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
     let rename_text = RwSignal::new(String::new());
     let pending_remove = RwSignal::new(Option::<AssetInfo>::None);
     let pending_purge = RwSignal::new(Option::<AssetInfo>::None);
+    // 维护：全库范围的图片存储对账
+    let scan_report = RwSignal::new(Option::<ImageScanReport>::None);
+    let is_scanning = RwSignal::new(false);
+    let show_maintenance = RwSignal::new(false);
 
     // 重新拉取「在库 + 已移除」两份列表与 APPDATA 前缀
     let load = move || {
@@ -105,6 +109,7 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
             broken.set(HashSet::new());
             selected_id.set(None);
             show_deleted.set(false);
+            show_maintenance.set(false);
             status.set(String::new());
             load();
         }
@@ -143,7 +148,7 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
             .collect();
         match sort_mode.get().as_str() {
             "name" => list.sort_by(|a, b| a.name.cmp(&b.name)),
-            "size" => list.sort_by(|a, b| b.size.cmp(&a.size)),
+            "size" => list.sort_by_key(|a| std::cmp::Reverse(a.size)),
             // newest：后端已按 created_at DESC 返回，保持原序
             _ => {}
         }
@@ -248,6 +253,38 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
                 }
                 Err(e) => status.set(format!("✕ 彻底删除失败：{}", e)),
             }
+        });
+    };
+
+    // 存储对账（全库作用域）：磁盘孤儿文件 + 记录存在但文件缺失
+    let do_scan = move || {
+        is_scanning.set(true);
+        leptos::task::spawn_local(async move {
+            match invoke_no_args::<ImageScanReport>("scan_image_storage").await {
+                Ok(report) => {
+                    scan_report.set(Some(report));
+                    status.set("✓ 已扫描图片存储".to_string());
+                }
+                Err(e) => status.set(format!("✕ 扫描失败：{}", e)),
+            }
+            is_scanning.set(false);
+        });
+    };
+
+    // 只清理「无记录引用且无正文引用」的孤儿文件
+    let do_prune = move || {
+        is_scanning.set(true);
+        leptos::task::spawn_local(async move {
+            let pruned = invoke_no_args::<i64>("prune_orphan_images").await;
+            let rescanned = invoke_no_args::<ImageScanReport>("scan_image_storage").await;
+            match pruned {
+                Ok(n) => status.set(format!("✓ 已清理 {} 个无人引用的孤儿文件", n)),
+                Err(e) => status.set(format!("✕ 清理失败：{}", e)),
+            }
+            if let Ok(report) = rescanned {
+                scan_report.set(Some(report));
+            }
+            is_scanning.set(false);
         });
     };
 
@@ -533,6 +570,120 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
                                         </div>
                                     }.into_any()
                                 }}
+                                // 维护：全库范围的图片存储对账
+                                <div class="mt-4 pt-2 border-t border-slate-200 dark:border-slate-700">
+                                    <button
+                                        class="text-[11px] text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                                        on:click=move |_| show_maintenance.set(!show_maintenance.get())
+                                    >
+                                        {move || format!(
+                                            "{} 维护（图片存储对账）",
+                                            if show_maintenance.get() { "▾" } else { "▸" },
+                                        )}
+                                    </button>
+                                    {move || if show_maintenance.get() {
+                                        view! {
+                                            <div class="mt-1.5 space-y-1.5">
+                                                <div class="text-[9px] text-slate-400 leading-relaxed">
+                                                    "作用域是全库，不只是当前作品 —— 孤儿文件已经不属于任何作品。"
+                                                </div>
+                                                <button
+                                                    class="px-2.5 py-1 text-[11px] bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded cursor-pointer disabled:opacity-50"
+                                                    disabled=move || is_scanning.get()
+                                                    on:click=move |_| do_scan()
+                                                >
+                                                    {move || if is_scanning.get() { "⏳ 处理中" } else { "扫描图片存储" }}
+                                                </button>
+                                                {move || {
+                                                    let Some(report) = scan_report.get() else {
+                                                        return view! { <span></span> }.into_any();
+                                                    };
+                                                    let orphans = report.orphan_files.len();
+                                                    let removable = report
+                                                        .orphan_files
+                                                        .iter()
+                                                        .filter(|o| !o.referenced_by_content)
+                                                        .count();
+                                                    let bytes: i64 = report.orphan_files.iter().map(|o| o.size).sum();
+                                                    let missing = report.missing_records.len();
+                                                    view! {
+                                                        <div class="space-y-1.5">
+                                                            <div class="text-[10px] text-slate-500 dark:text-slate-400">
+                                                                {format!(
+                                                                    "孤儿文件 {} 个（合计 {}，其中可清理 {} 个）· 记录缺失 {} 条",
+                                                                    orphans, format_size(bytes), removable, missing,
+                                                                )}
+                                                            </div>
+                                                            <div class="space-y-1">
+                                                                <For
+                                                                    each=move || scan_report
+                                                                        .get()
+                                                                        .map(|r| r.orphan_files)
+                                                                        .unwrap_or_default()
+                                                                    key=|o| o.rel_path.clone()
+                                                                    children=move |o| {
+                                                                        let rel = o.rel_path.clone();
+                                                                        let size = format_size(o.size);
+                                                                        let blocked = o.referenced_by_content;
+                                                                        view! {
+                                                                            <div class="flex items-center justify-between gap-2 p-1.5 rounded border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60">
+                                                                                <div class="min-w-0">
+                                                                                    <div class="text-[9px] text-slate-500 dark:text-slate-400 font-mono truncate">{rel}</div>
+                                                                                    <div class="text-[9px] text-slate-400">{size}</div>
+                                                                                </div>
+                                                                                {if blocked {
+                                                                                    view! {
+                                                                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 shrink-0">
+                                                                                            "仍被正文引用 · 不清理"
+                                                                                        </span>
+                                                                                    }.into_any()
+                                                                                } else {
+                                                                                    view! {
+                                                                                        <span class="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
+                                                                                            "可清理"
+                                                                                        </span>
+                                                                                    }.into_any()
+                                                                                }}
+                                                                            </div>
+                                                                        }
+                                                                    }
+                                                                />
+                                                            </div>
+                                                            <div class="space-y-1">
+                                                                <For
+                                                                    each=move || scan_report
+                                                                        .get()
+                                                                        .map(|r| r.missing_records)
+                                                                        .unwrap_or_default()
+                                                                    key=|a| a.id.clone()
+                                                                    children=move |a| {
+                                                                        let name = a.name.clone();
+                                                                        let rel = a.rel_path.clone();
+                                                                        view! {
+                                                                            <div class="p-1.5 rounded border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30">
+                                                                                <div class="text-[9px] text-amber-700 dark:text-amber-300 truncate">"⚠ " {name}</div>
+                                                                                <div class="text-[9px] text-amber-600/80 dark:text-amber-400/80 font-mono truncate">{rel}</div>
+                                                                            </div>
+                                                                        }
+                                                                    }
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                class="px-2.5 py-1 text-[11px] text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60 hover:bg-red-50 dark:hover:bg-red-950/40 rounded cursor-pointer disabled:opacity-40"
+                                                                disabled=move || is_scanning.get() || removable == 0
+                                                                on:click=move |_| do_prune()
+                                                            >
+                                                                "清理可清理的孤儿文件"
+                                                            </button>
+                                                        </div>
+                                                    }.into_any()
+                                                }}
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <span></span> }.into_any()
+                                    }}
+                                </div>
                             </div>
 
                             // 详情

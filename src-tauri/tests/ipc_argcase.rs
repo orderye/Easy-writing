@@ -53,7 +53,10 @@ fn every_command_declares_snake_case() {
     // 87 → 93：图库素材管理补齐 6 个命令（rename/delete/list_deleted/restore/
     // purge/get_image_asset_usage），均确认带 rename_all = "snake_case"
     // 并已加入 command_key_sweep 的参数键用例。
-    assert_eq!(total, 93, "command count changed — re-audit the frontend call sites");
+    // 93 → 95：图库「维护」补齐 scan_image_storage 与 prune_orphan_images
+    // （均带 snake_case；首参为 AppHandle，故无法进入 command_key_sweep，
+    //  与 save_image_asset / get_app_data_dir 同属已知的 MockRuntime 限制）。
+    assert_eq!(total, 95, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

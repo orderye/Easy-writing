@@ -419,6 +419,26 @@ pub struct ImageAssetUsage {
     pub shared_records: i64,
 }
 
+/// 磁盘上存在、但 asset 表没有任何记录（含软删除记录）引用的图片文件。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrphanImageFile {
+    /// 相对 APPDATA 的路径，形如 images/<sha256>.png
+    pub rel_path: String,
+    pub size: i64,
+    /// 是否仍被正文或历史版本引用：为真时**不可清理**（清了会当场裂图）。
+    pub referenced_by_content: bool,
+}
+
+/// 图片存储对账结果。注意作用域是**全库**，不是单个作品：
+/// 孤儿文件不属于任何作品（记录已被删除），无法按作品归属。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImageScanReport {
+    /// 磁盘有、表里无记录的文件（可回收的空间就在这里）
+    pub orphan_files: Vec<OrphanImageFile>,
+    /// 表里有（在库）记录、磁盘上却没有文件的记录（WebDAV 恢复未补齐的痕迹）
+    pub missing_records: Vec<AssetInfo>,
+}
+
 /// 对话记录（PRD §4.1 P1：对话记录随作品保存，可按章节筛选）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatSession {

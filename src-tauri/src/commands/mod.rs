@@ -567,6 +567,33 @@ pub fn get_image_asset_usage(
     crate::asset::asset_usage(&conn, &asset_id).map_err(|e| e.to_string())
 }
 
+/// 对账图片存储。作用域是**全库**，不是当前作品——孤儿文件不属于任何作品
+/// （其记录已被删除），无法按作品归属，因此界面上必须写明这一点。
+///
+/// 返回：磁盘上无任何记录引用的孤儿文件，以及记录在库但文件缺失的条目。
+#[tauri::command(rename_all = "snake_case")]
+pub fn scan_image_storage(
+    app: tauri::AppHandle,
+    pool: State<DbPool>,
+) -> Result<shared_types::ImageScanReport, String> {
+    use tauri::Manager;
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::scan_storage(&conn, &app_data_dir).map_err(|e| e.to_string())
+}
+
+/// 清理孤儿图片文件，返回实际删除数。
+///
+/// 只删「无记录引用 + 无正文/历史版本引用」的文件；被正文引用着的孤儿只报告
+/// 不删除——否则正文会当场裂图。
+#[tauri::command(rename_all = "snake_case")]
+pub fn prune_orphan_images(app: tauri::AppHandle, pool: State<DbPool>) -> Result<i64, String> {
+    use tauri::Manager;
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::prune_orphan_images(&conn, &app_data_dir).map_err(|e| e.to_string())
+}
+
 // Trash / Recycle Bin commands
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_trash_items(pool: State<DbPool>, novel_id: String) -> Result<Vec<TrashItem>, String> {
