@@ -14,10 +14,14 @@
 use easy_writing_lib::db;
 use rusqlite::Connection;
 
+static POOL_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn fresh_pool() -> db::DbPool {
+    let seq = POOL_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "ew_novel_trash_{}_{}",
+        "ew_novel_trash_{}_{}_{}",
         std::process::id(),
+        seq,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

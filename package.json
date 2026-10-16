@@ -1,6 +1,6 @@
 {
   "name": "easy-writing",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,10 @@
     "dev:frontend": "pnpm build:assets && trunk serve --open=false frontend/index.html",
     "tauri": "tauri",
     "dev": "pnpm build:assets && tauri dev",
-    "build": "pnpm build:assets && tauri build"
+    "build": "pnpm build:assets && tauri build",
+    "test:frontend": "node --test tests/frontend/*.test.js",
+    "test:backend": "cargo test --workspace",
+    "test": "pnpm test:frontend && pnpm test:backend"
   },
   "dependencies": {
     "@tiptap/core": "^2.10.4",

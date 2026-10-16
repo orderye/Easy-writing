@@ -450,7 +450,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                     <div class="flex items-center gap-2">
                                                         <h4 class="font-bold text-sm text-slate-800 dark:text-slate-100">"Easy-writing · 小说工作台"</h4>
                                                         <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold border border-blue-200 dark:border-blue-800">
-                                                            "v0.2.0"
+                                                            {concat!("v", env!("CARGO_PKG_VERSION"))}
                                                         </span>
                                                     </div>
                                                     <p class="text-xs text-slate-500 dark:text-slate-400">

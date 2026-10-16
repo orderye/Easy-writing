@@ -253,7 +253,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                             }
                         }
                     >
-                        <span>"v0.2.0"</span>
+                        <span>{concat!("v", env!("CARGO_PKG_VERSION"))}</span>
                         {move || if app_ctx.has_update_badge.get() {
                             view! {
                                 <span class="px-1 py-0.2 bg-gradient-to-r from-red-500 to-pink-500 text-white rounded text-[8px] font-bold animate-pulse">
