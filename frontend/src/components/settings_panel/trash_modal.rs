@@ -11,11 +11,47 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
     let operating_id = RwSignal::new(Option::<String>::None);
     let filter_type = RwSignal::new("all".to_string());
     let show_confirm_empty = RwSignal::new(false);
+    // 已删除的作品：回收站的常规条目都以「当前作品」为作用域，
+    // 而被删除的作品不属于任何作品，必须单独列出，否则删除作品无法找回。
+    let deleted_novels = RwSignal::new(Vec::<TrashItem>::new());
 
     let load_trash = move || {
         is_loading.set(true);
         load_for_novel(app_ctx, "list_trash_items", items, move || {
             is_loading.set(false);
+        });
+        leptos::task::spawn_local(async move {
+            if let Ok(list) = crate::tauri_api::invoke_no_args::<Vec<TrashItem>>("list_deleted_novels").await {
+                deleted_novels.set(list);
+            }
+        });
+    };
+
+    let handle_restore_novel = move |id: String| {
+        operating_id.set(Some(id.clone()));
+        leptos::task::spawn_local(async move {
+            let _ = invoke_cmd("restore_trash_item")
+                .arg("item_type", "novel".to_string())
+                .arg("item_id", id)
+                .send_unit()
+                .await;
+            // 恢复后刷新作品列表，让它在作品管理器中可用
+            crate::workspace::refresh_novels_list(app_ctx).await;
+            operating_id.set(None);
+            load_trash();
+        });
+    };
+
+    let handle_purge_novel = move |id: String| {
+        operating_id.set(Some(id.clone()));
+        leptos::task::spawn_local(async move {
+            let _ = invoke_cmd("purge_trash_item")
+                .arg("item_type", "novel".to_string())
+                .arg("item_id", id)
+                .send_unit()
+                .await;
+            operating_id.set(None);
+            load_trash();
         });
     };
 
@@ -205,6 +241,77 @@ pub fn TrashModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView
 
                         // Main Content: List of trash items
                         <div class="flex-1 overflow-y-auto p-6 space-y-3">
+                            // 已删除的作品（跨作品作用域，与下方按作品筛选的条目分开呈现）
+                            {move || {
+                                let novels = deleted_novels.get();
+                                if novels.is_empty() {
+                                    return view! { <div></div> }.into_any();
+                                }
+                                view! {
+                                    <div class="space-y-2 pb-3 mb-1 border-b border-slate-200 dark:border-slate-800">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs font-bold text-rose-600 dark:text-rose-400">"已删除的作品"</span>
+                                            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 font-semibold">
+                                                {format!("{} 个", novels.len())}
+                                            </span>
+                                        </div>
+                                        <p class="text-[11px] text-slate-400 dark:text-slate-500">
+                                            "作品及其全部内容已被移入废弃状态。恢复后可在左栏「📚 作品」中切换过去。"
+                                        </p>
+                                        <For
+                                            each=move || deleted_novels.get()
+                                            key=|t| t.id.clone()
+                                            children=move |item| {
+                                                let rid = item.id.clone();
+                                                let pid = item.id.clone();
+                                                let is_busy_restore = {
+                                                    let id = item.id.clone();
+                                                    move || operating_id.get().as_deref() == Some(id.as_str())
+                                                };
+                                                let is_busy_purge = {
+                                                    let id = item.id.clone();
+                                                    move || operating_id.get().as_deref() == Some(id.as_str())
+                                                };
+                                                view! {
+                                                    <div class="flex items-center justify-between p-3 rounded-lg border border-rose-200 dark:border-rose-900 bg-rose-50/60 dark:bg-rose-950/20">
+                                                        <div class="min-w-0">
+                                                            <div class="flex items-center gap-2">
+                                                                <span class="px-1.5 py-0.5 text-[10px] rounded border font-semibold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border-rose-300 dark:border-rose-800">
+                                                                    "作品"
+                                                                </span>
+                                                                <span class="font-bold text-sm text-slate-700 dark:text-slate-200 truncate">
+                                                                    {item.title.clone()}
+                                                                </span>
+                                                            </div>
+                                                            <div class="text-[10px] text-slate-400 mt-0.5">
+                                                                "删除于 " {item.deleted_at.clone()}
+                                                            </div>
+                                                        </div>
+                                                        <div class="flex items-center gap-1.5 shrink-0">
+                                                            <button
+                                                                class="px-2.5 py-1 text-xs bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 rounded-md hover:bg-emerald-100 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer disabled:opacity-40"
+                                                                disabled=is_busy_restore
+                                                                on:click=move |_| handle_restore_novel(rid.clone())
+                                                            >
+                                                                "恢复"
+                                                            </button>
+                                                            <button
+                                                                class="px-2.5 py-1 text-xs text-rose-600 dark:text-rose-400 border border-rose-300 dark:border-rose-800 rounded-md hover:bg-rose-100 dark:hover:bg-rose-950/60 transition-colors cursor-pointer disabled:opacity-40"
+                                                                disabled=is_busy_purge
+                                                                title="彻底删除，不可恢复"
+                                                                on:click=move |_| handle_purge_novel(pid.clone())
+                                                            >
+                                                                "彻底删除"
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                }
+                                            }
+                                        />
+                                    </div>
+                                }.into_any()
+                            }}
+
                             {move || {
                                 if is_loading.get() {
                                     return view! {

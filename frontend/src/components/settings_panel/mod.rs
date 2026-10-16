@@ -189,6 +189,14 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                     </button>
                     <button
                         class="flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200/80 dark:hover:bg-slate-800 cursor-pointer text-[11px] font-medium border border-slate-200 dark:border-slate-700/80 bg-white/70 dark:bg-slate-800/60 shadow-2xs whitespace-nowrap shrink-0"
+                        title="新建 / 切换 / 删除作品"
+                        on:click=move |_| app_ctx.is_novel_manager_open.set(true)
+                    >
+                        <span>"📚"</span>
+                        <span>"作品"</span>
+                    </button>
+                    <button
+                        class="flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 transition-colors px-1.5 py-0.5 rounded hover:bg-slate-200/80 dark:hover:bg-slate-800 cursor-pointer text-[11px] font-medium border border-slate-200 dark:border-slate-700/80 bg-white/70 dark:bg-slate-800/60 shadow-2xs whitespace-nowrap shrink-0"
                         title="打开卷章与设定废弃回收站"
                         on:click=move |_| app_ctx.is_trash_modal_open.set(true)
                     >

@@ -50,6 +50,16 @@ pub fn delete_novel(pool: State<DbPool>, id: String) -> Result<(), String> {
     crate::db::novel::delete_novel(&conn, &id).map_err(|e| e.to_string())
 }
 
+/// 列出已删除的作品（跨作品作用域）。
+///
+/// 回收站其余条目都以「当前作品」为作用域，而被删除的作品不属于任何作品，
+/// 因此需要这个独立入口——否则删除作品就无法找回。
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_deleted_novels(pool: State<DbPool>) -> Result<Vec<TrashItem>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::list_deleted_novels(&conn).map_err(|e| e.to_string())
+}
+
 // Volume commands
 #[tauri::command(rename_all = "snake_case")]
 pub fn create_volume(

@@ -5,6 +5,7 @@ use crate::components::config::update_modal::UpdateModal;
 use crate::components::editor::revision_modal::RevisionModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::novel::import_modal::ImportModal;
+use crate::components::novel::novel_manager::NovelManagerModal;
 use crate::components::settings_panel::setting_changes_modal::SettingChangesModal;
 use crate::components::settings_panel::trash_modal::TrashModal;
 use crate::components::settings_panel::SettingsPanel;
@@ -101,6 +102,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <SettingChangesModal is_open=app_ctx.is_setting_changes_modal_open app_ctx=app_ctx />
 
             <TrashModal is_open=app_ctx.is_trash_modal_open app_ctx=app_ctx />
+            <NovelManagerModal app_ctx=app_ctx />
 
             <ImportModal is_open=app_ctx.is_import_modal_open app_ctx=app_ctx />
 

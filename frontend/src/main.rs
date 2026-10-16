@@ -3,6 +3,7 @@ mod bridge;
 mod components;
 mod state;
 mod tauri_api;
+mod workspace;
 
 use app::App;
 use leptos::mount::mount_to_body;

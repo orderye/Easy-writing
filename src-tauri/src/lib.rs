@@ -50,6 +50,7 @@ pub fn run() {
             commands::get_novel,
             commands::update_novel,
             commands::delete_novel,
+            commands::list_deleted_novels,
             // Volume
             commands::create_volume,
             commands::list_volumes,

@@ -44,6 +44,8 @@ pub struct AppContext {
     pub is_revisions_modal_open: RwSignal<bool>,
     pub is_setting_changes_modal_open: RwSignal<bool>,
     pub is_trash_modal_open: RwSignal<bool>,
+    /// 作品管理器（新建 / 切换 / 删除作品）
+    pub is_novel_manager_open: RwSignal<bool>,
     pub settings_search_query: RwSignal<String>,
     pub chapter_search_query: RwSignal<String>,
     pub chapter_status_filter: RwSignal<String>,
@@ -91,6 +93,7 @@ impl AppContext {
             is_revisions_modal_open: RwSignal::new(false),
             is_setting_changes_modal_open: RwSignal::new(false),
             is_trash_modal_open: RwSignal::new(false),
+            is_novel_manager_open: RwSignal::new(false),
             settings_search_query: RwSignal::new(String::new()),
             chapter_search_query: RwSignal::new(String::new()),
             chapter_status_filter: RwSignal::new("all".to_string()),

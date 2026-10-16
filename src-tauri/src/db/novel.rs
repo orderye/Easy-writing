@@ -60,10 +60,9 @@ pub fn update_novel(conn: &Connection, id: &str, title: &str, synopsis: &str) ->
     Ok(())
 }
 
+/// 软删除作品。委托给 `db::trash::soft_delete_novel`，
+/// 以确保「删除作品」在任何调用路径下都会连带软删除其卷与章节——
+/// 分散实现两份级联逻辑迟早会漏掉一处。
 pub fn delete_novel(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE novel SET deleted_at = datetime('now') WHERE id = ?1",
-        params![id],
-    )?;
-    Ok(())
+    super::trash::soft_delete_novel(conn, id)
 }
