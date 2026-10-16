@@ -1,6 +1,6 @@
 [package]
 name = "easy-writing-core"
-version = "0.3.2"
+version = "0.3.3"
 description = "Easy-writing novel workbench core"
 authors = ["Roy"]
 edition = "2021"
@@ -31,6 +31,7 @@ flate2 = "1.0"
 base64 = "0.22"
 regex = "1.10"
 shared-types = { path = "../shared-types" }
+zip = { version = "9.0.4", default-features = false, features = ["deflate-flate2"] }
 
 [dev-dependencies]
 tauri = { version = "2.1", features = ["protocol-asset", "test"] }

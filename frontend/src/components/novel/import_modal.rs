@@ -16,9 +16,11 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let import_target_mode = RwSignal::new("new".to_string()); // "new" | "current"
     let preview = RwSignal::new(Option::<ImportPreview>::None);
     let error_msg = RwSignal::new(Option::<String>::None);
+    let epub_base64 = RwSignal::new(Option::<String>::None);
 
     let on_file_selected = move |ev: Event| {
         error_msg.set(None);
+        epub_base64.set(None);
         let target = ev
             .target()
             .and_then(|t| t.dyn_into::<HtmlInputElement>().ok());
@@ -28,7 +30,29 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                     let fname = file.name();
                     file_name.set(fname.clone());
 
-                    if let Ok(reader) = FileReader::new() {
+                    if fname.to_lowercase().ends_with(".epub") {
+                        if let Ok(reader) = FileReader::new() {
+                            let reader_clone = reader.clone();
+                            let text_sig = raw_text;
+                            let err_sig = error_msg;
+                            let epub_sig = epub_base64;
+                            let on_load = Closure::wrap(Box::new(move |_: Event| {
+                                if let Ok(val) = reader_clone.result() {
+                                    if let Some(data_url) = val.as_string() {
+                                        let b64 = data_url.split(',').nth(1).unwrap_or("").to_string();
+                                        epub_sig.set(Some(b64));
+                                        text_sig.set("[EPUB 电子书已就绪，点击下方开始智能解析]".to_string());
+                                    } else {
+                                        err_sig.set(Some("读取 EPUB 电子书文件失败".to_string()));
+                                    }
+                                }
+                            }) as Box<dyn FnMut(_)>);
+
+                            reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
+                            on_load.forget();
+                            let _ = reader.read_as_data_url(&file);
+                        }
+                    } else if let Ok(reader) = FileReader::new() {
                         let reader_clone = reader.clone();
                         let text_sig = raw_text;
                         let err_sig = error_msg;
@@ -53,6 +77,35 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     };
 
     let on_start_parse = move |_| {
+        let is_epub = file_name.get().to_lowercase().ends_with(".epub") && epub_base64.get().is_some();
+        if is_epub {
+            let b64 = match epub_base64.get() {
+                Some(b) => b,
+                None => {
+                    error_msg.set(Some("EPUB 数据未就绪，请重新选择文件".to_string()));
+                    return;
+                }
+            };
+            let fname = file_name.get();
+            is_parsing.set(true);
+            error_msg.set(None);
+
+            leptos::task::spawn_local(async move {
+                let res = invoke_cmd("parse_import_epub")
+                    .arg("file_name", fname)
+                    .arg("epub_base64", b64)
+                    .send::<ImportPreview>()
+                    .await;
+
+                is_parsing.set(false);
+                match res {
+                    Ok(p) => preview.set(Some(p)),
+                    Err(e) => error_msg.set(Some(format!("EPUB 电子书解析失败: {}", e))),
+                }
+            });
+            return;
+        }
+
         let text = raw_text.get();
         if text.trim().is_empty() {
             error_msg.set(Some("文稿内容为空，请先选择文件或粘贴文本".to_string()));
@@ -144,6 +197,7 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                     preview.set(None);
                     raw_text.set(String::new());
                     file_name.set(String::new());
+                    epub_base64.set(None);
                     is_open.set(false);
                 }
                 Err(e) => error_msg.set(Some(format!("入库提交失败: {}", e))),
@@ -214,7 +268,7 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                         )
                                                         on:click=move |_| active_input_tab.set("file".to_string())
                                                     >
-                                                        "📄 选择本地文本文件 (.txt / .md)"
+                                                        "📄 选择本地文件 (.txt / .md / .epub)"
                                                     </button>
                                                     <button
                                                         class=move || format!(
@@ -238,7 +292,7 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                             <label class="border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-8 flex flex-col items-center justify-center gap-2 hover:border-blue-500 dark:hover:border-blue-500 bg-slate-50/50 dark:bg-slate-850/50 cursor-pointer transition-colors">
                                                                 <input
                                                                     type="file"
-                                                                    accept=".txt,.md"
+                                                                    accept=".txt,.md,.epub"
                                                                     class="hidden"
                                                                     on:change=on_file_selected
                                                                 />
@@ -247,23 +301,32 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                                     {move || {
                                                                         let f = file_name.get();
                                                                         if f.is_empty() {
-                                                                            "点击选择本地 .txt 或 .md 文件".to_string()
+                                                                            "点击选择本地 .txt、.md 或 .epub 电子书文件".to_string()
                                                                         } else {
                                                                             format!("已选中文件: {}", f)
                                                                         }
                                                                     }}
                                                                 </span>
-                                                                <span class="text-[11px] text-slate-400">"支持百至千万字完整长篇，自动提取文件名作为默认作品标题"</span>
+                                                                <span class="text-[11px] text-slate-400">"支持 TXT / Markdown 纯文本及标准 EPUB 电子书，自动识别目录分卷分章并提取作品名"</span>
                                                             </label>
 
-                                                            {move || if text_len > 0 {
-                                                                view! {
-                                                                    <div class="text-xs text-slate-600 dark:text-slate-400 flex items-center justify-between px-1">
-                                                                        <span>"已载入文稿字数：" <strong class="text-blue-600 dark:text-blue-400">{text_len}</strong> " 字符"</span>
-                                                                    </div>
-                                                                }.into_any()
-                                                            } else {
-                                                                view! { <div></div> }.into_any()
+                                                            {move || {
+                                                                let is_ep = file_name.get().to_lowercase().ends_with(".epub");
+                                                                if is_ep && epub_base64.get().is_some() {
+                                                                    view! {
+                                                                        <div class="text-xs text-blue-600 dark:text-blue-400 flex items-center justify-between px-1">
+                                                                            <span>"✓ EPUB 电子书已就绪，点击下方「开始智能解析」即可提取卷章与目录树"</span>
+                                                                        </div>
+                                                                    }.into_any()
+                                                                } else if text_len > 0 {
+                                                                    view! {
+                                                                        <div class="text-xs text-slate-600 dark:text-slate-400 flex items-center justify-between px-1">
+                                                                            <span>"已载入文稿字数：" <strong class="text-blue-600 dark:text-blue-400">{text_len}</strong> " 字符"</span>
+                                                                        </div>
+                                                                    }.into_any()
+                                                                } else {
+                                                                    view! { <div></div> }.into_any()
+                                                                }
                                                             }}
                                                         </div>
                                                     }.into_any()

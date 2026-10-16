@@ -56,7 +56,9 @@ fn every_command_declares_snake_case() {
     // 93 → 95：图库「维护」补齐 scan_image_storage 与 prune_orphan_images
     // （均带 snake_case；首参为 AppHandle，故无法进入 command_key_sweep，
     //  与 save_image_asset / get_app_data_dir 同属已知的 MockRuntime 限制）。
-    assert_eq!(total, 95, "command count changed — re-audit the frontend call sites");
+    // 95 → 96：导入作品增加 parse_import_epub（带 snake_case，已加入 command_key_sweep）。
+    // 96 → 97：作品管理增加 list_novels_with_stats（带 snake_case，已加入 command_key_sweep）。
+    assert_eq!(total, 97, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

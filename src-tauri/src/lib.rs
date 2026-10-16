@@ -47,6 +47,7 @@ pub fn run() {
             // Novel
             commands::create_novel,
             commands::list_novels,
+            commands::list_novels_with_stats,
             commands::update_novel,
             commands::delete_novel,
             commands::list_deleted_novels,
@@ -137,6 +138,7 @@ pub fn run() {
             commands::sync_cmd::webdav_restore_backup,
             // Import
             commands::parse_import_document,
+            commands::parse_import_epub,
             commands::commit_import_novel,
             // Character Relations
             commands::list_character_relations,

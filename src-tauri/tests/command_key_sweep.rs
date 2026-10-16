@@ -37,6 +37,7 @@ fn all_command_keys_resolve() {
         .invoke_handler(tauri::generate_handler![
             easy_writing_lib::commands::create_novel,
             easy_writing_lib::commands::list_novels,
+            easy_writing_lib::commands::list_novels_with_stats,
             easy_writing_lib::commands::update_novel,
             easy_writing_lib::commands::delete_novel,
             easy_writing_lib::commands::list_deleted_novels,
@@ -98,6 +99,7 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::sync_cmd::webdav_test_connection,
             easy_writing_lib::commands::sync_cmd::webdav_list_backups,
             easy_writing_lib::commands::parse_import_document,
+            easy_writing_lib::commands::parse_import_epub,
             easy_writing_lib::commands::commit_import_novel,
             easy_writing_lib::commands::list_character_relations,
             easy_writing_lib::commands::save_character_relation,
@@ -127,6 +129,7 @@ fn all_command_keys_resolve() {
     let cases: &[(&str, &str)] = &[
         ("create_novel", r#"{"title": "v", "synopsis": "v"}"#),
         ("list_novels", r#"{}"#),
+        ("list_novels_with_stats", r#"{}"#),
         ("update_novel", r#"{"id": "@@CHAPTER@@", "title": "v", "synopsis": "v"}"#),
         ("delete_novel", r#"{"id": "@@CHAPTER@@"}"#),
         ("list_deleted_novels", r#"{}"#),
@@ -188,6 +191,7 @@ fn all_command_keys_resolve() {
         ("webdav_test_connection", r#"{}"#),
         ("webdav_list_backups", r#"{}"#),
         ("parse_import_document", r#"{"file_name": "v", "raw_text": "chapter one text"}"#),
+        ("parse_import_epub", r#"{"file_name": "v.epub", "epub_base64": ""}"#),
         ("commit_import_novel", r#"{"target_novel_id": null, "preview": {"novel_title":"N","total_word_count":10,"volumes":[{"title":"V","chapters":[{"title":"C","content":"{}","content_plain":"x","word_count":1}]}]}}"#),
         ("list_character_relations", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("save_character_relation", r#"{"id": null, "novel_id": "@@NOVEL@@", "from_char_id": "v", "to_char_id": "v", "relation_name": "v", "description": "v"}"#),

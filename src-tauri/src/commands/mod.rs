@@ -27,6 +27,14 @@ pub fn list_novels(pool: State<DbPool>) -> Result<Vec<Novel>, String> {
     crate::db::novel::list_novels(&conn).map_err(|e| e.to_string())
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_novels_with_stats(
+    pool: State<DbPool>,
+) -> Result<Vec<shared_types::NovelWithStats>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::novel::list_novels_with_stats(&conn).map_err(|e| e.to_string())
+}
+
 // 注：这里原先有 get_novel 命令，因前端从不需要单查作品（等价数据源见
 // `list_novels` 与前端持有的 current_novel）而删除。
 // 数据库层的 db::novel::get_novel 保留 —— create_novel、AI 提炼、ai_chat_stream
@@ -634,6 +642,18 @@ pub fn parse_import_document(
     raw_text: String,
 ) -> Result<shared_types::ImportPreview, String> {
     Ok(crate::import::parse_import_document(&file_name, &raw_text))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn parse_import_epub(
+    file_name: String,
+    epub_base64: String,
+) -> Result<shared_types::ImportPreview, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&epub_base64)
+        .map_err(|e| format!("Base64 解码失败: {}", e))?;
+    crate::import::epub::parse_import_epub(&file_name, &bytes)
 }
 
 #[tauri::command(rename_all = "snake_case")]

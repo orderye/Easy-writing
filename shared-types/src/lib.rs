@@ -10,6 +10,31 @@ pub struct Novel {
     pub deleted_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct NovelWithStats {
+    pub id: String,
+    pub title: String,
+    pub synopsis: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub volume_count: i64,
+    pub chapter_count: i64,
+    pub word_count: i64,
+}
+
+impl NovelWithStats {
+    pub fn to_novel(&self) -> Novel {
+        Novel {
+            id: self.id.clone(),
+            title: self.title.clone(),
+            synopsis: self.synopsis.clone(),
+            created_at: self.created_at.clone(),
+            updated_at: self.updated_at.clone(),
+            deleted_at: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Volume {
     pub id: String,

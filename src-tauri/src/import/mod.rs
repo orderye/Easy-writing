@@ -1,3 +1,5 @@
+pub mod epub;
+
 use regex::Regex;
 use rusqlite::{params, Connection};
 use shared_types::{ImportChapterPreview, ImportPreview, ImportVolumePreview, Novel};

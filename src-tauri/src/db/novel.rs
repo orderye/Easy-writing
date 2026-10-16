@@ -1,6 +1,6 @@
 use super::mapper::{query_list, query_optional, NOVEL_COLS};
 use rusqlite::{params, Connection, Result};
-use shared_types::Novel;
+use shared_types::{Novel, NovelWithStats};
 use uuid::Uuid;
 
 fn map_novel(row: &rusqlite::Row<'_>) -> Result<Novel> {
@@ -36,6 +36,36 @@ pub fn list_novels(conn: &Connection) -> Result<Vec<Novel>> {
         [],
         map_novel,
     )
+}
+
+pub fn list_novels_with_stats(conn: &Connection) -> Result<Vec<NovelWithStats>> {
+    let mut stmt = conn.prepare(
+        "SELECT 
+            n.id, n.title, n.synopsis, n.created_at, n.updated_at,
+            (SELECT COUNT(*) FROM volume v WHERE v.novel_id = n.id AND v.deleted_at IS NULL) AS volume_count,
+            (SELECT COUNT(*) FROM chapter c WHERE c.novel_id = n.id AND c.deleted_at IS NULL) AS chapter_count,
+            (SELECT COALESCE(SUM(c.word_count), 0) FROM chapter c WHERE c.novel_id = n.id AND c.deleted_at IS NULL) AS word_count
+         FROM novel n
+         WHERE n.deleted_at IS NULL
+         ORDER BY n.updated_at DESC"
+    )?;
+    let iter = stmt.query_map([], |row| {
+        Ok(NovelWithStats {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            synopsis: row.get(2)?,
+            created_at: row.get(3)?,
+            updated_at: row.get(4)?,
+            volume_count: row.get(5)?,
+            chapter_count: row.get(6)?,
+            word_count: row.get(7)?,
+        })
+    })?;
+    let mut res = Vec::new();
+    for item in iter {
+        res.push(item?);
+    }
+    Ok(res)
 }
 
 pub fn get_novel(conn: &Connection, id: &str) -> Result<Option<Novel>> {
