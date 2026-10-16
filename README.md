@@ -4,7 +4,7 @@
 
 > 把**设定、大纲、章节正文**与**多 AI Agent** 放进同一界面的本地写作工作台。
 >
-> 设定自长成 · 结构清晰 · 多 Agent 协作 · 数据完全自主
+> 设定自长成 · 结构清晰 · 素材随手插 · 多 Agent 协作 · 数据完全自主
 
 [![Tauri 2](https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
 [![Rust 2021](https://img.shields.io/badge/Rust-2021-000000?logo=rust&logoColor=white)](https://www.rust-lang.org/)
@@ -19,18 +19,47 @@
 
 ## 🌟 核心特性
 
-- ✍️ **面向百万字长篇设计**：三栏沉浸布局（设定 / 写作台 / 目录），右栏长目录视口虚拟滚动（300+ 章节丝滑无卡顿），支持跨卷移动、拖拽排序与文稿批量导入智能拆卷拆章。
-- 🎭 **深度角色档案与互动拓扑**：
-  - **角色爆破卡片**：结构化立绘维度，涵盖核心动机（渴望/所需/心魔/底线）、外貌特征、言谈声线口头禅、重要资产信物、致命秘密死穴与阵营主配分级。
-  - **关系拓扑图谱**：基于引力物理引擎（Force-Graph）动态渲染人物关系网，支持节点拖拽、高亮关联路径与纽带快速编辑。
-- 📖 **专属小说词库与语料提取**：全书专有术语词典管理，世界观与角色条目自动双向提取入库，正文高频词智能扫描与词频热度追踪。
-- 🤖 **多 Agent 协同与设定自长成**：
-  - 设定初始可留空，正文保存后 4 个 Agent 后台异步提炼世界观、角色、剧情和细纲；
-  - 正文写作助手严格遵循设定，遭遇矛盾即刻弹出冲突裁决与改动留档审计；
-  - 选中文本即刻弹出快捷 AI 浮标（润色 / 扩写 / 缩写 / 续写 + 并排 Diff 对比采纳）。
-- 📝 **专业富文本与编辑体验**：基于 Tiptap 2 + ProseMirror，支持全文查找替换（<kbd>⌘F</kbd> / <kbd>Ctrl+F</kbd>）、版本历史时间轴一键回滚、精细化汉字/词数统计与预计阅读时长。
-- 🔒 **数据绝对自主与安全**：单机 SQLite 本地存储，API Key 与 WebDAV 密码存入系统钥匙串；支持原子级 WebDAV 快照备份与软删除回收站。
-- 🚀 **软件在线自动更新**：集成 GitHub / CNB Releases API 语义化版本检测，跨平台安装包智能匹配与一键更新。
+### 1. ✍️ 专为百万字长篇打造的结构化写作台
+- **三栏沉浸式工作台**：左栏「设定/图库/词库」· 中栏「正文写作台」· 右栏「全书卷章目录树」，各面板均可一键折叠收起。
+- **百万字无感长目录**：基于视口虚拟滚动（Virtual Scrolling），即便 300+ 章节亦能保持 60fps 丝滑滚屏与即时响应。
+- **便捷卷章整理**：支持跨卷拖拽移动、上下排序调整，提供智能章节批量导入，自动识别格式拆分卷与章节。
+
+### 2. 🎨 本地图片素材与插图图库（全生命周期管理）
+- **作品级素材库**：集中管理本作品的所有人物立绘、场景概念图与设定线稿，支持四列响应式网格与懒加载浏览。
+- **一键光标插入**：在图库中点击「插入到光标处」，即刻无缝以富文本图片节点嵌入当前正文段落。
+- **素材路径复制**：支持一键将本地素材相对路径复制到系统剪贴板（兼容现代化 Clipboard API 与浏览器降级方案）。
+- **文件缺失体检与告警徽标**：物理文件移动或丢失时，自动高亮琥珀色警示边框、标记缺失徽标，并在顶栏汇总体检状态。
+- **全生命周期运维**：支持素材重命名、软删除、回收站恢复与彻底清除；删除前自动统计正文与历史版本的引用规模。
+- **存储对账与孤儿清理**：全库扫描物理磁盘孤儿图片与数据库记录对账，严格校验引用状态，安全清理未被引用的磁盘孤儿文件。
+
+### 3. 🎭 深度角色档案与动态关系拓扑
+- **六维结构化角色爆破卡片**：涵盖核心动机（渴望/所需/心魔/底线）、外貌特征、言谈声线口头禅、重要资产信物、致命秘密死穴与阵营主配分级。
+- **物理引力关系图谱（Force-Graph）**：基于物理引擎动态渲染全书人物社交网络，支持节点拖拽、高亮关联路径与关系纽带双向即时编辑。
+
+### 4. 🤖 设定自长成与多 Agent 智能协同
+- **设定初始可留空**：先写正文，后台 4 个专注的 AI Agent（世界观提炼、角色建模、剧情推演、细纲梳理）异步提炼并沉淀设定。
+- **冲突裁决与留档审计**：写作助手严格遵循已有设定，检测到正文逻辑矛盾时即刻弹窗提醒裁决，改动全程留档防吃书。
+- **行内快捷 AI 浮标**：正文中选中任意文本即刻呼出 AI 气泡（润色 / 扩写 / 缩写 / 续写），支持并排 Diff 差异对比与一键采纳替换。
+- **灵活的接口与模型适配**：全面兼容各大模型协议（OpenAI 兼容接口、商汤 SenseNova、DeepSeek、Moonshot、通义千问、硅基流动、本地 Ollama 等）；支持实时拉取远端模型列表，细粒度调节 Temperature 与最大 Tokens。
+
+### 5. 📖 专属小说词库与智能语料提取
+- **专有术语管理**：全书专属词典统一收录术语、门派法宝、地理风貌，正文输入时智能识别。
+- **双向提取入库**：世界观设定与角色条目一键提取入词库，正文高频词扫描与词频热度追踪。
+
+### 6. 📝 专业富文本编辑与版本时间轴
+- **Tiptap 2 + ProseMirror 核心**：结构化文档模型，切章不销毁编辑器实例，零延迟切换与即时脏检查保存。
+- **全文搜索替换**：支持全局快速定位与批量替换（<kbd>⌘F</kbd> / <kbd>Ctrl+F</kbd>）。
+- **版本历史时间轴**：自动定时快照与手动保存历史版本，支持逐行差异对比与一键秒级回退，防止误删断稿。
+- **精准字数统计**：专业汉字/标点/词数精细化计算，预估全篇阅读时长。
+
+### 7. 🔒 数据绝对自主与原生钥匙串安全
+- **单机 SQLite ACID 存储**：所有作品、设定、章节均保存在本地单文件 SQLite（开启 WAL 模式），断电防崩溃。
+- **原生系统钥匙串安全存储**：API Key 与 WebDAV 密码绝不落入明文数据库，全部交由各平台原生安全子系统（macOS Keychain、Windows 凭据管理器、Linux Secret Service）加密持久化。
+- **软删除作品回收站**：作品、卷、章节支持软删除机制，误删可一键完好恢复，亦可彻底清空释放空间。
+
+### 8. 🔄 WebDAV 云端备份与软件在线更新
+- **标准 WebDAV 快照备份**：支持坚果云、Nextcloud、群晖等任意标准 WebDAV 服务端，原子级打包上传与跨设备无缝恢复。
+- **双平台在线检查更新**：内置跨平台版本检测器，联动 GitHub 与 CNB Releases API，发现新版本一键直达安装包下载。
 
 ---
 
@@ -38,11 +67,12 @@
 
 | 模块 | 技术选型 | 说明 |
 | :--- | :--- | :--- |
-| **桌面运行时** | **Tauri 2.x** (Rust) | 原生安全跨平台，打包仅 ~18MB，极低内存占用 |
-| **前端框架** | **Leptos 0.7** (CSR / WASM) | 细粒度响应式驱动，零虚拟 DOM 开销 |
-| **富文本核心** | **Tiptap 2 + ProseMirror** | 结构化文档模型，切章不销毁实例，无缝脏检查 |
+| **桌面运行时** | **Tauri 2.x** (Rust) | 原生安全跨平台，打包体积仅 ~18MB，极低内存占用 |
+| **前端框架** | **Leptos 0.7** (CSR / WASM) | Rust 细粒度响应式驱动，编译为 WASM，零虚拟 DOM 开销 |
+| **富文本核心** | **Tiptap 2 + ProseMirror** | 结构化文档模型，切章不销毁实例，无缝脏检查与光标恢复 |
 | **本地数据** | **SQLite 3** (`rusqlite` + WAL) | 单文件 ACID，支持一致性快照与安全热备份 |
-| **安全密钥** | **系统钥匙串** (`keyring`) | macOS Keychain / Windows 凭据管理器，密钥永不入库 |
+| **安全密钥** | **系统钥匙串** (`keyring`) | macOS Keychain / Windows 凭据管理器 / Linux Secret Service，凭据永不落库 |
+| **自动化测试** | **Node.js Test + Rust cargo test** | 覆盖前端 DOM 桥接、IPC 命令比对、UI 契约、作品级联删除与图库存储对账 |
 
 ---
 
@@ -63,11 +93,17 @@ pnpm dev:frontend   # 终端 A: 启动 Trunk WASM 服务 (http://127.0.0.1:8080)
 pnpm tauri dev      # 终端 B: 启动 Tauri 桌面应用
 ```
 
+### 运行全量测试
+```bash
+pnpm test:frontend  # 运行前端与 Tiptap 桥接自动化测试
+pnpm test:backend   # 运行后端 10 大测试套件（命令自省、契约检查、数据库级联等）
+```
+
 ### 生产打包
 ```bash
-pnpm build          # 自动编译静态资源、WASM 并生成当前平台桌面安装包
+pnpm build          # 自动编译静态资源、WASM 并生成当前平台桌面安装包（DMG / 安装包）
 ```
-构建产物输出于 `src-tauri/target/release/bundle/`。
+macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `cargo-xwin` 原生交叉编译。
 
 ---
 
@@ -77,16 +113,17 @@ pnpm build          # 自动编译静态资源、WASM 并生成当前平台桌�
 
 | 平台 | 格式 | 下载渠道 |
 | :--- | :--- | :--- |
-| **macOS (Apple Silicon)** | `.dmg` / `.zip` | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
-| **Windows (x64)** | `.msi` / `.zip` | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
+| **macOS (Apple Silicon)** | `.dmg`（安装镜像）/ `.zip`（免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
+| **Windows (x64)** | `.msi`（安装向导）/ `.zip`（便携免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
 
 ---
 
-## 📚 详细设计文档
+## 📚 详细设计与规范文档
 
 - [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 完整产品定位、核心场景、AI 协同模型与交互规格
-- [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与四阶段工程设计
-- [演进交付计划](<Docs/Easy-writing · 小说工作台 全面后续研发与演进计划.md>) —— 里程碑交付记录与技术指标追踪
+- [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与工程设计
+- [双远程 Release 发布流程参考规范](Docs/双远程发布流程.md) —— GitHub 与 CNB 双平台 Release 标准发布 6 步 SOP 与校验清单
+- [双远程提交流程规范](Docs/提交流程.md) —— 主目录与 `.cnb-worktree` 隔离身份双端提交流程
 
 ---
 
