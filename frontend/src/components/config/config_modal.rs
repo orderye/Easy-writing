@@ -1,4 +1,5 @@
 use crate::components::config::agent_tab::AgentTab;
+use crate::components::config::app_settings::{read_setting, write_setting};
 use crate::components::config::pref_tab::PrefTab;
 use crate::components::config::prompt_tab::PromptTab;
 use crate::components::config::webdav_tab::WebdavTab;
@@ -36,23 +37,6 @@ fn gen_params_summary(params_json: &str) -> String {
             "一次性返回"
         }
     )
-}
-
-/// 读取一条应用偏好。
-async fn read_setting(key: &str) -> Result<Option<String>, String> {
-    invoke_cmd("get_app_setting")
-        .arg("key", key.to_string())
-        .send::<Option<String>>()
-        .await
-}
-
-/// 写入一条应用偏好。
-async fn write_setting(key: &str, value: String) -> Result<(), String> {
-    invoke_cmd("set_app_setting")
-        .arg("key", key.to_string())
-        .arg("value", value)
-        .send_unit()
-        .await
 }
 
 #[component]

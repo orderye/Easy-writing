@@ -1,24 +1,6 @@
+use crate::components::config::app_settings::{read_setting, write_setting};
 use crate::state::AppContext;
-use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-
-/// 读取一条应用偏好。原先 9 处 `get_app_setting` 调用各自构造参数结构体，
-/// 这里收敛成单一入口。
-async fn read_setting(key: &str) -> Result<Option<String>, String> {
-    invoke_cmd("get_app_setting")
-        .arg("key", key.to_string())
-        .send::<Option<String>>()
-        .await
-}
-
-/// 写入一条应用偏好。
-async fn write_setting(key: &str, value: String) -> Result<(), String> {
-    invoke_cmd("set_app_setting")
-        .arg("key", key.to_string())
-        .arg("value", value)
-        .send_unit()
-        .await
-}
 
 /// 「写作偏好」标签页。
 ///
