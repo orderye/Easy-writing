@@ -1,6 +1,6 @@
 [package]
 name = "easy-writing-core"
-version = "0.3.1"
+version = "0.3.2"
 description = "Easy-writing novel workbench core"
 authors = ["Roy"]
 edition = "2021"
@@ -21,7 +21,7 @@ r2d2 = "0.8"
 r2d2_sqlite = "0.25"
 uuid = { version = "1.10", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
-keyring = "3.2"
+keyring = { version = "3.2", features = ["apple-native", "windows-native", "sync-secret-service"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio = { version = "1.40", features = ["full"] }
 futures-util = "0.3"

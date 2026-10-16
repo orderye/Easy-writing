@@ -49,18 +49,26 @@ extern "C" {
     async fn tauri_invoke_raw(cmd: &str, args: JsValue) -> Result<JsValue, JsValue>;
 }
 
+fn format_js_err(err: JsValue) -> String {
+    if let Some(s) = err.as_string() {
+        s
+    } else {
+        format!("{:?}", err)
+    }
+}
+
 pub async fn invoke<T: DeserializeOwned, A: Serialize>(cmd: &str, args: &A) -> Result<T, String> {
     let args_val = serde_wasm_bindgen::to_value(args).map_err(|e| e.to_string())?;
     match tauri_invoke_raw(cmd, args_val).await {
         Ok(val) => serde_wasm_bindgen::from_value(val).map_err(|e| e.to_string()),
-        Err(err) => Err(format!("{:?}", err)),
+        Err(err) => Err(format_js_err(err)),
     }
 }
 
 pub async fn invoke_no_args<T: DeserializeOwned>(cmd: &str) -> Result<T, String> {
     match tauri_invoke_raw(cmd, JsValue::NULL).await {
         Ok(val) => serde_wasm_bindgen::from_value(val).map_err(|e| e.to_string()),
-        Err(err) => Err(format!("{:?}", err)),
+        Err(err) => Err(format_js_err(err)),
     }
 }
 /// 链式构造调用参数的构建器。

@@ -48,7 +48,7 @@ pub fn create_llm_profile(
 ) -> Result<LlmProfile, String> {
     let trimmed_key = api_key.trim();
     if trimmed_key.is_empty() {
-        return Err("API Key 密钥不能为空，请输入以 sk- 开头的有效密钥".to_string());
+        return Err("API Key 密钥不能为空，请输入有效密钥。".to_string());
     }
 
     let params_json = normalize_params(temperature, max_tokens, stream)?;
@@ -210,7 +210,7 @@ pub async fn test_llm_connection(
     };
 
     if api_key.trim().is_empty() {
-        return Err("当前接口未检测到有效的 API Key 密钥，已在连接前拦截。请删除此配置后重新输入以 sk- 开头的有效密钥保存。".to_string());
+        return Err("当前接口未检测到有效的 API Key 密钥，已在连接前拦截。请删除此配置后重新输入有效密钥保存。".to_string());
     }
 
     let gateway = AiGateway::new();
