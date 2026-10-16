@@ -13,7 +13,10 @@ export function asset_rel_to_url(relPath, appDataDir) {
   if (!relPath) return "";
   // 已是可直接使用的 URL 时原样返回（例如用户粘贴的外链）
   if (/^(https?:|data:|asset:|blob:)/i.test(relPath)) return relPath;
-  const base = (appDataDir || "").replace(//+$/, "");
+  let base = appDataDir || "";
+  while (base.endsWith("/")) {
+    base = base.slice(0, -1);
+  }
   const abs = relPath.startsWith("/") ? relPath : (base ? base + "/" + relPath : relPath);
   try {
     if (window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.convertFileSrc === "function") {
