@@ -88,6 +88,8 @@ pub fn run() {
             commands::apply_conflict_setting_update,
             // Asset
             commands::save_image_asset,
+            commands::get_app_data_dir,
+            commands::list_image_assets,
             // AI commands
             commands::ai_cmd::ai_polish,
             commands::ai_cmd::ai_chat_stream,

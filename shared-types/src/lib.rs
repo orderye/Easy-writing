@@ -390,6 +390,20 @@ pub struct LexiconEntry {
     pub updated_at: String,
 }
 
+/// 图片资产元信息（编辑器插图 / 图库）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssetInfo {
+    pub id: String,
+    pub novel_id: String,
+    pub name: String,
+    pub mime: String,
+    /// 相对 APPDATA 的路径，形如 images/<sha256>.png
+    pub rel_path: String,
+    pub size: i64,
+    pub hash: String,
+    pub created_at: String,
+}
+
 /// 对话记录（PRD §4.1 P1：对话记录随作品保存，可按章节筛选）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatSession {

@@ -1,5 +1,6 @@
 use base64::Engine;
 use rusqlite::{params, Connection};
+use shared_types::AssetInfo;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
@@ -57,4 +58,37 @@ pub fn save_image(
     .map_err(|e| e.to_string())?;
 
     Ok(rel_path)
+}
+
+/// 列出某作品的图片资产，按创建时间倒序。
+pub fn list_assets(conn: &Connection, novel_id: &str) -> Result<Vec<AssetInfo>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, novel_id, name, mime, rel_path, size, hash, created_at
+             FROM asset
+             WHERE novel_id = ?1
+             ORDER BY created_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![novel_id], |row| {
+            Ok(AssetInfo {
+                id: row.get(0)?,
+                novel_id: row.get(1)?,
+                name: row.get(2)?,
+                mime: row.get(3)?,
+                rel_path: row.get(4)?,
+                size: row.get(5)?,
+                hash: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut list = Vec::new();
+    for r in rows {
+        list.push(r.map_err(|e| e.to_string())?);
+    }
+    Ok(list)
 }

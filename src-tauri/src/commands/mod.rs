@@ -489,6 +489,30 @@ pub fn save_image_asset(
     crate::asset::save_image(&conn, &app_data_dir, &novel_id, &name, &mime, &base64_data)
 }
 
+/// 返回本应用的 APPDATA 绝对路径。
+///
+/// 供前端把 asset 的相对路径拼成可显示的 asset:// URL：
+/// Tauri 的路径 API 只在 JS 侧可用，而 assetProtocol 的 scope 是
+/// $APPDATA/images/**，必须先拿到这个前缀才能交给 convertFileSrc。
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_app_data_dir(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    app.path()
+        .app_data_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
+}
+
+/// 列出某作品的图片资产（相对路径 + 元信息）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_image_assets(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<Vec<shared_types::AssetInfo>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::asset::list_assets(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
 // Trash / Recycle Bin commands
 #[tauri::command(rename_all = "snake_case")]
 pub fn list_trash_items(pool: State<DbPool>, novel_id: String) -> Result<Vec<TrashItem>, String> {

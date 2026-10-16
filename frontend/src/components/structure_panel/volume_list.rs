@@ -6,6 +6,7 @@ use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
 use shared_types::{ChapterHeader, Volume};
 use std::collections::HashSet;
+use wasm_bindgen::JsCast;
 
 const ITEM_HEIGHT: f64 = 34.0;
 
@@ -44,6 +45,14 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
     let scroll_top = RwSignal::new(0.0f64);
     let container_height = RwSignal::new(600.0f64);
 
+    // ---- 拖拽排序状态 ----
+    // 拖拽中的对象：章节（记录所属卷，用于判断是同卷排序还是跨卷移动）或卷。
+    // 用 (类型, id, 所属卷 id) 三元组描述，None 表示当前无拖拽。
+    let dragging_chapter = RwSignal::new(Option::<(String, String)>::None); // (chapter_id, volume_id)
+    let dragging_volume = RwSignal::new(Option::<String>::None);
+    // 悬停目标，用于绘制插入位置指示线
+    let drop_target = RwSignal::new(Option::<(String, bool)>::None); // (id, is_before)
+
     let on_create_volume = move |_| {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
@@ -73,6 +82,107 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
             let mut list = app_ctx.volumes_list.get();
             list.retain(|v| v.id != v_id);
             app_ctx.volumes_list.set(list);
+        });
+    };
+
+    // 把拖拽结果落库：同卷内重排 → reorder_chapters；跨卷 → move_chapter。
+    //
+    // 采用「先本地改状态、再异步落库」的乐观更新：拖拽必须即时反馈，
+    // 等 IPC 往返再重绘会有明显延迟。
+    let apply_chapter_drop = move |dragged_id: String,
+                                   from_volume: String,
+                                   target_id: String,
+                                   is_before: bool| {
+        // 以当前展示顺序为基准计算新的 id 序列
+        let mut list = app_ctx.chapters_map.get();
+        let Some(from_idx) = list.iter().position(|c| c.id == dragged_id) else {
+            return;
+        };
+        let Some(to_idx) = list.iter().position(|c| c.id == target_id) else {
+            return;
+        };
+        if dragged_id == target_id {
+            return;
+        }
+
+        let target_volume = list[to_idx].volume_id.clone();
+        let same_volume = from_volume == target_volume;
+
+        // 取出被拖拽项
+        let moved = list.remove(from_idx);
+        // 移除后重新定位目标（若被拖项在目标之前，目标索引会前移一位）
+        let mut target_idx = list
+            .iter()
+            .position(|c| c.id == target_id)
+            .unwrap_or(to_idx.min(list.len()));
+        if !is_before {
+            target_idx += 1;
+        }
+        target_idx = target_idx.min(list.len());
+
+        if same_volume {
+            // 同卷排序：插入到目标位置后重写该卷的 sort_order 序列
+            list.insert(target_idx, moved.clone());
+            app_ctx.chapters_map.set(list.clone());
+
+            let ordered_ids: Vec<String> = list
+                .iter()
+                .filter(|c| c.volume_id == target_volume)
+                .map(|c| c.id.clone())
+                .collect();
+
+            leptos::task::spawn_local(async move {
+                let _ = invoke_cmd("reorder_chapters")
+                    .arg("chapter_ids", ordered_ids)
+                    .send_unit()
+                    .await;
+            });
+        } else {
+            // 跨卷移动：改 volume_id 并给出卷内新序号
+            let mut moved_final = moved.clone();
+            moved_final.volume_id = target_volume.clone();
+            let new_sort_order = target_idx as i32;
+            list.insert(target_idx, moved_final);
+            app_ctx.chapters_map.set(list);
+
+            leptos::task::spawn_local(async move {
+                let _ = invoke_cmd("move_chapter")
+                    .arg("chapter_id", dragged_id)
+                    .arg("new_volume_id", target_volume)
+                    .arg("new_sort_order", new_sort_order)
+                    .send_unit()
+                    .await;
+            });
+        }
+    };
+
+    // 卷拖拽排序：按新顺序重写 volume.sort_order。
+    let apply_volume_drop = move |dragged_id: String, target_id: String, is_before: bool| {
+        if dragged_id == target_id {
+            return;
+        }
+        let mut list = app_ctx.volumes_list.get();
+        let Some(from_idx) = list.iter().position(|v| v.id == dragged_id) else {
+            return;
+        };
+        let moved = list.remove(from_idx);
+        let mut target_idx = list
+            .iter()
+            .position(|v| v.id == target_id)
+            .unwrap_or(0);
+        if !is_before {
+            target_idx += 1;
+        }
+        target_idx = target_idx.min(list.len());
+        list.insert(target_idx, moved);
+        app_ctx.volumes_list.set(list.clone());
+
+        let ordered_ids: Vec<String> = list.iter().map(|v| v.id.clone()).collect();
+        leptos::task::spawn_local(async move {
+            let _ = invoke_cmd("reorder_volumes")
+                .arg("volume_ids", ordered_ids)
+                .send_unit()
+                .await;
         });
     };
 
@@ -292,10 +402,74 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
                                         } => {
                                             let vid = id.clone();
                                             let del_id = id.clone();
+                                            let drag_id = id.clone();
+                                            let drop_id = id.clone();
+                                            let hover_id = id.clone();
+                                            let is_drag_source = {
+                                                let v = id.clone();
+                                                move || dragging_volume.get().as_deref() == Some(v.as_str())
+                                            };
+                                            let is_drop_before = {
+                                                let v = id.clone();
+                                                move || {
+                                                    drop_target
+                                                        .get()
+                                                        .map(|(t, before)| t == v && before)
+                                                        .unwrap_or(false)
+                                                }
+                                            };
                                             view! {
                                                 <div
                                                     style=format!("height: {:.0}px", ITEM_HEIGHT)
-                                                    class="box-border flex items-center justify-between px-2.5 my-0.5 rounded-lg bg-slate-100/90 dark:bg-slate-800/90 hover:bg-slate-200/80 dark:hover:bg-slate-750 cursor-pointer text-xs font-semibold text-slate-800 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700/80 select-none group transition-colors shadow-2xs"
+                                                    class=move || {
+                                                        format!(
+                                                            "box-border flex items-center justify-between px-2.5 my-0.5 rounded-lg bg-slate-100/90 dark:bg-slate-800/90 hover:bg-slate-200/80 dark:hover:bg-slate-750 cursor-pointer text-xs font-semibold text-slate-800 dark:text-slate-100 border border-slate-200/80 dark:border-slate-700/80 select-none group transition-colors shadow-2xs {}",
+                                                            if is_drag_source() {
+                                                                "opacity-40"
+                                                            } else if is_drop_before() {
+                                                                "border-t-2 border-blue-500"
+                                                            } else {
+                                                                ""
+                                                            }
+                                                        )
+                                                    }
+                                                    draggable="true"
+                                                    on:dragstart=move |ev| {
+                                                        dragging_volume.set(Some(drag_id.clone()));
+                                                        dragging_chapter.set(None);
+                                                        if let Some(dt) = ev.data_transfer() {
+                                                            let _ = dt.set_data("text/plain", "volume");
+                                                        }
+                                                    }
+                                                    on:dragover=move |ev| {
+                                                        ev.prevent_default();
+                                                        let before = ev
+                                                            .current_target()
+                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
+                                                            .map(|el| {
+                                                                let rect = el.get_bounding_client_rect();
+                                                                let y = ev.client_y() as f64;
+                                                                y < rect.top() + rect.height() / 2.0
+                                                            })
+                                                            .unwrap_or(true);
+                                                        drop_target.set(Some((hover_id.clone(), before)));
+                                                    }
+                                                    on:drop=move |ev| {
+                                                        ev.prevent_default();
+                                                        let before = drop_target
+                                                            .get()
+                                                            .filter(|(t, _)| *t == drop_id)
+                                                            .map(|(_, b)| b)
+                                                            .unwrap_or(true);
+                                                        if let Some(dragged) = dragging_volume.get() {
+                                                            apply_volume_drop(dragged, drop_id.clone(), before);
+                                                        }
+                                                        drop_target.set(None);
+                                                    }
+                                                    on:dragend=move |_| {
+                                                        dragging_volume.set(None);
+                                                        drop_target.set(None);
+                                                    }
                                                     on:click=move |_| {
                                                         if !is_filtering {
                                                             let v = vid.clone();
@@ -343,12 +517,37 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
                                             let ch_id = header.id.clone();
                                             let del_cid = header.id.clone();
                                             let ch_clone = header.clone();
-                                            let is_active = move || {
-                                                app_ctx
-                                                    .current_chapter
-                                                    .get()
-                                                    .map(|c| c.id == ch_id)
-                                                    .unwrap_or(false)
+                                            let drag_cid = header.id.clone();
+                                            let drag_vol = header.volume_id.clone();
+                                            let drop_cid = header.id.clone();
+                                            let hover_cid = header.id.clone();
+                                            let is_active = {
+                                                let id = ch_id.clone();
+                                                move || {
+                                                    app_ctx
+                                                        .current_chapter
+                                                        .get()
+                                                        .map(|c| c.id == id)
+                                                        .unwrap_or(false)
+                                                }
+                                            };
+                                            let is_drag_source = {
+                                                let id = ch_id.clone();
+                                                move || {
+                                                    dragging_chapter
+                                                        .get()
+                                                        .map(|(cid, _)| cid == id)
+                                                        .unwrap_or(false)
+                                                }
+                                            };
+                                            let is_drop_before = {
+                                                let id = ch_id.clone();
+                                                move || {
+                                                    drop_target
+                                                        .get()
+                                                        .map(|(t, before)| t == id && before)
+                                                        .unwrap_or(false)
+                                                }
                                             };
 
                                             view! {
@@ -356,13 +555,68 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
                                                     style=format!("height: {:.0}px", ITEM_HEIGHT)
                                                     class=move || {
                                                         format!(
-                                                            "box-border group flex items-center justify-between pl-5 pr-2 my-0.5 rounded-md text-xs cursor-pointer transition-colors {}",
+                                                            "box-border group flex items-center justify-between pl-5 pr-2 my-0.5 rounded-md text-xs cursor-pointer transition-colors {} {}",
                                                             if is_active() {
                                                                 "bg-blue-50 text-blue-700 font-semibold border-l-2 border-blue-600 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-400"
                                                             } else {
                                                                 "text-slate-700 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                                                            },
+                                                            // 拖拽反馈：拖动中半透明；作为落点时显示上/下插入线
+                                                            if is_drag_source() {
+                                                                "opacity-40"
+                                                            } else if is_drop_before() {
+                                                                "border-t-2 border-blue-500"
+                                                            } else {
+                                                                ""
                                                             }
                                                         )
+                                                    }
+                                                    draggable="true"
+                                                    on:dragstart=move |ev| {
+                                                        dragging_chapter
+                                                            .set(Some((drag_cid.clone(), drag_vol.clone())));
+                                                        dragging_volume.set(None);
+                                                        if let Some(dt) = ev.data_transfer() {
+                                                            let _ = dt.set_data("text/plain", "chapter");
+                                                        }
+                                                        // 阻止冒泡到卷的 dragstart，避免卷被同时拖动
+                                                        ev.stop_propagation();
+                                                    }
+                                                    on:dragover=move |ev| {
+                                                        ev.prevent_default();
+                                                        ev.stop_propagation();
+                                                        let before = ev
+                                                            .current_target()
+                                                            .and_then(|t| t.dyn_into::<web_sys::HtmlElement>().ok())
+                                                            .map(|el| {
+                                                                let rect = el.get_bounding_client_rect();
+                                                                let y = ev.client_y() as f64;
+                                                                y < rect.top() + rect.height() / 2.0
+                                                            })
+                                                            .unwrap_or(true);
+                                                        drop_target.set(Some((hover_cid.clone(), before)));
+                                                    }
+                                                    on:drop=move |ev| {
+                                                        ev.prevent_default();
+                                                        ev.stop_propagation();
+                                                        let before = drop_target
+                                                            .get()
+                                                            .filter(|(t, _)| *t == drop_cid)
+                                                            .map(|(_, b)| b)
+                                                            .unwrap_or(true);
+                                                        if let Some((dragged, from_vol)) = dragging_chapter.get() {
+                                                            apply_chapter_drop(
+                                                                dragged,
+                                                                from_vol,
+                                                                drop_cid.clone(),
+                                                                before,
+                                                            );
+                                                        }
+                                                        drop_target.set(None);
+                                                    }
+                                                    on:dragend=move |_| {
+                                                        dragging_chapter.set(None);
+                                                        drop_target.set(None);
                                                     }
                                                     on:click=move |_| request_switch_chapter(app_ctx, ch_clone.clone())
                                                 >

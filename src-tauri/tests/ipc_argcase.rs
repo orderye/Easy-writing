@@ -43,9 +43,12 @@ fn every_command_declares_snake_case() {
     // 77 → 85：PRD §4.1/§5.1 补齐 8 个命令（6 个对话记录 + update_llm_profile +
     // fetch_remote_models）。已逐条确认均带 rename_all = "snake_case"，
     // 且已加入 command_key_sweep 的参数键契约用例。
-    // 85 → 86：作品删除功能补齐 list_deleted_novels（跨作品作用域的回收站入口），
-    // 同样已确认带 snake_case 属性并加入 sweep 用例。
-    assert_eq!(total, 86, "command count changed — re-audit the frontend call sites");
+    // 85 → 86：作品删除功能补齐 list_deleted_novels（跨作品作用域的回收站入口）。
+    // 86 → 88：编辑器插图补齐 get_app_data_dir 与 list_image_assets。
+    // 三者均确认带 snake_case 属性；其中 get_app_data_dir 首参为 AppHandle，
+    // 在 MockRuntime 下无法注册（见 command_key_sweep 的说明），
+    // 另两个已加入 sweep 用例。
+    assert_eq!(total, 88, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

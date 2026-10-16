@@ -12,7 +12,7 @@ pub fn WritingStage(app_ctx: AppContext) -> impl IntoView {
     view! {
         <main class="flex-1 min-h-0 flex flex-col h-full bg-white dark:bg-slate-900 overflow-hidden relative">
             <ChapterNav app_ctx=app_ctx />
-            <EditorToolbar />
+            <EditorToolbar app_ctx=app_ctx />
             <EditorWrapper app_ctx=app_ctx />
             <BubbleMenu app_ctx=app_ctx />
             <ChatBox app_ctx=app_ctx />
