@@ -2,13 +2,13 @@ use crate::ai::gateway::AiGateway;
 use crate::ai::openai::ChatMessage;
 use crate::db::DbPool;
 use md5::Md5;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use shared_types::{Chapter, ExtractionCandidate, LlmProfile, Novel};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct RawCandidate {
     pub kind: String,   // "worldview" | "character" | "plot" | "chapter_summary"
     pub action: String, // "create" | "update"
@@ -18,6 +18,322 @@ pub struct RawCandidate {
     /// 模型声称要更新的既有条目 id（旧版没有这个字段，故 serde 默认 None）。
     #[serde(default)]
     pub target_id: Option<String>,
+}
+
+/// 宽松候选反序列化结构体：容忍各种大模型产生的别名字段和类型偏移
+#[derive(Deserialize, Debug, Clone)]
+pub struct TolerantRawCandidate {
+    #[serde(alias = "type", alias = "category", default)]
+    pub kind: Option<String>,
+    #[serde(alias = "op", alias = "operation", default)]
+    pub action: Option<String>,
+    #[serde(alias = "name", alias = "entity", alias = "heading", alias = "term", default)]
+    pub title: Option<String>,
+    #[serde(alias = "content", alias = "description", alias = "desc", alias = "detail", alias = "profile", alias = "summary", default)]
+    pub payload: Option<String>,
+    #[serde(alias = "quote", alias = "context", alias = "proof", alias = "source", alias = "excerpt", default)]
+    pub evidence: Option<String>,
+    #[serde(alias = "targetId", alias = "id", alias = "ref_id", default)]
+    pub target_id: Option<String>,
+}
+
+/// 自修复 JSON 解析引擎：容错处理 Markdown 代码块、前后说明闲聊、单对象、尾随逗号、注释、截断等各种模型异常
+pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Vec<RawCandidate> {
+    let trimmed = raw_text.trim();
+    if trimmed.is_empty() {
+        return Vec::new();
+    }
+
+    // 1. 清理 Markdown 代码块包裹 ```json ... ``` 或 ``` ... ```
+    let mut cleaned = trimmed.to_string();
+    if let Some(start_idx) = cleaned.find("```") {
+        let after_fence = &cleaned[start_idx + 3..];
+        let content_start = if let Some(newline_idx) = after_fence.find('\n') {
+            start_idx + 3 + newline_idx + 1
+        } else {
+            start_idx + 3
+        };
+        let end_idx = cleaned[content_start..].rfind("```").map(|i| content_start + i).unwrap_or(cleaned.len());
+        cleaned = cleaned[content_start..end_idx].trim().to_string();
+    }
+
+    // 2. 提取 JSON 数组或单对象范围
+    let mut json_str = cleaned.trim().to_string();
+    let has_array = json_str.contains('[') && json_str.contains(']');
+    if !has_array {
+        // 如果没有完整数组，但有对象 { ... }，尝试将其包装为数组
+        if let (Some(first_brace), Some(last_brace)) = (json_str.find('{'), json_str.rfind('}')) {
+            if first_brace < last_brace {
+                json_str = format!("[{}]", &json_str[first_brace..=last_brace]);
+            }
+        }
+    } else if let (Some(start), Some(end)) = (json_str.find('['), json_str.rfind(']')) {
+        if start <= end {
+            json_str = json_str[start..=end].to_string();
+        }
+    }
+
+    // 3. 语法自修复：清理 JS 风格行注释 //... 与尾随逗号 ,] 或 ,}
+    json_str = sanitize_json_syntax(&json_str);
+
+    // 4. 第一轮尝试：直接宽松反序列化
+    if let Ok(tolerants) = serde_json::from_str::<Vec<TolerantRawCandidate>>(&json_str) {
+        let converted = convert_tolerants(tolerants, default_kind);
+        if !converted.is_empty() {
+            return converted;
+        }
+    }
+
+    // 5. 第二轮尝试：模型可能因 token 耗尽而发生了尾部截断（如 `[{"title": "xxx"}, {"title": "yy`）
+    if let Some(repaired) = attempt_repair_truncated_json(&json_str) {
+        if let Ok(tolerants) = serde_json::from_str::<Vec<TolerantRawCandidate>>(&repaired) {
+            let converted = convert_tolerants(tolerants, default_kind);
+            if !converted.is_empty() {
+                return converted;
+            }
+        }
+    }
+
+    // 6. 兜底回退：正则模式提取各个完整的独立 JSON 对象
+    fallback_regex_extract(&json_str, default_kind)
+}
+
+/// 清理语法杂质（尾随逗号、行外注释等，且智能保护字符串内部的双斜杠）
+fn sanitize_json_syntax(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for line in input.lines() {
+        let trimmed_line = line.trim();
+        if !in_string && trimmed_line.starts_with("//") {
+            continue;
+        }
+
+        let mut line_buf = String::new();
+        let mut chars = line.chars().peekable();
+        while let Some(c) = chars.next() {
+            if escape_next {
+                escape_next = false;
+                line_buf.push(c);
+                continue;
+            }
+
+            if c == '\\' {
+                escape_next = true;
+                line_buf.push(c);
+                continue;
+            }
+
+            if c == '"' {
+                in_string = !in_string;
+                line_buf.push(c);
+                continue;
+            }
+
+            // 仅在引号外部剥离 // 注释
+            if !in_string && c == '/' && chars.peek() == Some(&'/') {
+                break;
+            }
+
+            line_buf.push(c);
+        }
+        out.push_str(&line_buf);
+        out.push('\n');
+    }
+
+    // 去除所有尾随逗号（包括逗号与闭合括号之间存在换行和空白的情况）
+    remove_trailing_commas(&out)
+}
+
+/// 智能去除 JSON 中闭合括号前多余的尾随逗号，且保护引号字符串内部的逗号
+fn remove_trailing_commas(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let mut in_str = false;
+    let mut escape = false;
+    let len = chars.len();
+
+    let mut i = 0;
+    while i < len {
+        let c = chars[i];
+        if escape {
+            escape = false;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if c == '\\' {
+            escape = true;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        if c == '"' {
+            in_str = !in_str;
+            out.push(c);
+            i += 1;
+            continue;
+        }
+
+        if !in_str && c == ',' {
+            // 查看后续第一个非空白字符
+            let mut j = i + 1;
+            while j < len && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j < len && (chars[j] == '}' || chars[j] == ']') {
+                // 跳过此逗号（即删除尾随逗号）
+                i += 1;
+                continue;
+            }
+        }
+
+        out.push(c);
+        i += 1;
+    }
+    out
+}
+
+/// 尝试自修复截断的 JSON 数组
+fn attempt_repair_truncated_json(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if !trimmed.starts_with('[') {
+        return None;
+    }
+    // 找到最后一个合法的对象闭合大括号 '}'
+    if let Some(last_brace) = trimmed.rfind('}') {
+        let candidate = format!("{}]", &trimmed[..=last_brace]);
+        // 验证自修复后的字符串是否可以解析
+        if serde_json::from_str::<serde_json::Value>(&candidate).is_ok() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// 将 TolerantRawCandidate 转换为标准 RawCandidate 并自修复缺失字段
+fn convert_tolerants(items: Vec<TolerantRawCandidate>, default_kind: &str) -> Vec<RawCandidate> {
+    let mut res = Vec::new();
+    for item in items {
+        let mut kind = item.kind.unwrap_or_else(|| default_kind.to_string()).to_lowercase();
+        if !["worldview", "character", "plot", "chapter_summary"].contains(&kind.as_str()) {
+            kind = default_kind.to_string();
+        }
+
+        let action = item.action.unwrap_or_else(|| "create".to_string()).to_lowercase();
+        let valid_action = if action.contains("update") || action.contains("更新") {
+            "update".to_string()
+        } else {
+            "create".to_string()
+        };
+
+        let mut title = item.title.unwrap_or_default().trim().to_string();
+        let payload = item.payload.unwrap_or_default().trim().to_string();
+        let evidence = item.evidence.unwrap_or_default().trim().to_string();
+
+        // 自修复：若标题为空，但 payload 存在，尝试从 payload 第一行提取
+        if title.is_empty() && !payload.is_empty() {
+            title = payload
+                .lines()
+                .next()
+                .unwrap_or("未命名条目")
+                .chars()
+                .take(30)
+                .collect();
+        }
+
+        if !title.is_empty() || !payload.is_empty() {
+            res.push(RawCandidate {
+                kind,
+                action: valid_action,
+                title,
+                payload,
+                evidence,
+                target_id: item.target_id.filter(|s| !s.trim().is_empty() && s != "null"),
+            });
+        }
+    }
+    res
+}
+
+/// 正则容灾回退提取器：即使 JSON 严重残损，依然能从文本中捕获提取条目
+fn fallback_regex_extract(input: &str, default_kind: &str) -> Vec<RawCandidate> {
+    let mut list = Vec::new();
+    // 匹配每个花括号包含的片段
+    let mut chars = input.char_indices().peekable();
+    while let Some((start, ch)) = chars.next() {
+        if ch == '{' {
+            let mut depth = 1;
+            let mut end = start;
+            for (idx, c) in chars.by_ref() {
+                if c == '{' {
+                    depth += 1;
+                } else if c == '}' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = idx;
+                        break;
+                    }
+                }
+            }
+            if depth == 0 {
+                let obj_str = &input[start..=end];
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(obj_str) {
+                    if let Some(obj) = v.as_object() {
+                        let title = obj
+                            .get("title")
+                            .or_else(|| obj.get("name"))
+                            .or_else(|| obj.get("heading"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+
+                        let payload = obj
+                            .get("payload")
+                            .or_else(|| obj.get("content"))
+                            .or_else(|| obj.get("description"))
+                            .or_else(|| obj.get("desc"))
+                            .or_else(|| obj.get("summary"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+
+                        let evidence = obj
+                            .get("evidence")
+                            .or_else(|| obj.get("quote"))
+                            .or_else(|| obj.get("context"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string();
+
+                        let target_id = obj
+                            .get("target_id")
+                            .or_else(|| obj.get("targetId"))
+                            .or_else(|| obj.get("id"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty() && s != "null");
+
+                        if !title.is_empty() || !payload.is_empty() {
+                            list.push(RawCandidate {
+                                kind: default_kind.to_string(),
+                                action: if target_id.is_some() { "update".to_string() } else { "create".to_string() },
+                                title,
+                                payload,
+                                evidence,
+                                target_id,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    list
 }
 
 /// 既有条目索引：kind -> [(id, title, aliases_json)]。
@@ -255,10 +571,10 @@ pub async fn run_parallel_extraction(
 
     let mut extracted_candidates = Vec::new();
 
-    for (_kind, task) in tasks {
+    for (kind, task) in tasks {
         if let Ok(Ok(raw_json)) = task.await {
-            let json_str = extract_json_array(&raw_json);
-            if let Ok(items) = serde_json::from_str::<Vec<RawCandidate>>(&json_str) {
+            let items = self_heal_and_parse_candidates(&raw_json, kind);
+            if !items.is_empty() {
                 let conn = pool.get().map_err(|e| e.to_string())?;
                 for item in items {
                     // 模型看不到设定库时给的 action 不可信，这里按既有条目重新裁决
@@ -277,14 +593,22 @@ pub async fn run_parallel_extraction(
                         &novel.id,
                         &dedup_key,
                     ) {
+                        let agent_id = match item.kind.as_str() {
+                            "worldview" => "agent-worldview",
+                            "character" => "agent-character",
+                            "plot" => "agent-plot",
+                            _ => "agent-outline",
+                        };
+
                         if let Ok(cand) = crate::db::extraction::insert_candidate(
                             &conn,
                             &novel.id,
                             &chapter.id,
-                            "agent-extractor",
+                            agent_id,
                             &item.kind,
                             &resolved.action,
                             resolved.target_id.as_deref(),
+                            &item.title,
                             &item.payload,
                             &item.evidence,
                             &dedup_key,
@@ -307,17 +631,6 @@ pub async fn run_parallel_extraction(
     }
 
     Ok(extracted_candidates)
-}
-
-fn extract_json_array(text: &str) -> String {
-    if let Some(start) = text.find('[') {
-        if let Some(end) = text.rfind(']') {
-            if start <= end {
-                return text[start..=end].to_string();
-            }
-        }
-    }
-    "[]".to_string()
 }
 
 #[cfg(test)]
@@ -405,4 +718,129 @@ mod tests {
             compute_dedup_key("character", "李四")
         );
     }
+
+    #[test]
+    fn self_heal_markdown_and_chatter() {
+        let raw = r#"
+好的，这是我为您从第3章提炼出的角色设定：
+```json
+[
+  {
+    "kind": "character",
+    "action": "create",
+    "title": "韩世忠",
+    "payload": "西军名将，骁勇善战，号称韩五",
+    "evidence": "韩世忠提刀立马"
+  }
+]
+```
+请您审阅！如有变动随时告知。
+"#;
+        let cands = self_heal_and_parse_candidates(raw, "character");
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].title, "韩世忠");
+        assert_eq!(cands[0].kind, "character");
+        assert_eq!(cands[0].action, "create");
+        assert_eq!(cands[0].evidence, "韩世忠提刀立马");
+    }
+
+    #[test]
+    fn self_heal_single_object_drift() {
+        let raw = r#"
+{
+  "kind": "worldview",
+  "action": "create",
+  "title": "御营司",
+  "payload": "建炎南渡初期掌控禁军的大营机枢",
+  "evidence": "御营司调兵符"
 }
+"#;
+        let cands = self_heal_and_parse_candidates(raw, "worldview");
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].title, "御营司");
+        assert_eq!(cands[0].kind, "worldview");
+    }
+
+    #[test]
+    fn self_heal_trailing_commas_and_comments() {
+        let raw = r#"
+[
+  {
+    "kind": "plot",
+    "action": "create",
+    "title": "明道宫兵变伏笔",
+    "payload": "苗傅、刘正彦部下心怀不满，暗中密谋 // 伏笔埋设",
+    "evidence": "苗刘二人对坐饮酒不乐",
+  },
+]
+"#;
+        let cands = self_heal_and_parse_candidates(raw, "plot");
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].title, "明道宫兵变伏笔");
+        assert!(cands[0].payload.contains("暗中密谋"));
+    }
+
+    #[test]
+    fn self_heal_truncated_json() {
+        // 模拟大模型输出到达 max_tokens 产生尾部截断
+        let raw = r#"
+[
+  {
+    "kind": "character",
+    "action": "create",
+    "title": "赵玖",
+    "payload": "大宋官家，穿越者",
+    "evidence": "朕要亲自看一看"
+  },
+  {
+    "kind": "character",
+    "action": "create",
+    "title": "汪伯彦",
+    "payload": "主和派宰执，力主南逃
+"#;
+        let cands = self_heal_and_parse_candidates(raw, "character");
+        // 截断自修复应当抢救下已完整闭合的第一个对象“赵玖”
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].title, "赵玖");
+    }
+
+    #[test]
+    fn self_heal_field_aliases_drift() {
+        let raw = r#"
+[
+  {
+    "type": "character",
+    "name": "梁红玉",
+    "content": "韩世忠之妻，击鼓退金兵",
+    "quote": "夫人亲擂战鼓",
+    "targetId": "char-999"
+  }
+]
+"#;
+        let cands = self_heal_and_parse_candidates(raw, "character");
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].title, "梁红玉");
+        assert_eq!(cands[0].payload, "韩世忠之妻，击鼓退金兵");
+        assert_eq!(cands[0].evidence, "夫人亲擂战鼓");
+        assert_eq!(cands[0].target_id.as_deref(), Some("char-999"));
+    }
+
+    #[test]
+    fn self_heal_empty_title_fallback_from_payload() {
+        let raw = r#"
+[
+  {
+    "kind": "chapter_summary",
+    "title": "",
+    "payload": "官家行在移驻下邳，军心初定，韩世忠引军来会。",
+    "evidence": ""
+  }
+]
+"#;
+        let cands = self_heal_and_parse_candidates(raw, "chapter_summary");
+        assert_eq!(cands.len(), 1);
+        assert!(!cands[0].title.is_empty(), "当title为空时应自修复从payload提取");
+        assert_eq!(cands[0].payload, "官家行在移驻下邳，军心初定，韩世忠引军来会。");
+    }
+}
+

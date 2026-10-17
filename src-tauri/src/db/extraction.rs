@@ -10,6 +10,7 @@ pub fn insert_candidate(
     kind: &str,
     action: &str,
     target_id: Option<&str>,
+    title: &str,
     payload: &str,
     evidence: &str,
     dedup_key: &str,
@@ -17,9 +18,9 @@ pub fn insert_candidate(
     let id = Uuid::new_v4().to_string();
 
     conn.execute(
-        "INSERT INTO extraction_candidate (id, novel_id, chapter_id, agent_id, kind, action, target_id, payload, evidence, dedup_key, status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'pending')",
-        params![id, novel_id, chapter_id, agent_id, kind, action, target_id, payload, evidence, dedup_key],
+        "INSERT INTO extraction_candidate (id, novel_id, chapter_id, agent_id, kind, action, target_id, title, payload, evidence, dedup_key, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'pending')",
+        params![id, novel_id, chapter_id, agent_id, kind, action, target_id, title, payload, evidence, dedup_key],
     )?;
 
     Ok(ExtractionCandidate {
@@ -30,6 +31,7 @@ pub fn insert_candidate(
         kind: kind.to_string(),
         action: action.to_string(),
         target_id: target_id.map(|s| s.to_string()),
+        title: title.to_string(),
         payload: payload.to_string(),
         evidence: evidence.to_string(),
         dedup_key: dedup_key.to_string(),
@@ -40,7 +42,7 @@ pub fn insert_candidate(
 
 pub fn list_pending_candidates(conn: &Connection, novel_id: &str) -> Result<Vec<ExtractionCandidate>> {
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, chapter_id, agent_id, kind, action, target_id, payload, evidence, dedup_key, status, created_at
+        "SELECT id, novel_id, chapter_id, agent_id, kind, action, target_id, COALESCE(title, ''), payload, evidence, dedup_key, status, created_at
          FROM extraction_candidate
          WHERE novel_id = ?1 AND status = 'pending'
          ORDER BY created_at DESC",
@@ -55,11 +57,12 @@ pub fn list_pending_candidates(conn: &Connection, novel_id: &str) -> Result<Vec<
             kind: row.get(4)?,
             action: row.get(5)?,
             target_id: row.get(6)?,
-            payload: row.get(7)?,
-            evidence: row.get(8)?,
-            dedup_key: row.get(9)?,
-            status: row.get(10)?,
-            created_at: row.get(11)?,
+            title: row.get(7)?,
+            payload: row.get(8)?,
+            evidence: row.get(9)?,
+            dedup_key: row.get(10)?,
+            status: row.get(11)?,
+            created_at: row.get(12)?,
         })
     })?;
 

@@ -191,3 +191,56 @@ fn test_parse_import_epub_corrupted_data() {
     let err = res.err().unwrap();
     assert!(err.contains("无法解压 EPUB 文件"));
 }
+
+#[test]
+fn test_parse_plain_text_document_structure() {
+    let raw_text = r#"
+作品相关
+
+前言背景
+这是一段介绍正文创作背景的文字。
+
+1、参考史书：《宋史》、《续资治通鉴长编》。
+2、地理志对照：《元丰九域志》。
+以上考据仅供参考。
+
+第一卷 问鼎明道宫
+
+第一章 明道宫
+赵玖站在明道宫前，看着满庭的积雪。
+第五卷第三十七章提到过的御营禁军在此集结。
+
+第二章 召见
+群臣在大殿内肃立。
+
+番外卷 闲话杂记
+
+番外一 东京梦华
+汴梁城内依旧繁华。
+"#;
+
+    let preview = easy_writing_lib::import::parse_import_document("测试长篇演义 (精校版).txt", raw_text);
+    assert_eq!(preview.novel_title, "测试长篇演义 (精校版)");
+    assert_eq!(preview.volumes.len(), 3, "应该识别为3个分卷：默认/作品相关卷、第一卷、番外卷");
+
+    assert_eq!(preview.volumes[0].title, "作品相关");
+    assert_eq!(preview.volumes[0].chapters.len(), 1);
+    assert_eq!(preview.volumes[0].chapters[0].title, "前言背景");
+    // 确保 1、 和 2、 没有被误切分为独立章节
+    assert!(preview.volumes[0].chapters[0].content_plain.contains("1、参考史书"));
+    assert!(preview.volumes[0].chapters[0].content_plain.contains("2、地理志对照"));
+
+    assert_eq!(preview.volumes[1].title, "第一卷 问鼎明道宫");
+    assert_eq!(preview.volumes[1].chapters.len(), 2);
+    assert_eq!(preview.volumes[1].chapters[0].title, "第一章 明道宫");
+    assert_eq!(preview.volumes[1].chapters[1].title, "第二章 召见");
+    // 确保正文中的“第五卷第三十七章提到过的御营禁军在此集结。”没有被误切为分卷
+    assert!(preview.volumes[1].chapters[0].content_plain.contains("第五卷第三十七章提到过的御营禁军在此集结。"));
+
+    assert_eq!(preview.volumes[2].title, "番外卷 闲话杂记");
+    assert_eq!(preview.volumes[2].chapters.len(), 1);
+    assert_eq!(preview.volumes[2].chapters[0].title, "番外一 东京梦华");
+
+    assert!(preview.total_word_count > 0);
+}
+

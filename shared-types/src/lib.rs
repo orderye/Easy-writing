@@ -214,6 +214,8 @@ pub struct ExtractionCandidate {
     pub kind: String,   // "worldview" | "character" | "plot" | "chapter_summary"
     pub action: String, // "create" | "update"
     pub target_id: Option<String>,
+    #[serde(default)]
+    pub title: String,
     pub payload: String,
     pub evidence: String,
     pub dedup_key: String,

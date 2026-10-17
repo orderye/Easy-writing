@@ -79,12 +79,11 @@ pub fn list_chapter_headers(conn: &Connection, volume_id: &str) -> Result<Vec<Ch
 pub fn list_all_chapter_headers_for_novel(conn: &Connection, novel_id: &str) -> Result<Vec<ChapterHeader>> {
     query_list(
         conn,
-        &format!(
-            "SELECT {} FROM chapter 
-             WHERE novel_id = ?1 AND deleted_at IS NULL 
-             ORDER BY sort_order ASC, created_at ASC",
-            CHAPTER_HEADER_COLS
-        ),
+        "SELECT c.id, c.novel_id, c.volume_id, c.title, c.summary, c.word_count, c.status, c.sort_order, c.updated_at
+         FROM chapter c
+         LEFT JOIN volume v ON c.volume_id = v.id
+         WHERE c.novel_id = ?1 AND c.deleted_at IS NULL 
+         ORDER BY COALESCE(v.sort_order, 0) ASC, c.sort_order ASC, c.created_at ASC",
         params![novel_id],
         map_chapter_header,
     )

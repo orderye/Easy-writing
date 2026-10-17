@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS extraction_candidate (
     kind                TEXT NOT NULL CHECK(kind IN ('worldview', 'character', 'plot', 'chapter_summary')),
     action              TEXT NOT NULL CHECK(action IN ('create', 'update')),
     target_id           TEXT,
+    title               TEXT NOT NULL DEFAULT '',
     payload             TEXT NOT NULL DEFAULT '{}',
     evidence            TEXT NOT NULL DEFAULT '',
     dedup_key           TEXT NOT NULL,

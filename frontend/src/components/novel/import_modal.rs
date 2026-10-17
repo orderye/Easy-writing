@@ -17,6 +17,7 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let preview = RwSignal::new(Option::<ImportPreview>::None);
     let error_msg = RwSignal::new(Option::<String>::None);
     let epub_base64 = RwSignal::new(Option::<String>::None);
+    let expanded_volumes = RwSignal::new(std::collections::HashSet::<usize>::new());
 
     let on_file_selected = move |ev: Event| {
         error_msg.set(None);
@@ -99,7 +100,18 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
                 is_parsing.set(false);
                 match res {
-                    Ok(p) => preview.set(Some(p)),
+                    Ok(p) => {
+                        let mut set = std::collections::HashSet::new();
+                        if p.volumes.len() <= 2 {
+                            for i in 0..p.volumes.len() {
+                                set.insert(i);
+                            }
+                        } else {
+                            set.insert(0);
+                        }
+                        expanded_volumes.set(set);
+                        preview.set(Some(p));
+                    }
                     Err(e) => error_msg.set(Some(format!("EPUB 电子书解析失败: {}", e))),
                 }
             });
@@ -130,7 +142,18 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
             is_parsing.set(false);
             match res {
-                Ok(p) => preview.set(Some(p)),
+                Ok(p) => {
+                    let mut set = std::collections::HashSet::new();
+                    if p.volumes.len() <= 2 {
+                        for i in 0..p.volumes.len() {
+                            set.insert(i);
+                        }
+                    } else {
+                        set.insert(0);
+                    }
+                    expanded_volumes.set(set);
+                    preview.set(Some(p));
+                }
                 Err(e) => error_msg.set(Some(format!("智能解析拆解失败: {}", e))),
             }
         });
@@ -176,6 +199,9 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                         .send::<Vec<Volume>>()
                         .await
                     {
+                        if let Some(first_vol) = vols.first() {
+                            app_ctx.current_volume.set(Some(first_vol.clone()));
+                        }
                         app_ctx.volumes_list.set(vols);
                     }
 
@@ -365,7 +391,7 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
                                         view! {
                                             <div class="space-y-4">
-                                                // Summary Banner
+                                                 // Summary Banner
                                                 <div class="grid grid-cols-3 gap-3 p-3 bg-blue-50/70 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 rounded-lg text-center text-xs">
                                                     <div>
                                                         <div class="text-slate-400 dark:text-slate-400 text-[10px]">"识别分卷"</div>
@@ -379,6 +405,28 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                         <div class="text-slate-400 dark:text-slate-400 text-[10px]">"正文总字数"</div>
                                                         <div class="text-base font-bold text-blue-700 dark:text-blue-300">{p.total_word_count} " 字"</div>
                                                     </div>
+                                                </div>
+
+                                                // Novel Title Editor
+                                                <div class="flex items-center gap-2.5 p-3 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-lg">
+                                                    <label class="text-xs font-semibold text-slate-700 dark:text-slate-200 shrink-0 flex items-center gap-1.5">
+                                                        <span>"📖"</span>
+                                                        <span>"作品名称:"</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        class="flex-1 text-xs px-2.5 py-1.5 border border-slate-300 dark:border-slate-600 rounded bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-semibold focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                                                        placeholder="输入作品标题..."
+                                                        prop:value=move || preview.get().map(|p| p.novel_title).unwrap_or_default()
+                                                        on:input=move |ev| {
+                                                            let val = event_target_value(&ev);
+                                                            preview.update(|opt| {
+                                                                if let Some(p) = opt {
+                                                                    p.novel_title = val;
+                                                                }
+                                                            });
+                                                        }
+                                                    />
                                                 </div>
 
                                                 // Destination Selection
@@ -415,33 +463,82 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                 </div>
 
                                                 // Hierarchy Tree Preview
-                                                <div class="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden max-h-[300px] overflow-y-auto">
-                                                    <div class="px-3 py-2 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200">
-                                                        "拆解结果目录层级预览"
+                                                <div class="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden max-h-[320px] overflow-y-auto">
+                                                    <div class="px-3 py-2 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center justify-between sticky top-0 z-10">
+                                                        <span>"拆解结果目录层级预览"</span>
+                                                        <div class="flex items-center gap-2 font-normal text-[11px]">
+                                                            <button
+                                                                type="button"
+                                                                class="text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                                                                on:click=move |_| {
+                                                                    if let Some(p) = preview.get() {
+                                                                        let all: std::collections::HashSet<usize> = (0..p.volumes.len()).collect();
+                                                                        expanded_volumes.set(all);
+                                                                    }
+                                                                }
+                                                            >
+                                                                "展开全部"
+                                                            </button>
+                                                            <span class="text-slate-300 dark:text-slate-600">"|"</span>
+                                                            <button
+                                                                type="button"
+                                                                class="text-slate-500 dark:text-slate-400 hover:underline cursor-pointer"
+                                                                on:click=move |_| {
+                                                                    expanded_volumes.set(std::collections::HashSet::new());
+                                                                }
+                                                            >
+                                                                "收起全部"
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                     <div class="p-2 space-y-2">
-                                                        {vols_clone.into_iter().map(|vol| {
+                                                        {vols_clone.into_iter().enumerate().map(|(vol_idx, vol)| {
+                                                            let is_expanded = move || expanded_volumes.get().contains(&vol_idx);
+                                                            let vol_words: i32 = vol.chapters.iter().map(|c| c.word_count).sum();
+                                                            let vol_chapters = vol.chapters.clone();
                                                             view! {
                                                                 <div class="border border-slate-200 dark:border-slate-700/60 rounded p-2 bg-white dark:bg-slate-900 space-y-1">
-                                                                    <div class="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200">
-                                                                        <div class="flex items-center gap-1">
+                                                                    <div
+                                                                        class="flex items-center justify-between text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-850/50 p-1 rounded select-none transition-colors"
+                                                                        on:click=move |_| {
+                                                                            expanded_volumes.update(|set| {
+                                                                                if set.contains(&vol_idx) {
+                                                                                    set.remove(&vol_idx);
+                                                                                } else {
+                                                                                    set.insert(vol_idx);
+                                                                                }
+                                                                            });
+                                                                        }
+                                                                    >
+                                                                        <div class="flex items-center gap-1.5">
+                                                                            <span class="text-[10px] text-slate-400 font-mono">
+                                                                                {move || if is_expanded() { "▼" } else { "▶" }}
+                                                                            </span>
                                                                             <span>"📁"</span>
                                                                             <span>{vol.title.clone()}</span>
                                                                         </div>
-                                                                        <span class="text-[10px] text-slate-400 font-normal">
-                                                                            {vol.chapters.len()} " 章"
-                                                                        </span>
+                                                                        <div class="flex items-center gap-2 text-[10px] text-slate-400 font-normal">
+                                                                            <span>{vol_words} " 字"</span>
+                                                                            <span>"•"</span>
+                                                                            <span>{vol.chapters.len()} " 章"</span>
+                                                                        </div>
                                                                     </div>
-                                                                    <div class="pl-5 space-y-0.5 pt-1">
-                                                                        {vol.chapters.into_iter().map(|ch| {
-                                                                            view! {
-                                                                                <div class="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 py-0.5">
-                                                                                    <span class="truncate max-w-[400px]">"📄 " {ch.title}</span>
-                                                                                    <span class="text-[10px] text-slate-400">{ch.word_count} " 字"</span>
-                                                                                </div>
-                                                                            }
-                                                                        }).collect::<Vec<_>>()}
-                                                                    </div>
+                                                                    {move || if is_expanded() {
+                                                                        view! {
+                                                                            <div class="pl-5 space-y-0.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+                                                                                {vol_chapters.clone().into_iter().map(|ch| {
+                                                                                    view! {
+                                                                                        <div class="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 py-0.5">
+                                                                                            <span class="truncate max-w-[400px]">"📄 " {ch.title}</span>
+                                                                                            <span class="text-[10px] text-slate-400">{ch.word_count} " 字"</span>
+                                                                                        </div>
+                                                                                    }
+                                                                                }).collect::<Vec<_>>()}
+                                                                            </div>
+                                                                        }.into_any()
+                                                                    } else {
+                                                                        view! { <div></div> }.into_any()
+                                                                    }}
                                                                 </div>
                                                             }
                                                         }).collect::<Vec<_>>()}

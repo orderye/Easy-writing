@@ -1,3 +1,6 @@
+use crate::import::common::{
+    clean_file_name_to_title, finalize_chapter, is_chapter_header, is_volume_header, unescape_html,
+};
 use regex::Regex;
 use shared_types::{ImportChapterPreview, ImportPreview, ImportVolumePreview};
 use std::collections::HashMap;
@@ -58,43 +61,6 @@ fn resolve_zip_path(base_dir: &str, href: &str) -> String {
     parts.join("/")
 }
 
-/// 简单 HTML 实体反转义
-fn unescape_html(s: &str) -> String {
-    let mut res = s
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace("&mdash;", "——")
-        .replace("&ndash;", "–")
-        .replace("&hellip;", "…")
-        .replace("&ldquo;", "“")
-        .replace("&rdquo;", "”")
-        .replace("&lsquo;", "‘")
-        .replace("&rsquo;", "’");
-
-    let num_entity_re = Regex::new(r"&#(x[0-9a-fA-F]+|[0-9]+);").unwrap();
-    res = num_entity_re
-        .replace_all(&res, |caps: &regex::Captures| {
-            let num_str = &caps[1];
-            let ch_opt = if let Some(hex) = num_str.strip_prefix('x') {
-                u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
-            } else {
-                num_str.parse::<u32>().ok().and_then(char::from_u32)
-            };
-            match ch_opt {
-                Some(c) => c.to_string(),
-                None => caps[0].to_string(),
-            }
-        })
-        .to_string();
-
-    res
-}
-
 /// 从 HTML 源码中提取纯净的段落文本行与可能存在的显式主标题
 fn html_to_paragraphs(html: &str) -> (Option<String>, Vec<String>) {
     // 移除 head, script, style
@@ -109,21 +75,30 @@ fn html_to_paragraphs(html: &str) -> (Option<String>, Vec<String>) {
     // 尝试提取 h1 或 h2 作为主标题
     let heading_re = Regex::new(r"(?is)<h[1-2][^>]*>(.*?)</h[1-2]>").unwrap();
     let tag_re = Regex::new(r"<[^>]+>").unwrap();
+    let ws_re = Regex::new(r"\s+").unwrap();
     let mut detected_heading = None;
     if let Some(cap) = heading_re.captures(&cleaned) {
         let raw_h = &cap[1];
         let plain_h = tag_re.replace_all(raw_h, " ").to_string();
         let unescaped = unescape_html(plain_h.trim());
-        if !unescaped.is_empty() && unescaped.chars().count() <= 60 {
-            detected_heading = Some(unescaped);
+        let normalized = ws_re.replace_all(&unescaped, " ").trim().to_string();
+        if !normalized.is_empty() && normalized.chars().count() <= 60 {
+            detected_heading = Some(normalized);
         }
     }
+
+    // 将显式标题从正文清理中移除，避免标题重复出现在正文第一行
+    let cleaned_without_heading = if detected_heading.is_some() {
+        heading_re.replace(&cleaned, "").to_string()
+    } else {
+        cleaned.to_string()
+    };
 
     // 块级标签替换为换行符
     let br_re = Regex::new(r"(?i)<br\s*/?>").unwrap();
     let block_re = Regex::new(r"(?i)</?(p|div|h[1-6]|li|blockquote|section|article)\b[^>]*>").unwrap();
 
-    let with_breaks = br_re.replace_all(&cleaned, "\n");
+    let with_breaks = br_re.replace_all(&cleaned_without_heading, "\n");
     let with_blocks = block_re.replace_all(&with_breaks, "\n\n");
     let strip_all = tag_re.replace_all(&with_blocks, "");
 
@@ -137,6 +112,100 @@ fn html_to_paragraphs(html: &str) -> (Option<String>, Vec<String>) {
 
     (detected_heading, paragraphs)
 }
+
+/// 树形导航节点（支持递归包含子章节）
+#[derive(Debug, Clone)]
+struct NavNode {
+    title: String,
+    src: String,
+    children: Vec<NavNode>,
+}
+
+/// 基于栈的 EPUB 2 NCX 递归导航解析器
+fn parse_ncx_nav(ncx_xml: &str, ncx_dir: &str) -> Vec<NavNode> {
+    let tag_re = Regex::new(
+        r#"(?is)(<navPoint\b[^>]*>|</navPoint>|<text[^>]*>(.*?)</text>|<content\b[^>]*src\s*=\s*["']([^"']+)["'][^>]*>)"#,
+    )
+    .unwrap();
+
+    let mut stack: Vec<NavNode> = Vec::new();
+    let mut roots: Vec<NavNode> = Vec::new();
+
+    for cap in tag_re.captures_iter(ncx_xml) {
+        let full = &cap[0];
+        let lower = full.to_ascii_lowercase();
+        if lower.starts_with("<navpoint") {
+            let node = NavNode {
+                title: String::new(),
+                src: String::new(),
+                children: Vec::new(),
+            };
+            stack.push(node);
+        } else if lower.starts_with("</navpoint") {
+            if let Some(finished_node) = stack.pop() {
+                if let Some(parent) = stack.last_mut() {
+                    parent.children.push(finished_node);
+                } else {
+                    roots.push(finished_node);
+                }
+            }
+        } else if lower.starts_with("<text") {
+            if let Some(node) = stack.last_mut() {
+                if let Some(c) = cap.get(2) {
+                    node.title = unescape_html(c.as_str().trim());
+                }
+            }
+        } else if lower.starts_with("<content") {
+            if let Some(node) = stack.last_mut() {
+                if let Some(c) = cap.get(3) {
+                    let clean_src = c.as_str().split(['#', '?']).next().unwrap_or(c.as_str()).trim();
+                    node.src = resolve_zip_path(ncx_dir, clean_src);
+                }
+            }
+        }
+    }
+
+    roots
+}
+
+/// 解析 EPUB 3 Nav XHTML 中的目录链接
+fn parse_nav_xhtml(nav_xml: &str, nav_dir: &str) -> Vec<NavNode> {
+    let a_re = Regex::new(r#"(?is)<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>"#).unwrap();
+    let tag_re = Regex::new(r"<[^>]+>").unwrap();
+    let mut nodes = Vec::new();
+
+    for a_cap in a_re.captures_iter(nav_xml) {
+        let href = &a_cap[1];
+        let raw_text = &a_cap[2];
+        let plain = tag_re.replace_all(raw_text, "").to_string();
+        let title = unescape_html(plain.trim());
+        let clean_href = href.split(['#', '?']).next().unwrap_or(href).trim();
+        let full_p = resolve_zip_path(nav_dir, clean_href);
+
+        if !title.is_empty() {
+            nodes.push(NavNode {
+                title,
+                src: full_p,
+                children: Vec::new(),
+            });
+        }
+    }
+
+    nodes
+}
+
+/// 递归将目录树拍平为路径到标题的映射字典
+fn collect_toc_titles(nodes: &[NavNode], map: &mut HashMap<String, String>) {
+    for node in nodes {
+        if !node.src.is_empty() && !node.title.is_empty() {
+            let clean_src = node.src.split(['#', '?']).next().unwrap_or(&node.src);
+            map.entry(clean_src.to_string()).or_insert_with(|| node.title.clone());
+        }
+        collect_toc_titles(&node.children, map);
+    }
+}
+
+
 
 /// 解析 EPUB 二进制数据并生成分卷分章预览结构
 pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, String> {
@@ -212,16 +281,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
     };
 
     if novel_title.is_empty() {
-        let clean_fname = if let Some(idx) = file_name.rfind('.') {
-            &file_name[..idx]
-        } else {
-            file_name
-        };
-        novel_title = if clean_fname.trim().is_empty() {
-            "未命名作品".to_string()
-        } else {
-            clean_fname.trim().to_string()
-        };
+        novel_title = clean_file_name_to_title(file_name);
     }
 
     // 4. 解析 Manifest (id -> (full_path, media_type))
@@ -271,10 +331,9 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
         }
     }
 
-    // 5. 解析目录映射 (zip_path -> 章节标题)
-    let mut toc_titles: HashMap<String, String> = HashMap::new();
+    // 5. 解析目录树（优先 NCX，次选 Nav XHTML）
+    let mut toc_roots: Vec<NavNode> = Vec::new();
 
-    // 5.1 从 EPUB 2 NCX 提取
     if let Some(ncx_p) = &toc_ncx_path {
         if let Ok(mut file) = archive.by_name(ncx_p) {
             let mut ncx_xml = String::new();
@@ -284,242 +343,283 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
                 } else {
                     ""
                 };
+                toc_roots = parse_ncx_nav(&ncx_xml, ncx_dir);
+            }
+        }
+    }
 
-                let navpoint_re = Regex::new(r#"(?is)<navPoint\b[^>]*>(.*?)</navPoint>"#).unwrap();
-                let text_re = Regex::new(r#"(?is)<text[^>]*>(.*?)</text>"#).unwrap();
-                let src_re = Regex::new(r#"src\s*=\s*["']([^"']+)["']"#).unwrap();
+    if toc_roots.is_empty() {
+        if let Some(nav_p) = &nav_xhtml_path {
+            if let Ok(mut file) = archive.by_name(nav_p) {
+                let mut nav_xml = String::new();
+                if file.read_to_string(&mut nav_xml).is_ok() {
+                    let nav_dir = if let Some(idx) = nav_p.rfind('/') {
+                        &nav_p[..idx + 1]
+                    } else {
+                        ""
+                    };
+                    toc_roots = parse_nav_xhtml(&nav_xml, nav_dir);
+                }
+            }
+        }
+    }
 
-                for np in navpoint_re.captures_iter(&ncx_xml) {
-                    let content = &np[1];
-                    let text = text_re
-                        .captures(content)
-                        .map(|c| unescape_html(c[1].trim()));
-                    let src = src_re.captures(content).map(|c| c[1].to_string());
+    let mut toc_titles: HashMap<String, String> = HashMap::new();
+    collect_toc_titles(&toc_roots, &mut toc_titles);
 
-                    if let (Some(t), Some(s)) = (text, src) {
-                        let full_p = resolve_zip_path(ncx_dir, &s);
-                        if !t.is_empty() && !toc_titles.contains_key(&full_p) {
-                            toc_titles.insert(full_p, t);
+    let has_hierarchical_toc = toc_roots.iter().any(|r| !r.children.is_empty());
+
+    let mut volumes: Vec<ImportVolumePreview> = Vec::new();
+
+    if has_hierarchical_toc {
+        // ========== 模式 A：基于严谨树形目录结构提取 ==========
+        let mut front_chapters: Vec<ImportChapterPreview> = Vec::new();
+
+        for root in toc_roots {
+            if !root.children.is_empty() {
+                // 若之前暂存了独立前置章（如版本制作、内容简介），则将其归档为前言/作品相关卷
+                if !front_chapters.is_empty() {
+                    volumes.push(ImportVolumePreview {
+                        title: "作品相关".to_string(),
+                        chapters: std::mem::take(&mut front_chapters),
+                    });
+                }
+
+                let mut vol_chapters = Vec::new();
+
+                // 检查分卷封面/过渡文档本身是否包含独立有效说明文字（非仅单一卷名标题）
+                if !root.src.is_empty() {
+                    if let Ok(mut file) = archive.by_name(&root.src) {
+                        let mut html = String::new();
+                        if file.read_to_string(&mut html).is_ok() {
+                            let (_, paras) = html_to_paragraphs(&html);
+                            if !paras.is_empty() {
+                                let is_just_vol_title = paras.len() == 1
+                                    && (paras[0].trim() == root.title.trim()
+                                        || is_volume_header(&paras[0]));
+                                if !is_just_vol_title {
+                                    if let Some(ch) = finalize_chapter("卷首语", &paras) {
+                                        vol_chapters.push(ch);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 提取属于该卷的所有子章节
+                for child in root.children {
+                    if child.src.is_empty() {
+                        continue;
+                    }
+                    if let Ok(mut file) = archive.by_name(&child.src) {
+                        let mut html = String::new();
+                        if file.read_to_string(&mut html).is_ok() {
+                            let (detected_h, mut paras) = html_to_paragraphs(&html);
+                            let chap_title = if !child.title.is_empty() {
+                                child.title.clone()
+                            } else if let Some(h) = detected_h {
+                                h
+                            } else {
+                                format!("第{}章", vol_chapters.len() + 1)
+                            };
+
+                            // 去除首段与章节标题的冗余重复
+                            if let Some(first_p) = paras.first() {
+                                let clean_first = first_p.replace(char::is_whitespace, "");
+                                let clean_title = chap_title.replace(char::is_whitespace, "");
+                                if clean_first == clean_title {
+                                    paras.remove(0);
+                                }
+                            }
+
+                            if let Some(ch) = finalize_chapter(&chap_title, &paras) {
+                                vol_chapters.push(ch);
+                            }
+                        }
+                    }
+                }
+
+                if !vol_chapters.is_empty() {
+                    volumes.push(ImportVolumePreview {
+                        title: root.title,
+                        chapters: vol_chapters,
+                    });
+                }
+            } else {
+                // 顶层单叶子节点（如 "制作设计", "内容简介", "后记"）
+                if !root.src.is_empty() {
+                    if let Ok(mut file) = archive.by_name(&root.src) {
+                        let mut html = String::new();
+                        if file.read_to_string(&mut html).is_ok() {
+                            let (detected_h, mut paras) = html_to_paragraphs(&html);
+                            let chap_title = if !root.title.is_empty() {
+                                root.title.clone()
+                            } else if let Some(h) = detected_h {
+                                h
+                            } else {
+                                "章节".to_string()
+                            };
+
+                            if let Some(first_p) = paras.first() {
+                                let clean_first = first_p.replace(char::is_whitespace, "");
+                                let clean_title = chap_title.replace(char::is_whitespace, "");
+                                if clean_first == clean_title {
+                                    paras.remove(0);
+                                }
+                            }
+
+                            if let Some(ch) = finalize_chapter(&chap_title, &paras) {
+                                if let Some(last_vol) = volumes.last_mut() {
+                                    last_vol.chapters.push(ch);
+                                } else {
+                                    front_chapters.push(ch);
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    // 5.2 从 EPUB 3 Nav XHTML 补充
-    if let Some(nav_p) = &nav_xhtml_path {
-        if let Ok(mut file) = archive.by_name(nav_p) {
-            let mut nav_xml = String::new();
-            if file.read_to_string(&mut nav_xml).is_ok() {
-                let nav_dir = if let Some(idx) = nav_p.rfind('/') {
-                    &nav_p[..idx + 1]
-                } else {
-                    ""
-                };
-
-                let a_re = Regex::new(r#"(?is)<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>"#).unwrap();
-                let tag_re = Regex::new(r"<[^>]+>").unwrap();
-
-                for a_cap in a_re.captures_iter(&nav_xml) {
-                    let href = &a_cap[1];
-                    let raw_text = &a_cap[2];
-                    let plain = tag_re.replace_all(raw_text, "").to_string();
-                    let title = unescape_html(plain.trim());
-                    let full_p = resolve_zip_path(nav_dir, href);
-
-                    if !title.is_empty() && !toc_titles.contains_key(&full_p) {
-                        toc_titles.insert(full_p, title);
-                    }
-                }
-            }
+        if !front_chapters.is_empty() {
+            volumes.push(ImportVolumePreview {
+                title: "作品相关".to_string(),
+                chapters: front_chapters,
+            });
         }
-    }
-
-    // 6. 解析 Spine 阅读顺序
-    let spine_re = Regex::new(r#"(?is)<spine\b[^>]*>(.*?)</spine>"#).unwrap();
-    let itemref_re = Regex::new(r#"idref\s*=\s*["']([^"']+)["']"#).unwrap();
-
-    let spine_items: Vec<String> = if let Some(cap) = spine_re.captures(&opf_content) {
-        itemref_re
-            .captures_iter(&cap[1])
-            .map(|c| c[1].to_string())
-            .collect()
     } else {
-        Vec::new()
-    };
+        // ========== 模式 B：回退扁平 Spine 顺序扫描 ==========
+        let spine_re = Regex::new(r#"(?is)<spine\b[^>]*>(.*?)</spine>"#).unwrap();
+        let itemref_re = Regex::new(r#"idref\s*=\s*["']([^"']+)["']"#).unwrap();
 
-    // 7. 正则匹配定义（卷、章）
-    let vol_regex = Regex::new(
-        r"(?i)^\s*(第\s*[0-9一二三四五六七八九十百千万零两]+\s*卷.*|卷\s*[0-9一二三四五六七八九十百千万零两]+.*|Volume\s+[0-9]+.*)$",
-    )
-    .unwrap();
-
-    let chap_regex = Regex::new(
-        r"(?i)^\s*(第\s*[0-9一二三四五六七八九十百千万零两]+\s*[章节部回节].*|Chapter\s+[0-9]+.*|引言|序章|尾声|后记|番外.*)$",
-    )
-    .unwrap();
-
-    let numbered_chap_regex = Regex::new(r"^\s*([0-9]{1,4})\s*[、.．\s]+(.*)$").unwrap();
-
-    // 8. 依次遍历 Spine 内容文档
-    let mut volumes: Vec<ImportVolumePreview> = Vec::new();
-    let mut current_vol_title = "正文卷".to_string();
-    let mut current_vol_chapters: Vec<ImportChapterPreview> = Vec::new();
-    let mut chapter_seq = 1;
-
-    let finalize_chapter = |title: &str, paragraphs: &[String]| -> Option<ImportChapterPreview> {
-        let plain = paragraphs.join("\n\n");
-        let word_count = plain.chars().filter(|c| !c.is_whitespace()).count() as i32;
-        if plain.trim().is_empty() {
-            return None;
-        }
-
-        let mut html = String::new();
-        for p in paragraphs {
-            let escaped = p
-                .replace('&', "&amp;")
-                .replace('<', "&lt;")
-                .replace('>', "&gt;");
-            html.push_str(&format!("<p>{}</p>", escaped));
-        }
-
-        Some(ImportChapterPreview {
-            title: title.to_string(),
-            content: html,
-            content_plain: plain,
-            word_count,
-        })
-    };
-
-    for idref in spine_items {
-        let Some(item) = manifest.get(&idref) else {
-            continue;
+        let spine_items: Vec<String> = if let Some(cap) = spine_re.captures(&opf_content) {
+            itemref_re
+                .captures_iter(&cap[1])
+                .map(|c| c[1].to_string())
+                .collect()
+        } else {
+            Vec::new()
         };
 
-        // 仅处理 HTML/XHTML 文件
-        let is_html = item.media_type.contains("html")
-            || item.full_path.ends_with(".xhtml")
-            || item.full_path.ends_with(".html")
-            || item.full_path.ends_with(".htm");
+        let mut current_vol_title = "正文卷".to_string();
+        let mut current_vol_chapters: Vec<ImportChapterPreview> = Vec::new();
+        let mut chapter_seq = 1;
 
-        if !is_html {
-            continue;
-        }
-
-        // 读取文档内容
-        let html_content = {
-            let Ok(mut file) = archive.by_name(&item.full_path) else {
+        for idref in spine_items {
+            let Some(item) = manifest.get(&idref) else {
                 continue;
             };
-            let mut s = String::new();
-            if file.read_to_string(&mut s).is_err() {
+
+            let is_html = item.media_type.contains("html")
+                || item.full_path.ends_with(".xhtml")
+                || item.full_path.ends_with(".html")
+                || item.full_path.ends_with(".htm");
+
+            if !is_html {
                 continue;
             }
-            s
-        };
 
-        let (heading_opt, paragraphs) = html_to_paragraphs(&html_content);
-        if paragraphs.is_empty() {
-            continue;
-        }
-
-        // 优先使用 TOC 目录中的标题，其次使用文档 h1/h2 标题，最后从段落开头提取
-        let file_title_opt = toc_titles
-            .get(&item.full_path)
-            .cloned()
-            .or(heading_opt);
-
-        // 检查文档是否为纯分卷说明文档（如只有一行 "第一卷 龙兴微末"）
-        let first_line = paragraphs[0].trim();
-        if paragraphs.len() <= 2
-            && first_line.chars().count() <= 50
-            && vol_regex.is_match(first_line)
-        {
-            // 归档上一个卷
-            if !current_vol_chapters.is_empty() {
-                volumes.push(ImportVolumePreview {
-                    title: current_vol_title.clone(),
-                    chapters: std::mem::take(&mut current_vol_chapters),
-                });
-            }
-            current_vol_title = first_line.to_string();
-            continue;
-        }
-
-        // 检查该文档内是否包含多个章节划分（部分 EPUB 把多章写在一个 XHTML 内）
-        let mut inner_chap_title = file_title_opt.clone().unwrap_or_else(|| {
-            format!("第{}章", chapter_seq)
-        });
-        let mut inner_paragraphs: Vec<String> = Vec::new();
-        let mut found_inner_splits = false;
-
-        for (idx, p) in paragraphs.iter().enumerate() {
-            let trimmed = p.trim();
-            // 检查分卷
-            if trimmed.chars().count() <= 50 && vol_regex.is_match(trimmed) {
-                if let Some(ch) = finalize_chapter(&inner_chap_title, &inner_paragraphs) {
-                    current_vol_chapters.push(ch);
-                    chapter_seq += 1;
-                    inner_paragraphs.clear();
+            let html_content = {
+                let Ok(mut file) = archive.by_name(&item.full_path) else {
+                    continue;
+                };
+                let mut s = String::new();
+                if file.read_to_string(&mut s).is_err() {
+                    continue;
                 }
+                s
+            };
+
+            let (heading_opt, mut paragraphs) = html_to_paragraphs(&html_content);
+            let file_title_opt = toc_titles
+                .get(&item.full_path)
+                .cloned()
+                .or(heading_opt.clone());
+
+            // 检查文档是否为纯分卷说明文档（如只有一行 "第一卷 龙兴微末" 或仅含卷标题 h1）
+            let is_vol_header_doc = if paragraphs.is_empty() {
+                if let Some(h) = &heading_opt {
+                    is_volume_header(h)
+                } else {
+                    false
+                }
+            } else if paragraphs.len() <= 2 {
+                let first_line = paragraphs[0].trim();
+                is_volume_header(first_line)
+                    || (file_title_opt.as_deref().map(|t| is_volume_header(t)).unwrap_or(false))
+            } else {
+                false
+            };
+
+            if is_vol_header_doc {
                 if !current_vol_chapters.is_empty() {
                     volumes.push(ImportVolumePreview {
                         title: current_vol_title.clone(),
                         chapters: std::mem::take(&mut current_vol_chapters),
                     });
                 }
-                current_vol_title = trimmed.to_string();
-                inner_chap_title = format!("第{}章", chapter_seq);
-                found_inner_splits = true;
+                let detected_vol_title = heading_opt
+                    .or(file_title_opt)
+                    .unwrap_or_else(|| paragraphs.first().cloned().unwrap_or_else(|| "正文卷".to_string()));
+                current_vol_title = detected_vol_title;
                 continue;
             }
 
-            // 检查分章（非首段出现章节标题，或者首段与文件外部标题明显不同）
-            let is_chap_header = trimmed.chars().count() <= 60
-                && (chap_regex.is_match(trimmed) || numbered_chap_regex.is_match(trimmed));
+            if paragraphs.is_empty() {
+                continue;
+            }
 
-            if is_chap_header && (idx > 0 || file_title_opt.is_none()) {
-                if let Some(ch) = finalize_chapter(&inner_chap_title, &inner_paragraphs) {
-                    current_vol_chapters.push(ch);
-                    chapter_seq += 1;
-                    inner_paragraphs.clear();
+            // 检查正文首行是否与外部或内部标题重复
+            let doc_title = file_title_opt.clone().unwrap_or_else(|| format!("第{}章", chapter_seq));
+            if let Some(first_p) = paragraphs.first() {
+                let clean_p = first_p.replace(char::is_whitespace, "");
+                let clean_t = doc_title.replace(char::is_whitespace, "");
+                if clean_p == clean_t {
+                    paragraphs.remove(0);
                 }
-                inner_chap_title = trimmed.to_string();
-                found_inner_splits = true;
+            }
+
+            if paragraphs.is_empty() {
                 continue;
             }
 
-            // 若首行恰好与标题完全相同，则不重复记录进正文第一行
-            if idx == 0 && Some(trimmed) == file_title_opt.as_deref() {
-                continue;
+            // 若单一文档内包含多个明确章节标题（无独立外部 TOC 映射时），进行内部切分
+            let has_external_title = file_title_opt.is_some();
+            let mut inner_chap_title = doc_title;
+            let mut inner_paragraphs: Vec<String> = Vec::new();
+
+            for (idx, p) in paragraphs.iter().enumerate() {
+                let trimmed = p.trim();
+
+                // 仅在无独立文件标题或非首段出现明确章节标记时进行切分
+                let is_chap_split = !has_external_title && idx > 0 && is_chapter_header(trimmed);
+
+                if is_chap_split {
+                    if let Some(ch) = finalize_chapter(&inner_chap_title, &inner_paragraphs) {
+                        current_vol_chapters.push(ch);
+                        chapter_seq += 1;
+                        inner_paragraphs.clear();
+                    }
+                    inner_chap_title = trimmed.to_string();
+                    continue;
+                }
+
+                inner_paragraphs.push(trimmed.to_string());
             }
 
-            inner_paragraphs.push(trimmed.to_string());
-        }
-
-        // 收集该文档剩余段落
-        if let Some(ch) = finalize_chapter(&inner_chap_title, &inner_paragraphs) {
-            current_vol_chapters.push(ch);
-            chapter_seq += 1;
-        } else if !found_inner_splits && !inner_paragraphs.is_empty() {
-            // 回退归档
-            if let Some(ch) = finalize_chapter(
-                &file_title_opt.unwrap_or_else(|| format!("第{}章", chapter_seq)),
-                &inner_paragraphs,
-            ) {
+            if let Some(ch) = finalize_chapter(&inner_chap_title, &inner_paragraphs) {
                 current_vol_chapters.push(ch);
                 chapter_seq += 1;
             }
         }
-    }
 
-    // 归档最后一卷
-    if !current_vol_chapters.is_empty() {
-        volumes.push(ImportVolumePreview {
-            title: current_vol_title,
-            chapters: current_vol_chapters,
-        });
+        if !current_vol_chapters.is_empty() {
+            volumes.push(ImportVolumePreview {
+                title: current_vol_title,
+                chapters: current_vol_chapters,
+            });
+        }
     }
 
     if volumes.is_empty() {

@@ -43,3 +43,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_lexicon_novel_term ON novel_lexicon(novel_
 CREATE INDEX IF NOT EXISTS idx_lexicon_novel ON novel_lexicon(novel_id);
 
 ALTER TABLE asset ADD COLUMN deleted_at TEXT;
+ALTER TABLE extraction_candidate ADD COLUMN title TEXT NOT NULL DEFAULT '';

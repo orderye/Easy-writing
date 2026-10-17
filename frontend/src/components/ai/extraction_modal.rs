@@ -20,6 +20,10 @@ pub fn ExtractionModal(
                 .send_unit()
                 .await;
 
+            if action == "accept" {
+                app_ctx.lexicon_version.update(|v| *v += 1);
+            }
+
             let mut list = candidates.get();
             list.retain(|c| c.id != cid);
             candidates.set(list);
@@ -37,6 +41,7 @@ pub fn ExtractionModal(
                     .send_unit()
                     .await;
             }
+            app_ctx.lexicon_version.update(|v| *v += 1);
             candidates.set(Vec::new());
         });
     };
@@ -103,7 +108,7 @@ pub fn ExtractionModal(
                                     view! {
                                         <div class="py-12 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 space-y-3">
                                             <div class="animate-spin text-3xl">"✨"</div>
-                                            <p class="text-xs font-medium">"世界观、角色、剧情、大纲 4 大 Agent 正在受限并行提炼本章设定……"</p>
+                                            <p class="text-xs font-medium">"世界观、角色卡、剧情、大纲 4 大 Agent 正在受限并行提炼本章设定……"</p>
                                         </div>
                                     }.into_any()
                                 } else if candidates.get().is_empty() {
@@ -121,22 +126,39 @@ pub fn ExtractionModal(
                                                 let c_id = cand.id.clone();
                                                 let c_id_for_accept = c_id.clone();
                                                 let c_id_for_ignore = c_id.clone();
-                                                let kind_label = match cand.kind.as_str() {
-                                                    "worldview" => "世界观",
-                                                    "character" => "角色",
-                                                    "plot" => "剧情伏笔",
-                                                    _ => "章纲摘要",
+                                                let (kind_label, kind_class) = match cand.kind.as_str() {
+                                                    "worldview" => ("世界观设定", "text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border-blue-200 dark:border-blue-800"),
+                                                    "character" => ("角色·角色卡", "text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 border-purple-200 dark:border-purple-800"),
+                                                    "plot" => ("剧情伏笔", "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 border-amber-200 dark:border-amber-800"),
+                                                    _ => ("大纲章纲", "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 border-emerald-200 dark:border-emerald-800"),
+                                                };
+
+                                                let is_create = cand.action == "create";
+                                                let title_str = if !cand.title.trim().is_empty() {
+                                                    cand.title.clone()
+                                                } else {
+                                                    "未命名条目".to_string()
                                                 };
 
                                                 view! {
                                                     <div class="border border-slate-200 dark:border-slate-800 rounded-lg p-3 bg-white dark:bg-slate-850 shadow-2xs space-y-2">
                                                         <div class="flex items-center justify-between">
                                                             <div class="flex items-center gap-2">
-                                                                <span class="text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-800">
+                                                                <span class=format!("text-xs font-bold px-2 py-0.5 rounded border {}", kind_class)>
                                                                     {kind_label}
                                                                 </span>
-                                                                <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                                                                    {cand.action}
+                                                                <span class="text-xs font-bold text-slate-800 dark:text-slate-100">
+                                                                    {title_str}
+                                                                </span>
+                                                                <span class=format!(
+                                                                    "text-[10px] px-1.5 py-0.5 rounded font-medium border {}",
+                                                                    if is_create {
+                                                                        "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                                                                    } else {
+                                                                        "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800"
+                                                                    }
+                                                                )>
+                                                                    {if is_create { "新建条目" } else { "更新既有" }}
                                                                 </span>
                                                             </div>
                                                             <div class="flex items-center gap-2">
