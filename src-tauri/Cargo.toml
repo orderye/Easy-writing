@@ -1,6 +1,6 @@
 [package]
 name = "easy-writing-core"
-version = "0.3.3"
+version = "0.3.4"
 description = "Easy-writing novel workbench core"
 authors = ["Roy"]
 edition = "2021"
