@@ -1,6 +1,7 @@
 mod app;
 mod bridge;
 mod components;
+mod save_state;
 mod state;
 mod tauri_api;
 mod workspace;

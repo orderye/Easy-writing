@@ -11,7 +11,8 @@ use crate::components::settings_panel::setting_changes_modal::SettingChangesModa
 use crate::components::settings_panel::trash_modal::TrashModal;
 use crate::components::settings_panel::SettingsPanel;
 use crate::components::structure_panel::chapter_list::do_switch_chapter;
-use crate::components::structure_panel::save_button::perform_save;
+use crate::components::structure_panel::save_button::{perform_save, perform_save_async};
+use crate::save_state;
 use crate::components::structure_panel::StructurePanel;
 use crate::state::AppContext;
 use crate::tauri_api::invoke_cmd;
@@ -43,15 +44,48 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
         key_listener.forget();
     });
 
-    // Background auto-save loop: every auto_save_interval seconds, if dirty, perform save
+    // 后台自动保存。
+    //
+    // 语义说明（重要）：这是一个**长驻循环**，不是响应式绑定。
+    // auto_save_interval / save_status 都在 spawn_local 内部读取，
+    // 因此改设置不会立刻重启循环，而是在下一拍轮询时生效 —— 这是刻意的，
+    // 免得每次改设置都新起一个循环。
+    //
+    // 与旧实现的区别：
+    //   1. 失败（"error"）后也会继续重试。旧实现只看 "dirty"，
+    //      一旦进过 error 状态自动保存就永久停摆（磁盘满、库被锁都会走到那里）；
+    //   2. 用 perform_save_async 真正 await 保存结束再判成败，
+    //      不再靠固定 sleep 猜（慢请求会被误判为失败）；
+    //   3. 连续失败达阈值后给出常驻告警，而不是只在按钮上变个颜色。
     Effect::new(move |_| {
         let ctx = app_ctx;
         leptos::task::spawn_local(async move {
+            let mut failures: u32 = 0;
             loop {
-                let interval_secs = ctx.auto_save_interval.get().max(5);
-                TimeoutFuture::new(interval_secs * 1000).await;
-                if ctx.save_status.get() == "dirty" {
-                    perform_save(ctx);
+                let wait_secs = save_state::auto_save_backoff_secs(
+                    ctx.auto_save_interval.get_untracked(),
+                    failures,
+                );
+                TimeoutFuture::new(wait_secs * 1000).await;
+
+                match ctx.save_status.get_untracked().as_str() {
+                    "dirty" | "error" => {
+                        let ok = perform_save_async(ctx).await;
+                        if ok {
+                            failures = 0;
+                            ctx.save_alert.set(None);
+                        } else {
+                            failures += 1;
+                            if failures >= 3 {
+                                ctx.save_alert.set(Some(
+                                    "自动保存已连续失败，请检查磁盘空间后手动保存（⌘S）".to_string(),
+                                ));
+                            }
+                        }
+                    }
+                    _ => {
+                        failures = 0;
+                    }
                 }
             }
         });

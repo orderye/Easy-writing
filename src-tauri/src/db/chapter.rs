@@ -118,6 +118,77 @@ pub fn save_chapter_content(
     Ok(())
 }
 
+/// 找出正文里提到过某个词的全部章节（按命中次数降序）。
+///
+/// 这是「改动早期设定后，哪些后续章节可能受影响」的**确定性**版本：
+/// 只做字面匹配，不调模型。它的价值在于先把候选面收窄 ——
+/// 有没有真的需要同步修改，交给作者或后续的模型判断。
+///
+/// 用 LIKE 先粗筛（能走不到索引，但章节量级下可接受），
+/// 再在 Rust 侧数出现次数并截取上下文，避免在 SQL 里做子串计数。
+pub fn find_chapters_mentioning(
+    conn: &Connection,
+    novel_id: &str,
+    term: &str,
+) -> Result<Vec<shared_types::AffectedChapter>> {
+    let term = term.trim();
+    if term.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, title, content_plain FROM chapter
+         WHERE novel_id = ?1 AND deleted_at IS NULL
+           AND content_plain LIKE '%' || ?2 || '%'
+         ORDER BY sort_order ASC, created_at ASC",
+    )?;
+
+    let rows = stmt.query_map(params![novel_id, term], |row| {
+        let id: String = row.get(0)?;
+        let title: String = row.get(1)?;
+        let plain: String = row.get(2)?;
+        Ok((id, title, plain))
+    })?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, title, plain) = row?;
+        let hits = plain.matches(term).count() as i64;
+        if hits == 0 {
+            // LIKE 已经筛过，理论上不会走到这里；留个保护免得出现"命中 0 次"的脏结果
+            continue;
+        }
+        out.push(shared_types::AffectedChapter {
+            id,
+            title,
+            hits,
+            snippet: snippet_around(&plain, term, 40),
+        });
+    }
+
+    out.sort_by(|a, b| b.hits.cmp(&a.hits).then(a.title.cmp(&b.title)));
+    Ok(out)
+}
+
+/// 截取首次命中位置前后的上下文，按字符切（中文不能被切碎）。
+fn snippet_around(text: &str, term: &str, radius: usize) -> String {
+    let Some(byte_pos) = text.find(term) else {
+        return String::new();
+    };
+    let start_chars = text[..byte_pos].chars().count();
+    let chars: Vec<char> = text.chars().collect();
+    let from = start_chars.saturating_sub(radius);
+    let to = (start_chars + term.chars().count() + radius).min(chars.len());
+    let mut s: String = chars[from..to].iter().collect();
+    if from > 0 {
+        s.insert(0, '…');
+    }
+    if to < chars.len() {
+        s.push('…');
+    }
+    s
+}
+
 pub fn update_chapter_meta(
     conn: &Connection,
     id: &str,

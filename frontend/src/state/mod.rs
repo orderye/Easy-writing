@@ -22,6 +22,17 @@ pub struct AppContext {
     pub is_editor_mounted: RwSignal<bool>,
     pub is_ghost_completion_enabled: RwSignal<bool>,
     pub lexicon_version: RwSignal<u32>,
+    /// 每次编辑器内容变更自增。用于判定"保存期间是否又有新编辑"：
+    /// 保存开始时记下序号，完成时若不相等，说明磁盘内容已经落后，
+    /// 必须保持 dirty 而不是标记为已保存（见 `crate::save_state`）。
+    pub edit_seq: RwSignal<u64>,
+    /// 自动保存连续失败后的常驻告警文案。为 `None` 表示无告警。
+    pub save_alert: RwSignal<Option<String>>,
+    /// 编辑器尚未挂载时被 `set_content` 拒绝的正文，挂载后回放。
+    ///
+    /// 注意语义是**最后写入胜出**（不是队列）：挂载前连续切两次章时，
+    /// 后一次会覆盖前一次 —— 这是刻意的，用户最终停留在哪一章就该显示哪一章。
+    pub pending_editor_content: RwSignal<Option<String>>,
 
     // App Preferences & Theme
     pub theme: RwSignal<String>,
@@ -76,6 +87,9 @@ impl AppContext {
             is_editor_mounted: RwSignal::new(false),
             is_ghost_completion_enabled: RwSignal::new(true),
             lexicon_version: RwSignal::new(0),
+            edit_seq: RwSignal::new(0),
+            save_alert: RwSignal::new(None),
+            pending_editor_content: RwSignal::new(None),
 
             theme: RwSignal::new("system".to_string()),
             font_size: RwSignal::new(16),

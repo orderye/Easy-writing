@@ -14,7 +14,12 @@ pub fn do_switch_chapter(app_ctx: AppContext, chapter_id: String) {
             .send::<Option<Chapter>>()
             .await
         {
-            tiptap::set_content(&ch.content);
+            if !tiptap::set_content(&ch.content) {
+                // 编辑器尚未挂载（返回 false 且什么都没做）：记下正文，
+                // 等 EditorWrapper 挂载完成后回放。不这么做的话用户会看到空白编辑区，
+                // 而正文其实好端端躺在库里。
+                app_ctx.pending_editor_content.set(Some(ch.content.clone()));
+            }
             app_ctx.current_chapter.set(Some(ch));
             app_ctx.word_count.set(tiptap::get_word_count());
             app_ctx.save_status.set("saved".to_string());

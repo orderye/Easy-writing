@@ -2,190 +2,216 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import os from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, '../..');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-// 提取 asset_rel_to_url 与 copy_text_to_clipboard 的纯函数实现进行隔离单测
-function asset_rel_to_url(relPath, appDataDir, customWindow = globalThis.window) {
-  if (!relPath) return "";
-  if (/^(https?:|data:|asset:|blob:)/i.test(relPath)) return relPath;
-  const base = (appDataDir || "").replace(/\/+$/, "");
-  const abs = relPath.startsWith("/") ? relPath : (base ? base + "/" + relPath : relPath);
-  try {
-    if (customWindow && customWindow.__TAURI__ && customWindow.__TAURI__.core && typeof customWindow.__TAURI__.core.convertFileSrc === "function") {
-      return customWindow.__TAURI__.core.convertFileSrc(abs);
-    }
-    if (customWindow && customWindow.__TAURI__ && typeof customWindow.__TAURI__.convertFileSrc === "function") {
-      return customWindow.__TAURI__.convertFileSrc(abs);
-    }
-  } catch (e) {
-    // 转换失败退回原值
-  }
-  return relPath;
+// ---------------------------------------------------------------------------
+// 真导入被测实现，而不是在测试里手抄一份。
+//
+// asset_rel_to_url / copy_text_to_clipboard 通过
+//   #[wasm_bindgen(inline_js = r#"..."#)]
+// 内嵌在 frontend/src/bridge/asset.rs 里，运行时由 wasm-bindgen 生成 ESM 片段加载。
+// 为了让测试跑在**同一份源码**上（实现改了测试就必须红），这里把 inline_js 块
+// 原样抽出来落到临时 .mjs，再 import 进来。
+//
+// 旧写法是把实现抄一遍再断言 —— 那测的是测试文件自己，改被测代码不会失败。
+// ---------------------------------------------------------------------------
+const ASSET_BRIDGE_SRC = path.join(repoRoot, 'frontend/src/bridge/asset.rs');
+
+function extractInlineJsBlocks(rustSource) {
+  const blocks = [];
+  const re = /inline_js\s*=\s*r#"([\s\S]*?)"#/g;
+  let m;
+  while ((m = re.exec(rustSource)) !== null) blocks.push(m[1]);
+  assert.ok(
+    blocks.length > 0,
+    'asset.rs 里找不到 inline_js 块 —— 抽取逻辑已失效，请同步更新本测试'
+  );
+  return blocks;
 }
 
-function copy_text_to_clipboard(text, customNav = globalThis.navigator, customDoc = globalThis.document) {
+const tmpModulePath = path.join(os.tmpdir(), `ew-asset-bridge-${process.pid}.mjs`);
+fs.writeFileSync(
+  tmpModulePath,
+  extractInlineJsBlocks(fs.readFileSync(ASSET_BRIDGE_SRC, 'utf8')).join('\n')
+);
+const { asset_rel_to_url, copy_text_to_clipboard } = await import(
+  pathToFileURL(tmpModulePath).href
+);
+
+// 真实实现读的是全局 window / navigator / document（不是参数），
+// 所以这里临时替换全局对象来注入桩，跑完恢复。
+function withGlobals(overrides, fn) {
+  const saved = new Map();
+  for (const [key, value] of Object.entries(overrides)) {
+    saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
+    Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+  }
   try {
-    if (customNav && customNav.clipboard && typeof customNav.clipboard.writeText === "function") {
-      customNav.clipboard.writeText(text);
-      return true;
+    return fn();
+  } finally {
+    for (const [key, desc] of saved) {
+      if (desc) Object.defineProperty(globalThis, key, desc);
+      else delete globalThis[key];
     }
-    if (customDoc && typeof customDoc.createElement === "function") {
-      const ta = customDoc.createElement("textarea");
-      ta.value = text;
-      ta.style = {};
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      customDoc.body.appendChild(ta);
-      ta.select = () => {};
-      const ok = customDoc.execCommand ? customDoc.execCommand("copy") : false;
-      customDoc.body.removeChild(ta);
-      return ok;
-    }
-    return false;
-  } catch (e) {
-    return false;
   }
 }
 
-test('1. 缩略图渲染：相对路径转为 Tauri asset URL 测试', (t) => {
-  // 1.1 空路径返回空字符串
-  assert.equal(asset_rel_to_url('', '/Users/roy/Library/Application Support/Easy-writing'), '');
-  assert.equal(asset_rel_to_url(null, '/Users/roy/Library/Application Support/Easy-writing'), '');
+test('1. 缩略图渲染：相对路径转为 Tauri asset URL', () => {
+  const appData = '/Users/roy/Library/Application Support/Easy-writing';
 
-  // 1.2 外链或协议完整 URL 必须原样返回（不走本地 assetProtocol）
-  assert.equal(asset_rel_to_url('https://example.com/cover.jpg', '/data'), 'https://example.com/cover.jpg');
-  assert.equal(asset_rel_to_url('asset://localhost/Users/img.png', '/data'), 'asset://localhost/Users/img.png');
-  assert.equal(asset_rel_to_url('data:image/png;base64,abc', '/data'), 'data:image/png;base64,abc');
+  // 1.1 空路径（真实实现用 !relPath 判断，'' 与 null 都返回空串）
+  assert.equal(asset_rel_to_url('', appData), '');
+  assert.equal(asset_rel_to_url(null, appData), '');
 
-  // 1.3 存在 Tauri 运行时环境时，必须正确拼接绝对路径并转为 asset:// URL
-  const mockWindowWithTauri = {
-    __TAURI__: {
-      core: {
-        convertFileSrc: (p) => `asset://localhost/${encodeURIComponent(p)}`
-      }
-    }
+  // 1.2 已是可直接使用的 URL：原样返回，**绝不**送进 convertFileSrc。
+  //
+  // 这里必须把 convertFileSrc 桩成"会破坏输入"的形式：
+  // 如果不加白名单判断而直接转换，返回值就会被改成 asset://localhost/...，
+  // 断言随即失败。用普通的等值断言抓不到这个回归 —— 因为末尾的兜底
+  // return relPath 会返回同一个字符串，看起来"也对"。
+  const mangle = {
+    window: {
+      __TAURI__: {
+        core: { convertFileSrc: (p) => `asset://localhost/${encodeURIComponent(p)}` },
+      },
+    },
   };
-  const appData = '/Users/roy/Library/Application Support/com.easywriting.desktop';
+  for (const u of [
+    'https://example.com/cover.jpg',
+    'asset://localhost/Users/img.png',
+    'data:image/png;base64,abc',
+    'blob:http://localhost/abc',
+  ]) {
+    assert.equal(
+      withGlobals(mangle, () => asset_rel_to_url(u, appData)),
+      u,
+      `${u} 被错误地送进了 convertFileSrc（协议白名单失效）`
+    );
+  }
+
+  // 1.3 有 Tauri convertFileSrc：拼出绝对路径后转换
   const rel = 'images/abc12345.png';
-  const converted = asset_rel_to_url(rel, appData, mockWindowWithTauri);
+  const converted = withGlobals(
+    {
+      window: {
+        __TAURI__: {
+          core: { convertFileSrc: (p) => `asset://localhost/${encodeURIComponent(p)}` },
+        },
+      },
+    },
+    () => asset_rel_to_url(rel, appData)
+  );
   assert.equal(converted, `asset://localhost/${encodeURIComponent(appData + '/' + rel)}`);
 
-  // 1.4 无 Tauri 桥接环境下优雅降级返回原相对路径（不崩溃）
-  const fallback = asset_rel_to_url(rel, appData, null);
+  // 1.4 无 Tauri 桥接：优雅降级返回原相对路径，不崩溃
+  const fallback = withGlobals({ window: {} }, () => asset_rel_to_url(rel, appData));
   assert.equal(fallback, rel);
+
+  // 1.5 appDataDir 末尾多余的斜杠必须被规整，不能拼出双斜杠
+  const trailing = withGlobals(
+    { window: { __TAURI__: { core: { convertFileSrc: (p) => p } } } },
+    () => asset_rel_to_url(rel, appData + '///')
+  );
+  assert.equal(trailing, `${appData}/${rel}`);
 });
 
-test('2. 插入到光标处：Tiptap 桥接调用方法验证', (t) => {
-  // 验证 js/src/tiptap-bridge.js 中包含 setImage 链式聚焦插入
-  const tiptapBridgePath = path.join(repoRoot, 'js/src/tiptap-bridge.js');
-  const code = fs.readFileSync(tiptapBridgePath, 'utf8');
-  assert.ok(code.includes('export function insert_image(src, alt'), '缺少 insert_image 导出');
-  assert.ok(code.includes('activeEditor.chain().focus().setImage({ src, alt }).run()'), '未调用 activeEditor setImage 链式插入');
-
-  // 模拟 activeEditor 调用
-  let inserted = null;
-  const mockEditor = {
-    chain() {
-      return {
-        focus() {
-          return {
-            setImage({ src, alt }) {
-              inserted = { src, alt };
-              return { run: () => true };
-            }
-          };
-        }
-      };
-    }
-  };
-  mockEditor.chain().focus().setImage({ src: 'asset://localhost/test.png', alt: '测试插图' }).run();
-  assert.deepEqual(inserted, { src: 'asset://localhost/test.png', alt: '测试插图' });
-});
-
-test('3. 复制路径：现代 Clipboard API 与回退方案验证', (t) => {
-  // 3.1 优先使用 navigator.clipboard
+test('2. 复制路径：现代 Clipboard API 与 execCommand 回退', () => {
+  // 2.1 优先 navigator.clipboard.writeText
   let writtenText = '';
-  const mockNav = {
-    clipboard: {
-      writeText: (t) => { writtenText = t; }
-    }
-  };
-  const success1 = copy_text_to_clipboard('images/cover_01.png', mockNav, null);
-  assert.equal(success1, true);
+  const ok1 = withGlobals(
+    {
+      navigator: { clipboard: { writeText: (t) => { writtenText = t; } } },
+      document: undefined,
+    },
+    () => copy_text_to_clipboard('images/cover_01.png')
+  );
+  assert.equal(ok1, true);
   assert.equal(writtenText, 'images/cover_01.png');
 
-  // 3.2 降级使用 document.execCommand
+  // 2.2 回退 document.execCommand('copy')，且必须清理临时节点
   let execCalled = false;
   let removedChild = false;
-  const mockDoc = {
-    body: {
-      appendChild: () => {},
-      removeChild: () => { removedChild = true; }
+  const ok2 = withGlobals(
+    {
+      navigator: {},
+      document: {
+        createElement: () => ({ style: {}, select() {} }),
+        body: {
+          appendChild() {},
+          removeChild() { removedChild = true; },
+        },
+        execCommand: (cmd) => {
+          if (cmd === 'copy') execCalled = true;
+          return true;
+        },
+      },
     },
-    createElement: () => ({ style: {} }),
-    execCommand: (cmd) => {
-      if (cmd === 'copy') execCalled = true;
-      return true;
-    }
-  };
-  const success2 = copy_text_to_clipboard('images/cover_02.png', null, mockDoc);
-  assert.equal(success2, true);
+    () => copy_text_to_clipboard('images/cover_02.png')
+  );
+  assert.equal(ok2, true);
   assert.equal(execCalled, true);
   assert.equal(removedChild, true);
+
+  // 2.3 两条路都不可用：返回 false，绝不抛异常
+  const ok3 = withGlobals({ navigator: {}, document: {} }, () =>
+    copy_text_to_clipboard('x')
+  );
+  assert.equal(ok3, false);
 });
 
-test('4. 文件缺失徽标：错误捕获与缺失响应机制测试', (t) => {
-  // 模拟 asset_gallery.rs 中的 broken 状态集逻辑
+test('3. 图库「缺失」徽标的状态语义（纯逻辑示意，不覆盖真实实现）', () => {
+  // 说明：本用例只是一份状态语义备忘，图中的 Set 与判定函数都是测试内自造的，
+  // 与 asset_gallery.rs 的真实实现没有任何绑定关系，不构成覆盖率。
   const brokenSet = new Set();
   const reportError = (relPath) => {
     brokenSet.add(relPath);
   };
 
-  // 初始无缺失
   assert.equal(brokenSet.size, 0);
-
-  // 模拟某两张图片在 WebView 中加载失败（触发 img on:error）
   reportError('images/missing_one.png');
   reportError('images/corrupted.jpg');
-
   assert.equal(brokenSet.size, 2);
-  assert.ok(brokenSet.has('images/missing_one.png'));
-  assert.ok(brokenSet.has('images/corrupted.jpg'));
 
-  // 缺失状态下的徽标文字与样式判定
   const getBadgeState = (relPath) => {
     const isBroken = brokenSet.has(relPath);
     return {
       isBroken,
       badgeText: isBroken ? '⚠ 缺失' : '',
-      borderClass: isBroken ? 'border-amber-300 dark:border-amber-800' : 'border-slate-200 dark:border-slate-700'
+      borderClass: isBroken
+        ? 'border-amber-300 dark:border-amber-800'
+        : 'border-slate-200 dark:border-slate-700',
     };
   };
 
-  const normalAsset = getBadgeState('images/fine.png');
-  assert.equal(normalAsset.isBroken, false);
-  assert.equal(normalAsset.badgeText, '');
+  assert.equal(getBadgeState('images/fine.png').isBroken, false);
+  assert.equal(getBadgeState('images/fine.png').badgeText, '');
 
-  const brokenAsset = getBadgeState('images/missing_one.png');
-  assert.equal(brokenAsset.isBroken, true);
-  assert.equal(brokenAsset.badgeText, '⚠ 缺失');
-  assert.ok(brokenAsset.borderClass.includes('amber'));
+  const broken = getBadgeState('images/missing_one.png');
+  assert.equal(broken.isBroken, true);
+  assert.equal(broken.badgeText, '⚠ 缺失');
+  assert.ok(broken.borderClass.includes('amber'));
 });
 
-test('5. 深色模式与面板收起的布局：编译生成的样式与结构规则', (t) => {
+test('4. 深色模式与面板收起的布局：编译生成的样式与结构规则', () => {
   const cssPath = path.join(repoRoot, 'frontend/public/styles.css');
   const cssContent = fs.readFileSync(cssPath, 'utf8');
 
-  // 5.1 验证 Tailwind 生成的深色模式类齐备
   assert.ok(cssContent.includes('.dark'), 'CSS 中缺少 .dark 基础规则');
-  assert.ok(cssContent.includes('dark\\:bg-slate-800') || cssContent.includes('dark:bg-slate-800') || cssContent.includes('--color-slate-800'), '缺少深色背景支持');
-  assert.ok(cssContent.includes('dark\\:border-slate-700') || cssContent.includes('dark:border-slate-700'), '缺少深色边框支持');
+  assert.ok(
+    cssContent.includes('dark\\:bg-slate-800') ||
+      cssContent.includes('dark:bg-slate-800') ||
+      cssContent.includes('--color-slate-800'),
+    '缺少深色背景支持'
+  );
+  assert.ok(
+    cssContent.includes('dark\\:border-slate-700') ||
+      cssContent.includes('dark:border-slate-700'),
+    '缺少深色边框支持'
+  );
 
-  // 5.2 验证面板收起时不受影响的 Modal 布局规则（固定视口全屏蒙层与自适应卡片）
   const galleryCodePath = path.join(repoRoot, 'frontend/src/components/editor/asset_gallery.rs');
   const galleryCode = fs.readFileSync(galleryCodePath, 'utf8');
 

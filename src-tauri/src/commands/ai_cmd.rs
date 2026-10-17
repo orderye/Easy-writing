@@ -1,7 +1,7 @@
 use crate::ai::gateway::AiGateway;
 use crate::ai::openai::ChatMessage;
 use crate::db::DbPool;
-use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ConflictInfo, ExtractionCandidate};
+use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ExtractionCandidate};
 use std::sync::Arc;
 use tauri::State;
 
@@ -211,7 +211,7 @@ pub async fn ai_check_conflict(
     pool: State<'_, DbPool>,
     novel_id: String,
     text: String,
-) -> Result<Option<ConflictInfo>, String> {
+) -> Result<shared_types::ConsistencyOutcome, String> {
     let (profile, api_key, context_text) = {
         let conn = pool.get().map_err(|e| e.to_string())?;
 
@@ -229,7 +229,14 @@ pub async fn ai_check_conflict(
     };
 
     let gateway = AiGateway::new();
-    crate::ai::consistency::check_consistency(&gateway, &context_text, &profile, &api_key, &text).await
+    Ok(crate::ai::consistency::check_consistency(
+        &gateway,
+        &context_text,
+        &profile,
+        &api_key,
+        &text,
+    )
+    .await)
 }
 
 #[tauri::command(rename_all = "snake_case")]

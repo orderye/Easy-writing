@@ -157,7 +157,7 @@ pub async fn webdav_restore_backup(
     app: tauri::AppHandle,
     pool: State<'_, DbPool>,
     filename: String,
-) -> Result<(), String> {
+) -> Result<crate::sync::restore::RestoreReport, String> {
     let (client, remote_dir) = get_webdav_client_and_remote_dir(pool.inner())?;
     let app_data_dir = app
         .path()

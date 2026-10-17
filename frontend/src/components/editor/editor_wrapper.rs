@@ -20,7 +20,11 @@ pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
             let on_update = {
                 let save_status = app_ctx.save_status;
                 let word_count = app_ctx.word_count;
+                let edit_seq = app_ctx.edit_seq;
                 Closure::wrap(Box::new(move || {
+                    // 先自增再置 dirty：保存完成时会比对这个序号，
+                    // 序号变了说明保存期间用户又改了内容，不能标记为已保存。
+                    edit_seq.update(|n| *n += 1);
                     save_status.set("dirty".to_string());
                     word_count.set(tiptap::get_word_count());
                 }) as Box<dyn FnMut()>)
@@ -56,6 +60,14 @@ pub fn EditorWrapper(app_ctx: AppContext) -> impl IntoView {
 
                 app_ctx.is_editor_mounted.set(true);
                 app_ctx.word_count.set(tiptap::get_word_count());
+
+                // 挂载前若已有被 set_content 拒绝的正文，在这里补装。
+                // 不做这件事的话，编辑器未就绪时切章会让用户看到空白编辑区。
+                if let Some(pending) = app_ctx.pending_editor_content.get_untracked() {
+                    tiptap::set_content(&pending);
+                    app_ctx.pending_editor_content.set(None);
+                    app_ctx.word_count.set(tiptap::get_word_count());
+                }
             }
         }
     });

@@ -94,6 +94,7 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::restore_trash_item,
             easy_writing_lib::commands::purge_trash_item,
             easy_writing_lib::commands::empty_trash,
+            easy_writing_lib::commands::find_affected_chapters,
             easy_writing_lib::commands::sync_cmd::webdav_save_config,
             easy_writing_lib::commands::sync_cmd::webdav_get_config,
             easy_writing_lib::commands::sync_cmd::webdav_test_connection,
@@ -167,6 +168,7 @@ fn all_command_keys_resolve() {
         ("save_plot", r#"{"id": null, "novel_id": "@@NOVEL@@", "title": "v", "content": "v", "kind": "foreshadow", "status": "planted", "chapter_id": null}"#),
         ("delete_plot", r#"{"id": "@@CHAPTER@@"}"#),
         ("list_setting_changes", r#"{"novel_id": "@@NOVEL@@"}"#),
+        ("find_affected_chapters", r#"{"novel_id": "@@NOVEL@@", "term": "剑"}"#),
         ("revert_setting_change", r#"{"change_id": "v"}"#),
         ("apply_conflict_setting_update", r#"{"novel_id": "@@NOVEL@@", "chapter_id": null, "setting_module": "worldview", "setting_title": "v", "new_content": "v", "reason": "v"}"#),
         ("ai_polish", r#"{"module_key": "v", "current_content": "v"}"#),
@@ -233,18 +235,54 @@ fn all_command_keys_resolve() {
             .replace("@@PROFILE@@", &profile_id)
     };
 
+    // 会对外部世界产生真实、不可回滚副作用的命令，sweep 一律不执行。
+    //
+    // 为什么必须排除（都是本测试真实踩出来的，不是理论担忧）：
+    //
+    //   * webdav_save_config —— 把密码写进系统钥匙串，而且用的是**固定** key_ref
+    //     （webdav_default_pwd）。第一次运行是新建条目，之后每次都是「修改已存在
+    //     条目」，macOS 会弹钥匙串授权框；无人值守的测试进程会**永久阻塞**。
+    //     实测表现：sweep 打印到 (60/86) webdav_save_config 后不再前进。
+    //   * create_llm_profile —— 每次用随机 key_ref 往钥匙串塞一条新条目，
+    //     跑一次留一条、永不清理，是对开发机钥匙串的持续污染。
+    //
+    // 代价可控：这两个命令的**参数键契约**由
+    // ipc_argcase::every_command_declares_snake_case 对全部 97 条命令做源码级
+    // 扫描兜底，另有 snake_case_multiword_args_are_the_contract 证明机制本身有效。
+    // 本 sweep 负责的是「注册后运行时真的能解析出参数键」，这两条属于已知例外。
+    const SIDE_EFFECT_COMMANDS: &[&str] = &["webdav_save_config", "create_llm_profile"];
+
     let mut rejected = Vec::new();
     let mut checked = 0usize;
+    let mut skipped = 0usize;
     for (cmd, raw) in cases {
+        // 逐条打印（配合 --nocapture 使用）。
+        //
+        // 这个背景不是装饰：sweep 会**真的执行**每一条命令，因此任何依赖外部
+        // 状态的命令都可能把它挂死。没有逐条输出时完全无法定位 —— 本文件就是
+        // 这样才发现它卡在 (60/86) webdav_save_config 上的。
+        eprintln!("[sweep] ({checked}/{}) {cmd}", cases.len());
+
+        if SIDE_EFFECT_COMMANDS.contains(cmd) {
+            skipped += 1;
+            eprintln!("[sweep]   ^ 跳过：该命令有真实且不可回滚的副作用（见 SIDE_EFFECT_COMMANDS 注释）");
+            continue;
+        }
+
         let body: serde_json::Value = serde_json::from_str(&fill(raw)).unwrap();
         checked += 1;
+        let started = std::time::Instant::now();
         if let Err(e) = call(&app, cmd, body) {
             if e.contains("missing required key") || e.contains("invalid args") {
                 rejected.push(format!("{cmd}: {e}"));
             }
         }
+        let elapsed = started.elapsed();
+        if elapsed.as_secs() >= 1 {
+            eprintln!("[sweep]   ^ 耗时 {elapsed:.1?}");
+        }
     }
-    println!("checked {checked} commands");
+    println!("checked {checked} commands, skipped {skipped}");
     assert!(rejected.is_empty(), "commands rejected on argument lookup:\n{}", rejected.join("\n"));
 }
 

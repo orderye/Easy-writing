@@ -58,7 +58,10 @@ fn every_command_declares_snake_case() {
     //  与 save_image_asset / get_app_data_dir 同属已知的 MockRuntime 限制）。
     // 95 → 96：导入作品增加 parse_import_epub（带 snake_case，已加入 command_key_sweep）。
     // 96 → 97：作品管理增加 list_novels_with_stats（带 snake_case，已加入 command_key_sweep）。
-    assert_eq!(total, 97, "command count changed — re-audit the frontend call sites");
+    // 97 → 98：改动传播（P2-4）增加 find_affected_chapters。
+    // 确定性影响面扫描：给定一个词，列出正文里提到它的章节与命中次数。
+    // 已加入 command_key_sweep 的参数键用例。
+    assert_eq!(total, 98, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
@@ -138,6 +141,80 @@ fn end_to_end_authoring_flow() {
         .expect("get_chapter");
     assert_eq!(full["word_count"], 4);
     assert_eq!(full["content_plain"], "正文内容");
+}
+
+/// 章节正文「写入 → 重新读出」的回环测试。
+///
+/// 覆盖范围说明（这是本仓库目前最大的覆盖空洞，值得写清楚）：
+///
+/// * 写入走 db::chapter::save_chapter_content，**不是** IPC 命令本身。
+/// * 读出走真实 IPC 命令 get_chapter。
+///
+/// 为什么写入不能用 IPC 命令名调？因为 save_chapter_content 的首参是
+/// tauri::AppHandle（即 AppHandle<Wry>），而 tauri 的实现是
+///   impl<'de, R: Runtime> CommandArg<'de, R> for AppHandle<R>
+/// —— R 必须与命令注册时的 Runtime 一致。AppHandle<Wry> 因此不满足
+/// CommandArg<MockRuntime>，命令无法注册到 mock_builder 上（实测编译报错：
+/// AppHandle 未实现 Deserialize / CommandArg<MockRuntime>）。
+/// 仓库原有注释是对的，不要再去尝试取消它。
+///
+/// 想真正补上 IPC 层的写入覆盖，唯一出路是把 AppHandle 从该命令上摘掉
+/// （例如让前端保存完成后再单独调一次提炼命令），属于行为改动，
+/// 不在本次修正范围内。
+///
+/// 这个用例守的是：正文写入 SQLite 后，经 IPC 读出时
+/// content（富文本 JSON）、content_plain、word_count 三者一致且可覆盖重写。
+#[test]
+fn save_then_reload_round_trip() {
+    let (app, novel_id) = app_with_pool();
+
+    let vol = call(
+        &app,
+        "create_volume",
+        serde_json::json!({ "novel_id": novel_id, "title": "V", "summary": "" }),
+    )
+    .expect("create_volume");
+    let volume_id = vol["id"].as_str().unwrap().to_string();
+
+    let ch = call(
+        &app,
+        "create_chapter",
+        serde_json::json!({
+            "novel_id": novel_id, "volume_id": volume_id,
+            "title": "第一章", "summary": ""
+        }),
+    )
+    .expect("create_chapter");
+    let chapter_id = ch["id"].as_str().unwrap().to_string();
+
+    let doc = r#"{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"第一章正文"}]}]}"#;
+
+    {
+        let pool = app.state::<db::DbPool>();
+        let conn = pool.get().unwrap();
+        db::chapter::save_chapter_content(&conn, &chapter_id, doc, "第一章正文", 5)
+            .expect("save_chapter_content 必须成功 —— 它失败就是编辑器静默丢字");
+    }
+
+    let full = call(&app, "get_chapter", serde_json::json!({ "id": chapter_id }))
+        .expect("get_chapter");
+    assert_eq!(full["content_plain"], "第一章正文");
+    assert_eq!(full["word_count"], 5);
+    assert_eq!(full["content"], doc, "富文本 JSON 必须原样回环，否则重开章节会掉格式");
+
+    // 再存一次：覆盖而非追加，且内容仍可解析回同一份文档
+    {
+        let pool = app.state::<db::DbPool>();
+        let conn = pool.get().unwrap();
+        db::chapter::save_chapter_content(&conn, &chapter_id, doc, "第一章正文（改）", 7)
+            .expect("重复保存必须成功");
+    }
+
+    let again = call(&app, "get_chapter", serde_json::json!({ "id": chapter_id }))
+        .expect("get_chapter");
+    assert_eq!(again["content_plain"], "第一章正文（改）");
+    assert_eq!(again["word_count"], 7);
+    assert_eq!(again["content"], doc);
 }
 
 /// Settings panels: worldview / characters / plots / relations / trash all key off novel_id.

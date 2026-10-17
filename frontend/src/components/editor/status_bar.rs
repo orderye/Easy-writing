@@ -19,6 +19,21 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
                 <span class="flex items-center gap-1.5 font-medium">
                     <span class=move || status_text().1>{move || status_text().0}</span>
                 </span>
+                // 自动保存连续失败时的常驻告警：只在按钮上变红太容易被忽略，
+                // 磁盘满/库被锁这类故障必须让用户看得见。
+                {move || {
+                    app_ctx
+                        .save_alert
+                        .get()
+                        .map(|msg| {
+                            view! {
+                                <span class="flex items-center gap-1 font-semibold text-red-600 dark:text-red-400">
+                                    <span>"⚠"</span>
+                                    <span>{msg}</span>
+                                </span>
+                            }
+                        })
+                }}
             </div>
 
             <div class="flex items-center gap-3 text-slate-400 dark:text-slate-500">

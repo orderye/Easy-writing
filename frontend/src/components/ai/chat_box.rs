@@ -2,7 +2,7 @@ use crate::bridge::tiptap;
 use crate::state::AppContext;
 use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ConflictInfo};
+use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ConsistencyOutcome};
 
 /// 本地消息视图。seq 为客户端自增序号，用于 For key——同一角色重复内容也不会冲突。
 #[derive(Clone, Debug, PartialEq)]
@@ -179,21 +179,46 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                 let conflict_check = invoke_cmd("ai_check_conflict")
                     .arg("novel_id", novel_id)
                     .arg("text", text_to_insert.clone())
-                    .send::<Option<ConflictInfo>>()
+                    .send::<ConsistencyOutcome>()
                     .await;
 
+                let insert_into_editor = || {
+                    tiptap::insert_at_cursor(&text_to_insert);
+                    app_ctx.save_status.set("dirty".to_string());
+                    app_ctx.word_count.set(tiptap::get_word_count());
+                };
+
                 match conflict_check {
-                    Ok(Some(conflict)) => {
-                        // Conflict detected! Open conflict modal for resolution
-                        app_ctx.pending_conflict_text.set(Some(text_to_insert));
-                        app_ctx.current_conflict.set(Some(conflict));
+                    Ok(ConsistencyOutcome::Conflict { info }) => {
+                        // 检测到冲突：开冲突弹窗让用户决定改正文还是改设定
+                        app_ctx.pending_conflict_text.set(Some(text_to_insert.clone()));
+                        app_ctx.current_conflict.set(Some(info));
                         app_ctx.is_conflict_modal_open.set(true);
                     }
-                    _ => {
-                        // Clean, insert directly
-                        tiptap::insert_at_cursor(&text_to_insert);
-                        app_ctx.save_status.set("dirty".to_string());
-                        app_ctx.word_count.set(tiptap::get_word_count());
+                    Ok(ConsistencyOutcome::Clean) => {
+                        insert_into_editor();
+                    }
+                    Ok(ConsistencyOutcome::NotChecked { reason }) => {
+                        // 「没测成」≠「没冲突」。正文照插（不阻塞写作），
+                        // 但必须让用户看见这一次是没检查过，而不是检查通过。
+                        // 旧实现把这种情况当成 None 静默插入，属于静默放行。
+                        web_sys::console::warn_1(
+                            &format!("[冲突检测未完成] {reason}").into(),
+                        );
+                        app_ctx
+                            .save_alert
+                            .set(Some(format!("本次未完成设定冲突检测：{reason}")));
+                        insert_into_editor();
+                    }
+                    Err(e) => {
+                        // 调用层失败同样属于「没测成」，不能当成干净
+                        web_sys::console::warn_1(
+                            &format!("[冲突检测调用失败] {e}").into(),
+                        );
+                        app_ctx
+                            .save_alert
+                            .set(Some("本次未完成设定冲突检测（调用失败）".to_string()));
+                        insert_into_editor();
                     }
                 }
             });

@@ -155,6 +155,7 @@ pub fn run() {
             commands::record_lexicon_usage,
             commands::sync_lexicon_from_novel,
             commands::import_lexicon_terms,
+            commands::find_affected_chapters,
             // App Updates & External URLs
             commands::update_cmd::check_app_update,
             commands::update_cmd::open_external_url,

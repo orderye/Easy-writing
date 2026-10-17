@@ -2,7 +2,7 @@ use crate::components::settings_panel::loaders::load_for_novel;
 use crate::state::AppContext;
 use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use shared_types::SettingChange;
+use shared_types::{AffectedChapter, SettingChange};
 
 #[component]
 pub fn SettingChangesModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
@@ -10,6 +10,36 @@ pub fn SettingChangesModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl
     let is_loading = RwSignal::new(false);
     let reverting_id = RwSignal::new(Option::<String>::None);
     let filter_module = RwSignal::new("all".to_string());
+
+    // 影响面扫描（P2-4）：改了一条设定之后，正文里哪些地方提到过它？
+    // 这一步刻意做成确定性字面匹配（不调模型），结果可复现；
+    // 真正的"要不要同步修改"交给作者判断。
+    let impact_term = RwSignal::new(String::new());
+    let impact_results = RwSignal::new(Vec::<AffectedChapter>::new());
+    let is_scanning = RwSignal::new(false);
+
+    let run_impact_scan = move || {
+        let term = impact_term.get_untracked().trim().to_string();
+        if term.is_empty() {
+            impact_results.set(Vec::new());
+            return;
+        }
+        let Some(novel) = app_ctx.current_novel.get_untracked() else {
+            return;
+        };
+        is_scanning.set(true);
+        leptos::task::spawn_local(async move {
+            if let Ok(list) = invoke_cmd("find_affected_chapters")
+                .arg("novel_id", novel.id)
+                .arg("term", term)
+                .send::<Vec<AffectedChapter>>()
+                .await
+            {
+                impact_results.set(list);
+            }
+            is_scanning.set(false);
+        });
+    };
 
     let load_changes = move || {
         is_loading.set(true);
@@ -112,6 +142,65 @@ pub fn SettingChangesModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl
                             <span class="text-xs text-slate-400">
                                 {move || format!("共 {} 条改动记录", get_filtered_list().len())}
                             </span>
+                        </div>
+
+                        // 影响面扫描条：设定改了，正文里还有哪些地方在用它？
+                        <div class="px-6 py-2.5 bg-amber-50/60 dark:bg-amber-950/20 border-b border-amber-200/70 dark:border-amber-900/40">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-semibold text-amber-700 dark:text-amber-300 shrink-0">
+                                    "🔍 影响面扫描"
+                                </span>
+                                <input
+                                    class="flex-1 px-2.5 py-1 text-xs rounded-md border border-amber-300 dark:border-amber-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                                    placeholder="输入设定名 / 角色名 / 专有名词，扫描哪些章节正文提到过它…"
+                                    prop:value=move || impact_term.get()
+                                    on:input=move |ev| impact_term.set(event_target_value(&ev))
+                                    on:keydown=move |ev| {
+                                        if ev.key() == "Enter" {
+                                            run_impact_scan();
+                                        }
+                                    }
+                                />
+                                <button
+                                    class="px-3 py-1 text-xs rounded-md bg-amber-500 hover:bg-amber-600 text-white font-medium transition-colors cursor-pointer shrink-0"
+                                    on:click=move |_| run_impact_scan()
+                                >
+                                    {move || if is_scanning.get() { "扫描中…" } else { "扫描" }}
+                                </button>
+                            </div>
+                            {move || {
+                                let list = impact_results.get();
+                                if list.is_empty() {
+                                    return view! { <span></span> }.into_any();
+                                }
+                                view! {
+                                    <div class="mt-2 max-h-40 overflow-y-auto space-y-1">
+                                        <p class="text-[11px] text-amber-700 dark:text-amber-400">
+                                            {format!(
+                                                "命中 {} 个章节（按命中次数排序）—— 这些正文可能需要同步修改：",
+                                                list.len(),
+                                            )}
+                                        </p>
+                                        {list
+                                            .into_iter()
+                                            .map(|c| {
+                                                view! {
+                                                    <div class="text-[11px] text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                                                        <span class="font-semibold shrink-0">{c.title}</span>
+                                                        <span class="px-1.5 rounded bg-amber-200/70 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200 shrink-0">
+                                                            {format!("{} 处", c.hits)}
+                                                        </span>
+                                                        <span class="truncate text-slate-500 dark:text-slate-400">
+                                                            {c.snippet}
+                                                        </span>
+                                                    </div>
+                                                }
+                                            })
+                                            .collect::<Vec<_>>()}
+                                    </div>
+                                }
+                                    .into_any()
+                            }}
                         </div>
 
                         // Main Content: List of changes

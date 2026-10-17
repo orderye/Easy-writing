@@ -147,6 +147,53 @@ pub fn get_chapter(pool: State<DbPool>, id: String) -> Result<Option<Chapter>, S
     crate::db::chapter::get_chapter(&conn, &id).map_err(|e| e.to_string())
 }
 
+/// 保存后是否应触发后台提炼。
+///
+/// 抽成纯函数的原因：save_chapter_content 的首参是 tauri::AppHandle，
+/// 在 MockRuntime 下无法注册（见 tests/ipc_argcase.rs 里的详细说明），
+/// 所以这条决策逻辑必须能脱离 IPC 层被单测覆盖。
+///
+/// 默认关闭：设置缺失、读取失败，或值不是 "true"/"1" 时一律不触发 ——
+/// 避免把要花钱的模型调用变成用户没同意的默认行为。
+pub fn should_trigger_auto_extract(
+    auto_extract_setting: Option<&str>,
+    content_plain: &str,
+) -> bool {
+    let enabled = matches!(auto_extract_setting, Some("true") | Some("1"));
+    // 按字符数而非字节数计：中文正文的字节数会让门槛形同虚设。
+    enabled && content_plain.chars().count() >= 100
+}
+
+#[cfg(test)]
+mod auto_extract_tests {
+    use super::should_trigger_auto_extract;
+
+    #[test]
+    fn defaults_to_off_when_setting_missing() {
+        let long = "字".repeat(200);
+        assert!(!should_trigger_auto_extract(None, &long));
+    }
+
+    #[test]
+    fn only_explicit_truthy_values_enable_it() {
+        let long = "字".repeat(200);
+        assert!(should_trigger_auto_extract(Some("true"), &long));
+        assert!(should_trigger_auto_extract(Some("1"), &long));
+        assert!(!should_trigger_auto_extract(Some("false"), &long));
+        assert!(!should_trigger_auto_extract(Some("0"), &long));
+        assert!(!should_trigger_auto_extract(Some(""), &long));
+        assert!(!should_trigger_auto_extract(Some("TRUE"), &long));
+    }
+
+    #[test]
+    fn short_text_never_triggers() {
+        assert!(!should_trigger_auto_extract(Some("true"), ""));
+        assert!(!should_trigger_auto_extract(Some("true"), "短"));
+        assert!(!should_trigger_auto_extract(Some("true"), &"字".repeat(99)));
+        assert!(should_trigger_auto_extract(Some("true"), &"字".repeat(100)));
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn save_chapter_content(
     app_handle: tauri::AppHandle,
@@ -173,14 +220,12 @@ pub fn save_chapter_content(
         );
 
         // 保存后自动提炼：受 app_setting.auto_extract 开关控制（PRD §4.2 P1，默认关闭）。
-        // 设置缺失或读取失败时按「关闭」处理，避免默认强制开启后台提炼。
-        let auto_extract = crate::db::app_setting::get_setting(&conn, "auto_extract")
+        // 决策抽到 should_trigger_auto_extract，理由见其文档注释。
+        let auto_extract_setting = crate::db::app_setting::get_setting(&conn, "auto_extract")
             .ok()
-            .flatten()
-            .map(|v| v == "true" || v == "1")
-            .unwrap_or(false);
+            .flatten();
 
-        if !auto_extract {
+        if !should_trigger_auto_extract(auto_extract_setting.as_deref(), &content_plain) {
             return Ok(());
         }
 
@@ -206,7 +251,8 @@ pub fn save_chapter_content(
             })();
 
             if let Ok((novel, chapter, profile, api_key)) = res {
-                if chapter.content_plain.chars().count() >= 100 {
+                // 长度门槛已在 should_trigger_auto_extract 里判过，此处不再重复。
+                {
                     let gateway_arc = std::sync::Arc::new(crate::ai::gateway::AiGateway::new());
                     if let Ok(candidates) = crate::agent::extraction::run_parallel_extraction(
                         gateway_arc,
@@ -224,6 +270,20 @@ pub fn save_chapter_content(
         });
     }
     Ok(())
+}
+
+/// 找出正文里提到过某个词的全部章节（改动设定后排查影响面用）。
+///
+/// 确定性实现：只做字面匹配，不调用模型，所以结果可复现、可断言。
+#[tauri::command(rename_all = "snake_case")]
+pub fn find_affected_chapters(
+    pool: State<DbPool>,
+    novel_id: String,
+    term: String,
+) -> Result<Vec<shared_types::AffectedChapter>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chapter::find_chapters_mentioning(&conn, &novel_id, &term)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

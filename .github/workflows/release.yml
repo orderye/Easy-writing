@@ -28,10 +28,10 @@ jobs:
         with:
           node-version: 20
 
+      # pnpm 版本由 package.json 的 packageManager 字段唯一确定；
+      # 这里不要再写 version，否则与 packageManager 冲突会导致 action 报错。
       - name: Setup pnpm
         uses: pnpm/action-setup@v3
-        with:
-          version: 9
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -48,6 +48,10 @@ jobs:
 
       - name: Build frontend bridge and styles
         run: pnpm build:assets
+
+      # 发布前必须跑测试：发布流程如果绕开 CI，等于把未验证的包直接推给用户。
+      - name: Run tests
+        run: pnpm test
 
       - name: Build and Publish Tauri Desktop App
         uses: tauri-apps/tauri-action@v0

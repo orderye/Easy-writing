@@ -15,13 +15,29 @@ pub async fn list_remote_backups(
     client.list_files(&clean_dir).await
 }
 
+/// 恢复过程中发现的单个不一致项。
+///
+/// 存在的意义：旧实现把这些情况全部 `let _ =` 吞掉，用户看到的是"恢复成功"，
+/// 实际素材可能缺失或被篡改。现在必须带回前端展示。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RestoreIssue {
+    pub filename: String,
+    pub reason: String,
+}
+
+/// 恢复结果报告。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RestoreReport {
+    pub issues: Vec<RestoreIssue>,
+}
+
 pub async fn run_consistency_restore(
     pool: DbPool,
     client: &WebDavClient,
     remote_dir: &str,
     backup_filename: &str,
     app_data_dir: PathBuf,
-) -> Result<(), String> {
+) -> Result<RestoreReport, String> {
     let clean_dir = remote_dir.trim_matches('/').to_string();
     let remote_backup_path = format!("{}/{}", clean_dir, backup_filename);
 
@@ -100,19 +116,86 @@ pub async fn run_consistency_restore(
         rows.map_err(|e| e.to_string())?
     };
 
-    for (file_path_str, _hash) in asset_rows {
+    // 回填缺失图片，并**校验内容**。
+    //
+    // 旧实现把 SELECT 出来的 hash 直接丢掉（for (.., _hash)），只按文件名判断存在性，
+    // 下载失败也是 let _ = 吞掉。结果是"恢复完成"可能意味着素材其实缺失或已被篡改，
+    // 而用户完全看不出来。现在逐项校验并把问题带回上层。
+    let mut issues: Vec<RestoreIssue> = Vec::new();
+
+    for (file_path_str, hash) in asset_rows {
         let p = PathBuf::from(&file_path_str);
-        if let Some(filename) = p.file_name().and_then(|n| n.to_str()) {
-            let target_local_image = local_images_dir.join(filename);
-            if !target_local_image.exists() {
-                // Download from WebDAV
-                let remote_img_path = format!("{}/{}", images_remote_dir, filename);
-                if let Ok(img_data) = client.download_file(&remote_img_path).await {
-                    let _ = fs::write(&target_local_image, img_data);
+        let Some(filename) = p.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
+            issues.push(RestoreIssue {
+                filename: file_path_str.clone(),
+                reason: "资产 rel_path 没有文件名，无法定位本地文件".to_string(),
+            });
+            continue;
+        };
+
+        let target_local_image = local_images_dir.join(&filename);
+        let remote_img_path = format!("{}/{}", images_remote_dir, filename);
+
+        // 本地已存在也要校验：备份可能是另一台机器的，同名不同内容会静默错配。
+        if target_local_image.exists() {
+            match fs::read(&target_local_image) {
+                Ok(local) if sha256_hex(&local) == hash => continue,
+                Ok(_) => {
+                    issues.push(RestoreIssue {
+                        filename: filename.clone(),
+                        reason: "本地已有同名文件但内容与备份记录不符，已用备份覆盖".to_string(),
+                    });
                 }
+                Err(e) => {
+                    issues.push(RestoreIssue {
+                        filename: filename.clone(),
+                        reason: format!("读取本地文件失败，已用备份覆盖：{}", e),
+                    });
+                }
+            }
+        }
+
+        match client.download_file(&remote_img_path).await {
+            Ok(img_data) => {
+                let actual = sha256_hex(&img_data);
+                if actual != hash {
+                    issues.push(RestoreIssue {
+                        filename: filename.clone(),
+                        reason: format!(
+                            "远端图片哈希不匹配（期望 {}，实际 {}），已拒绝写入",
+                            short_hash(&hash),
+                            short_hash(&actual)
+                        ),
+                    });
+                    continue;
+                }
+                if let Err(e) = fs::write(&target_local_image, &img_data) {
+                    issues.push(RestoreIssue {
+                        filename: filename.clone(),
+                        reason: format!("写入本地失败：{}", e),
+                    });
+                }
+            }
+            Err(e) => {
+                issues.push(RestoreIssue {
+                    filename: filename.clone(),
+                    reason: format!("远端下载失败：{}", e),
+                });
             }
         }
     }
 
-    Ok(())
+    Ok(RestoreReport { issues })
+}
+
+/// 计算与 asset.rs 保存素材时一致的 SHA-256 十六进制摘要。
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn short_hash(hash: &str) -> String {
+    hash.chars().take(12).collect()
 }

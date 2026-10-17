@@ -260,6 +260,47 @@ pub struct ConflictInfo {
     pub proposed_change: Option<String>,
 }
 
+/// 可能受某条设定改动影响的章节（确定性匹配的结果，不涉及模型判断）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AffectedChapter {
+    pub id: String,
+    pub title: String,
+    /// 该词在本章正文里出现的次数。
+    pub hits: i64,
+    /// 命中处的上下文片段，便于作者快速判断是否真的相关。
+    pub snippet: String,
+}
+
+/// 冲突检测的三种结果。
+///
+/// 存在的理由：以前只有 Option<ConflictInfo>，"没检测出来"和"没检测成功"
+/// 都表现为 None —— 模型返回了无法解析的 JSON 时，上层收到的是"无冲突"，
+/// 于是正文被当作干净的直接插入。这是**静默放行**，必须区分开。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum ConsistencyOutcome {
+    /// 检测完成，未发现矛盾。
+    Clean,
+    /// 检测完成，发现矛盾。
+    Conflict { info: ConflictInfo },
+    /// 检测**没有完成**（模型返回不可解析 / 调用失败 / 内容过短被跳过）。
+    /// 调用方必须把它显示成"未完成检测"，而不是"未发现矛盾"。
+    NotChecked { reason: String },
+}
+
+impl ConsistencyOutcome {
+    pub fn as_conflict(&self) -> Option<&ConflictInfo> {
+        match self {
+            ConsistencyOutcome::Conflict { info } => Some(info),
+            _ => None,
+        }
+    }
+
+    pub fn is_not_checked(&self) -> bool {
+        matches!(self, ConsistencyOutcome::NotChecked { .. })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct BackupFileInfo {
     pub filename: String,
