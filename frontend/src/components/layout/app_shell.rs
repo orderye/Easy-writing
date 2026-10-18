@@ -279,6 +279,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                                             move |_| {
                                                 app_ctx.is_unsaved_modal_open.set(false);
                                                 app_ctx.pending_switch_chapter.set(None);
+                                                app_ctx.save_status.set("saved".to_string());
                                                 do_switch_chapter(app_ctx, tid.clone());
                                             }
                                         }

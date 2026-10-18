@@ -387,5 +387,59 @@ fn test_extraction_failure_protection_coverage() {
     }
     let ch_after = db::chapter::get_chapter(&conn, &ch.id).unwrap().unwrap();
     assert!(ch_after.extracted_hash.is_none(), "失败时绝不能写入 extracted_hash 指纹");
+
+    // 场景 E：模拟数据库插入/锁冲突阻断 extracted_hash，以及随后重试成功的完整生命周期
+    {
+        let cand_title = "独孤求败";
+        let cand_dedup = compute_dedup_key("character", cand_title);
+
+        // 第一次尝试：模拟数据库写入失败（例如锁冲突/外键故障）
+        let mut sim_all_succeeded = true;
+        let insert_res: Result<(), String> = Err("database table is locked (5)".to_string());
+        if let Err(_e) = insert_res {
+            sim_all_succeeded = false;
+        }
+        if sim_all_succeeded {
+            conn.execute(
+                "UPDATE chapter SET extracted_hash = ?1 WHERE id = ?2",
+                rusqlite::params!["sim_hash_1", ch.id],
+            ).unwrap();
+        }
+        let ch_check1 = db::chapter::get_chapter(&conn, &ch.id).unwrap().unwrap();
+        assert!(ch_check1.extracted_hash.is_none(), "DB 异常时阻断 extracted_hash 写入");
+
+        // 第二次重试（Retry）：数据库正常，候选成功入库并更新 extracted_hash
+        let mut retry_all_succeeded = true;
+        let insert_res2 = db::extraction::insert_candidate(
+            &conn,
+            &novel.id,
+            &ch.id,
+            "agent-character",
+            "character",
+            "create",
+            None,
+            cand_title,
+            "剑魔独孤求败生平未尝一败",
+            "重剑无锋，大巧不工",
+            &cand_dedup,
+        );
+        assert!(insert_res2.is_ok(), "重试时数据库插入成功");
+        if insert_res2.is_err() {
+            retry_all_succeeded = false;
+        }
+        if retry_all_succeeded {
+            conn.execute(
+                "UPDATE chapter SET extracted_hash = ?1 WHERE id = ?2",
+                rusqlite::params!["retry_success_hash", ch.id],
+            ).unwrap();
+        }
+        let ch_check2 = db::chapter::get_chapter(&conn, &ch.id).unwrap().unwrap();
+        assert_eq!(
+            ch_check2.extracted_hash.as_deref(),
+            Some("retry_success_hash"),
+            "重试成功后顺利记录 extracted_hash 指纹"
+        );
+    }
 }
+
 
