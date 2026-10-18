@@ -488,6 +488,21 @@ pub fn compute_update_dedup_key(kind: &str, target_id: &str, payload: &str) -> S
     format!("{:x}", hasher.finalize())
 }
 
+/// 为章节梗概计算专用的去重键。
+///
+/// 章节梗概的核心实体为章节自身（`chapter_id`）。去重键绑定 `chapter_id` 与正规化后的 `payload`：
+/// 1. 相同章节若产生完全相同的梗概文本，能被有效去重；
+/// 2. 相同章节若在正文修改后产生新梗概文本，将产生不同 dedup_key，不会被历史已采纳的旧梗概永久拦截。
+pub fn compute_chapter_summary_dedup_key(chapter_id: &str, payload: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"chapter_summary:");
+    hasher.update(chapter_id.as_bytes());
+    hasher.update(b":");
+    let norm_payload: String = payload.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
+    hasher.update(norm_payload.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn compute_chapter_fingerprint(text: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
@@ -580,71 +595,107 @@ pub async fn run_parallel_extraction(
     }
 
     let mut extracted_candidates = Vec::new();
+    let mut all_succeeded = true;
 
     for (kind, task) in tasks {
-        if let Ok(Ok(raw_json)) = task.await {
-            let items = self_heal_and_parse_candidates(&raw_json, kind);
-            if !items.is_empty() {
-                let conn = pool.get().map_err(|e| e.to_string())?;
-                for item in items {
-                    // 模型看不到设定库时给的 action 不可信，这里按既有条目重新裁决
-                    let resolved = resolve_candidate_action(
-                        &item.action,
-                        item.target_id.as_deref(),
-                        &item.title,
-                        &item.kind,
-                        &existing,
-                    );
-
-                    let dedup_key = if resolved.action == "update" {
-                        compute_update_dedup_key(
-                            &item.kind,
-                            resolved.target_id.as_deref().unwrap_or(&item.title),
-                            &item.payload,
-                        )
-                    } else {
-                        compute_dedup_key(&item.kind, &item.title)
-                    };
-                    // Check if already pending, accepted or ignored
-                    if let Ok(false) = crate::db::extraction::is_candidate_ignored_or_accepted(
-                        &conn,
-                        &novel.id,
-                        &dedup_key,
-                    ) {
-                        let agent_id = match item.kind.as_str() {
-                            "worldview" => "agent-worldview",
-                            "character" => "agent-character",
-                            "plot" => "agent-plot",
-                            _ => "agent-outline",
+        match task.await {
+            Ok(Ok(raw_json)) => {
+                let items = self_heal_and_parse_candidates(&raw_json, kind);
+                if !items.is_empty() {
+                    let conn = pool.get().map_err(|e| e.to_string())?;
+                    for item in items {
+                        // 章节梗概归属于当前章节，去重键绑定 chapter_id 与 payload，
+                        // 避免被历史已采纳的旧梗概永久阻断更新。
+                        let (resolved, dedup_key) = if item.kind == "chapter_summary" {
+                            let action = if chapter.summary.trim().is_empty() {
+                                "create".to_string()
+                            } else {
+                                "update".to_string()
+                            };
+                            let key = compute_chapter_summary_dedup_key(&chapter.id, &item.payload);
+                            (
+                                ResolvedAction {
+                                    action,
+                                    target_id: Some(chapter.id.clone()),
+                                },
+                                key,
+                            )
+                        } else {
+                            let res = resolve_candidate_action(
+                                &item.action,
+                                item.target_id.as_deref(),
+                                &item.title,
+                                &item.kind,
+                                &existing,
+                            );
+                            let key = if res.action == "update" {
+                                compute_update_dedup_key(
+                                    &item.kind,
+                                    res.target_id.as_deref().unwrap_or(&item.title),
+                                    &item.payload,
+                                )
+                            } else {
+                                compute_dedup_key(&item.kind, &item.title)
+                            };
+                            (res, key)
                         };
 
-                        if let Ok(cand) = crate::db::extraction::insert_candidate(
+                        // Check if already pending, accepted or ignored
+                        if let Ok(false) = crate::db::extraction::is_candidate_ignored_or_accepted(
                             &conn,
                             &novel.id,
-                            &chapter.id,
-                            agent_id,
-                            &item.kind,
-                            &resolved.action,
-                            resolved.target_id.as_deref(),
-                            &item.title,
-                            &item.payload,
-                            &item.evidence,
                             &dedup_key,
                         ) {
-                            extracted_candidates.push(cand);
+                            let agent_id = match item.kind.as_str() {
+                                "worldview" => "agent-worldview",
+                                "character" => "agent-character",
+                                "plot" => "agent-plot",
+                                _ => "agent-outline",
+                            };
+
+                            if let Ok(cand) = crate::db::extraction::insert_candidate(
+                                &conn,
+                                &novel.id,
+                                &chapter.id,
+                                agent_id,
+                                &item.kind,
+                                &resolved.action,
+                                resolved.target_id.as_deref(),
+                                &item.title,
+                                &item.payload,
+                                &item.evidence,
+                                &dedup_key,
+                            ) {
+                                extracted_candidates.push(cand);
+                            }
                         }
                     }
                 }
             }
+            Ok(Err(e)) => {
+                all_succeeded = false;
+                eprintln!("[Extraction] Agent {} 执行失败: {}", kind, e);
+            }
+            Err(e) => {
+                all_succeeded = false;
+                eprintln!("[Extraction] Agent {} JoinError: {}", kind, e);
+            }
         }
     }
 
-    // Update chapter extracted_hash
-    {
+    // 关键防御：仅当所有 Agent 均成功执行返回时，才更新 extracted_hash！
+    // 一旦有 Agent 失败（例如 429 限流、网络中断），不打 hash 戳，
+    // 使得用户再次触发提炼时，能够重新跑并有机会补齐缺失分类的候选。
+    if all_succeeded {
         let conn = pool.get().map_err(|e| e.to_string())?;
         let _ = conn.execute(
             "UPDATE chapter SET extracted_hash = ?1 WHERE id = ?2",
             rusqlite::params![current_hash, chapter.id],
+        );
+    } else {
+        eprintln!(
+            "[Extraction] 部分 Agent 提炼未完全成功，跳过写入 extracted_hash 以支持后续重试补齐 (chapter_id: {})",
+            chapter.id
         );
     }
 
@@ -859,6 +910,27 @@ mod tests {
         assert_eq!(cands.len(), 1);
         assert!(!cands[0].title.is_empty(), "当title为空时应自修复从payload提取");
         assert_eq!(cands[0].payload, "官家行在移驻下邳，军心初定，韩世忠引军来会。");
+    }
+
+    #[test]
+    fn test_chapter_summary_dedup_key_behavior() {
+        let ch_id = "chap-001";
+        let payload1 = "赵玖下邳驻跸，召见韩世忠商议抗金对策。";
+        let payload2 = "赵玖下邳遇刺，韩世忠引军平乱护驾。";
+
+        let key1 = compute_chapter_summary_dedup_key(ch_id, payload1);
+        let key1_same = compute_chapter_summary_dedup_key(ch_id, "  赵玖下邳驻跸，召见韩世忠商议抗金对策。 \n");
+        let key2 = compute_chapter_summary_dedup_key(ch_id, payload2);
+        let key_other_chap = compute_chapter_summary_dedup_key("chap-002", payload1);
+
+        // 相同章节且正规化后相同文本：生成相同 dedup_key，能够去重
+        assert_eq!(key1, key1_same);
+
+        // 相同章节但内容发生修改：生成不同 dedup_key，不再被历史已采纳记录死锁拦截
+        assert_ne!(key1, key2);
+
+        // 不同章节即便摘要文本凑巧相同：也生成不同 key
+        assert_ne!(key1, key_other_chap);
     }
 }
 

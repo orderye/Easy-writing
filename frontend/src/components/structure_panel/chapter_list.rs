@@ -33,7 +33,9 @@ pub fn request_switch_chapter(app_ctx: AppContext, target: ChapterHeader) {
             return;
         }
     }
-    if app_ctx.save_status.get() == "dirty" {
+    let status = app_ctx.save_status.get();
+    // 任何非 saved 状态（未保存 dirty、保存失败 error、保存中 saving）都必须拦截，严防丢稿！
+    if status != "saved" {
         app_ctx.pending_switch_chapter.set(Some(target));
         app_ctx.is_unsaved_modal_open.set(true);
     } else {

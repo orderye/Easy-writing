@@ -4,20 +4,49 @@
 //! 保存是异步的，而用户在保存期间可以继续输入。
 //! 抽成纯函数后可以用普通 `cargo test` 覆盖，不需要 DOM。
 
-/// 保存完成后的目标状态。
+/// 保存执行后的终态判定枚举。
 ///
-/// - `succeeded`：IPC 是否成功返回。
-/// - `edited_since`：从本次保存取走正文之后，编辑器是否又发生了新的编辑。
-///
-/// 关键分支是 `(true, true)` —— 保存成功，但保存期间用户又改了内容。
-/// 此时磁盘上的内容**早于**编辑器内容，绝不能标记成 "saved"：
-/// 一旦标记为已保存，切章逻辑就不会弹未保存提示，那一段输入会被静默丢弃。
-pub fn resolve_save_status(succeeded: bool, edited_since: bool) -> &'static str {
-    match (succeeded, edited_since) {
-        (false, _) => "error",
-        (true, true) => "dirty",
-        (true, false) => "saved",
+/// 消除单纯 `bool` 返回值带来的二义性：
+/// - `Saved`：IPC 成功落库且期间没有新增输入，允许安全切章；
+/// - `Failed`：IPC 报错或数据库写失败，严禁切章；
+/// - `EditedDuringSave`：虽已成功持久化取样时的快照，但等待期间用户又键入了新字符，
+///   正文再次处于脏状态，必须继续追平保存，不能直接切章。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveOutcome {
+    /// 成功保存且正文已完全同步
+    Saved,
+    /// 保存失败（网络、IPC、SQL 锁等）
+    Failed,
+    /// 本次快照已保存，但保存期间产生了新编辑，内容依然未完全持久化
+    EditedDuringSave,
+}
+
+impl SaveOutcome {
+    pub fn as_status_str(&self) -> &'static str {
+        match self {
+            SaveOutcome::Saved => "saved",
+            SaveOutcome::Failed => "error",
+            SaveOutcome::EditedDuringSave => "dirty",
+        }
     }
+
+    pub fn is_safe_to_switch(&self) -> bool {
+        matches!(self, SaveOutcome::Saved)
+    }
+}
+
+/// 根据 IPC 执行结果与并发输入判定终态。
+pub fn resolve_save_outcome(succeeded: bool, edited_since: bool) -> SaveOutcome {
+    match (succeeded, edited_since) {
+        (false, _) => SaveOutcome::Failed,
+        (true, true) => SaveOutcome::EditedDuringSave,
+        (true, false) => SaveOutcome::Saved,
+    }
+}
+
+/// 保存完成后的目标状态字符串（兼容保留）。
+pub fn resolve_save_status(succeeded: bool, edited_since: bool) -> &'static str {
+    resolve_save_outcome(succeeded, edited_since).as_status_str()
 }
 
 /// 自动保存失败后的退避等待秒数（指数退避，上限 60 秒）。
@@ -36,20 +65,30 @@ mod tests {
 
     #[test]
     fn save_failed_is_always_error() {
+        assert_eq!(resolve_save_outcome(false, false), SaveOutcome::Failed);
+        assert_eq!(resolve_save_outcome(false, true), SaveOutcome::Failed);
         assert_eq!(resolve_save_status(false, false), "error");
-        // 失败优先于"期间有新编辑"：不能因为又编辑过就把失败掩盖成 dirty
         assert_eq!(resolve_save_status(false, true), "error");
+        assert!(!resolve_save_outcome(false, false).is_safe_to_switch());
     }
 
     #[test]
     fn save_succeeded_with_new_edits_must_stay_dirty() {
-        // 这是本模块存在的理由：保存成功后磁盘内容仍落后于编辑器
+        // 这是关键分支：保存成功但磁盘内容仍落后于编辑器，绝不允许直接切章
+        let outcome = resolve_save_outcome(true, true);
+        assert_eq!(outcome, SaveOutcome::EditedDuringSave);
+        assert_eq!(outcome.as_status_str(), "dirty");
         assert_eq!(resolve_save_status(true, true), "dirty");
+        assert!(!outcome.is_safe_to_switch());
     }
 
     #[test]
     fn save_succeeded_without_new_edits_is_saved() {
+        let outcome = resolve_save_outcome(true, false);
+        assert_eq!(outcome, SaveOutcome::Saved);
+        assert_eq!(outcome.as_status_str(), "saved");
         assert_eq!(resolve_save_status(true, false), "saved");
+        assert!(outcome.is_safe_to_switch());
     }
 
     #[test]

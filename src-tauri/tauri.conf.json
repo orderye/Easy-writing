@@ -27,7 +27,7 @@
         "enable": true,
         "scope": ["$APPDATA/images/**"]
       },
-      "csp": null
+      "csp": "default-src 'self' tauri: blob: data: asset:; img-src 'self' tauri: blob: data: asset: http://asset.localhost https://*; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost tauri: http://localhost:* http://127.0.0.1:* https://*;"
     }
   },
   "bundle": {

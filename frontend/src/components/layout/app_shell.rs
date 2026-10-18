@@ -70,8 +70,10 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
 
                 match ctx.save_status.get_untracked().as_str() {
                     "dirty" | "error" => {
-                        let ok = perform_save_async(ctx).await;
-                        if ok {
+                        let outcome = perform_save_async(ctx).await;
+                        if outcome == save_state::SaveOutcome::Saved
+                            || outcome == save_state::SaveOutcome::EditedDuringSave
+                        {
                             failures = 0;
                             ctx.save_alert.set(None);
                         } else {
@@ -162,7 +164,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                         let reason = conflict.reason.clone();
                         let new_val = new_setting.clone();
                         leptos::task::spawn_local(async move {
-                            let _ = invoke_cmd("apply_conflict_setting_update")
+                            let res = invoke_cmd("apply_conflict_setting_update")
                                 .arg("novel_id", nid)
                                 .opt("chapter_id", cid)
                                 .arg("setting_module", mod_name)
@@ -171,13 +173,18 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                                 .arg("reason", format!("AI冲突消除覆盖: {}", reason))
                                 .send_unit()
                                 .await;
+                            if res.is_ok() {
+                                if let Some(text) = app_ctx.pending_conflict_text.get() {
+                                    crate::bridge::tiptap::insert_at_cursor(&text);
+                                    app_ctx.save_status.set("dirty".to_string());
+                                    app_ctx.word_count.set(crate::bridge::tiptap::get_word_count());
+                                    app_ctx.pending_conflict_text.set(None);
+                                }
+                            } else {
+                                web_sys::console::error_1(&"设定库更新失败，已终止正文写入以保证一致性".into());
+                                app_ctx.save_alert.set(Some("设定库更新失败，正文插入已取消以避免数据不一致".to_string()));
+                            }
                         });
-                    }
-                    if let Some(text) = app_ctx.pending_conflict_text.get() {
-                        crate::bridge::tiptap::insert_at_cursor(&text);
-                        app_ctx.save_status.set("dirty".to_string());
-                        app_ctx.word_count.set(crate::bridge::tiptap::get_word_count());
-                        app_ctx.pending_conflict_text.set(None);
                     }
                 }
                 on_rewrite_without_conflict=move || {
@@ -210,6 +217,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
 
                     let target_id_save = target_id.clone();
                     let target_id_discard = target_id.clone();
+                    let is_saving_in_modal = RwSignal::new(false);
+                    let modal_error = RwSignal::new(Option::<String>::None);
 
                     view! {
                         <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-6 select-none animate-in fade-in">
@@ -219,11 +228,42 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                                     <h3 class="font-bold text-base text-slate-800 dark:text-slate-100">"未保存修改提示"</h3>
                                 </div>
                                 <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                                    "当前章节有尚未保存的正文内容。切换至「" <span class="font-bold text-slate-800 dark:text-slate-100">{target_title}</span> "」前，请选择处理方式："
+                                    {move || {
+                                        let status = app_ctx.save_status.get();
+                                        if status == "error" {
+                                            "当前章节此前保存失败，修改内容尚未持久化到磁盘。切换至目标章节前，请务必选择处理方式："
+                                        } else if status == "saving" {
+                                            "当前正文正在保存中。切换至目标章节前，请选择处理方式："
+                                        } else {
+                                            "当前章节有尚未保存的正文内容。切换至「"
+                                        }
+                                    }}
+                                    {move || {
+                                        let status = app_ctx.save_status.get();
+                                        if status != "error" && status != "saving" {
+                                            view! { <span class="font-bold text-slate-800 dark:text-slate-100">{target_title.clone()}</span> "」前，请选择处理方式：" }.into_any()
+                                        } else {
+                                            view! { <span class="font-bold text-slate-800 dark:text-slate-100">{format!("「{}」", target_title)}</span> }.into_any()
+                                        }
+                                    }}
                                 </p>
+
+                                {move || {
+                                    if let Some(err) = modal_error.get() {
+                                        view! {
+                                            <div class="p-2.5 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-300 text-xs rounded border border-red-200 dark:border-red-900/60 leading-relaxed font-medium">
+                                                {err}
+                                            </div>
+                                        }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }
+                                }}
+
                                 <div class="flex items-center justify-end gap-2 pt-2 text-xs">
                                     <button
-                                        class="px-3 py-1.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer"
+                                        class="px-3 py-1.5 border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                        disabled=move || is_saving_in_modal.get()
                                         on:click=move |_| {
                                             app_ctx.pending_switch_chapter.set(None);
                                             app_ctx.is_unsaved_modal_open.set(false);
@@ -232,7 +272,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                                         "取消"
                                     </button>
                                     <button
-                                        class="px-3 py-1.5 border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 rounded transition-colors cursor-pointer"
+                                        class="px-3 py-1.5 border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/60 rounded transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                        disabled=move || is_saving_in_modal.get()
                                         on:click={
                                             let tid = target_id_discard.clone();
                                             move |_| {
@@ -245,25 +286,36 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                                         "放弃修改"
                                     </button>
                                     <button
-                                        class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded shadow-xs transition-colors cursor-pointer"
+                                        class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded shadow-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-wait flex items-center gap-1.5"
+                                        disabled=move || is_saving_in_modal.get()
                                         on:click={
                                             let tid = target_id_save.clone();
                                             move |_| {
                                                 let tid = tid.clone();
+                                                is_saving_in_modal.set(true);
+                                                modal_error.set(None);
                                                 leptos::task::spawn_local(async move {
-                                                    app_ctx.is_unsaved_modal_open.set(false);
-                                                    let ok = crate::components::structure_panel::save_button::perform_save_async(app_ctx).await;
-                                                    if ok {
+                                                    let mut outcome = crate::components::structure_panel::save_button::perform_save_async(app_ctx).await;
+                                                    if outcome == crate::save_state::SaveOutcome::EditedDuringSave {
+                                                        outcome = crate::components::structure_panel::save_button::perform_save_async(app_ctx).await;
+                                                    }
+                                                    is_saving_in_modal.set(false);
+
+                                                    if outcome == crate::save_state::SaveOutcome::Saved {
+                                                        app_ctx.is_unsaved_modal_open.set(false);
                                                         app_ctx.pending_switch_chapter.set(None);
                                                         do_switch_chapter(app_ctx, tid);
+                                                    } else if outcome == crate::save_state::SaveOutcome::EditedDuringSave {
+                                                        modal_error.set(Some("保存期间检测到持续输入，请稍候片刻后再次点击保存并切换".to_string()));
                                                     } else {
+                                                        modal_error.set(Some("正文保存失败，已拦截切章操作以防丢失稿件！请检查磁盘后重试，或选择放弃修改。".to_string()));
                                                         web_sys::console::error_1(&"切章前保存失败，已拦截切章操作以防丢稿".into());
                                                     }
                                                 });
                                             }
                                         }
                                     >
-                                        "保存并切换"
+                                        {move || if is_saving_in_modal.get() { "保存中..." } else { "保存并切换" }}
                                     </button>
                                 </div>
                             </div>

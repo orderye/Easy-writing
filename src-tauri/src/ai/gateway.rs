@@ -31,6 +31,7 @@ impl AiGateway {
         profile: &LlmProfile,
         api_key: &str,
     ) -> Result<(), String> {
+        validate_base_url(&profile.base_url)?;
         match profile.protocol.as_str() {
             "anthropic" => {
                 anthropic::test_anthropic_connection(
@@ -61,6 +62,7 @@ impl AiGateway {
         base_url: &str,
         api_key: &str,
     ) -> Result<Vec<shared_types::RemoteModel>, String> {
+        validate_base_url(base_url)?;
         let trimmed = base_url.trim_end_matches('/');
         let (url, is_anthropic) = if protocol == "anthropic" {
             if trimmed.ends_with("/models") {
@@ -138,6 +140,7 @@ impl AiGateway {
         system_prompt: Option<String>,
         messages: Vec<ChatMessage>,
     ) -> Result<String, String> {
+        validate_base_url(&profile.base_url)?;
         let event_name = stream_event_name.to_string();
         let app_handle = Arc::new(app);
 
@@ -236,6 +239,7 @@ impl AiGateway {
         system_prompt: Option<String>,
         messages: Vec<ChatMessage>,
     ) -> Result<String, String> {
+        validate_base_url(&profile.base_url)?;
         let noop = |_| {};
         // 同步调用（修饰 / 冲突检测 / 提炼）不关心「是否流式」开关，始终按流式收集，
         // 但 temperature 与最大输出长度沿用接口配置。
@@ -287,5 +291,106 @@ impl AiGateway {
                 .await
             }
         }
+    }
+}
+
+/// 校验模型服务端点 URL 的协议与安全性。
+///
+/// 规则：
+/// - 必须是合法的 HTTP 或 HTTPS URL；
+/// - 若使用明文 `http://`：
+///   必须是本机环回地址（`localhost`、`127.0.0.1`、`[::1]`、`0.0.0.0`）或局域网私有地址（`192.168.*`、`10.*`、`172.16~31.*`）；
+///   对于公网远程地址，严禁使用明文 HTTP，以防 API Key 在公网裸奔传输。
+pub fn validate_base_url(base_url: &str) -> Result<(), String> {
+    let trimmed = base_url.trim();
+    if trimmed.is_empty() {
+        return Err("API Base URL 不能为空".to_string());
+    }
+
+    let lower = trimmed.to_lowercase();
+    if lower.starts_with("https://") {
+        return Ok(());
+    }
+
+    if lower.starts_with("http://") {
+        let without_proto = &trimmed[7..];
+        let host_part = without_proto
+            .split(['/', ':', '?', '#'])
+            .next()
+            .unwrap_or("")
+            .trim();
+
+        if is_local_or_private_host(host_part) {
+            return Ok(());
+        }
+
+        return Err(format!(
+            "安全拦截：远程模型服务「{}」使用了明文 HTTP 协议，可能导致 API 密钥在公网传输中泄露。公网远程接口请使用 HTTPS 协议，仅本地/局域网服务（如 localhost/127.0.0.1）允许使用 HTTP。",
+            host_part
+        ));
+    }
+
+    Err(format!(
+        "无效的 Base URL 协议：「{}」，仅支持 https:// 或 http://",
+        trimmed
+    ))
+}
+
+fn is_local_or_private_host(host: &str) -> bool {
+    let h = host.trim().to_lowercase();
+    let clean_h = h.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(&h);
+    if clean_h == "localhost" || clean_h == "127.0.0.1" || clean_h == "::1" || clean_h == "0.0.0.0" {
+        return true;
+    }
+
+    // 局域网私有 IPv4
+    if let Ok(ip) = clean_h.parse::<std::net::Ipv4Addr>() {
+        let octets = ip.octets();
+        if octets[0] == 127
+            || octets[0] == 10
+            || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+            || (octets[0] == 192 && octets[1] == 168)
+        {
+            return true;
+        }
+    }
+
+    // 局域网私有 IPv6
+    if let Ok(ip) = clean_h.parse::<std::net::Ipv6Addr>() {
+        if ip.is_loopback() {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_base_url_security_rules() {
+        // HTTPS 远程接口放行
+        assert!(validate_base_url("https://api.openai.com/v1").is_ok());
+        assert!(validate_base_url("https://api.deepseek.com").is_ok());
+        assert!(validate_base_url("https://api.anthropic.com/v1").is_ok());
+
+        // 本地开发与内网服务允许 HTTP
+        assert!(validate_base_url("http://localhost:11434").is_ok());
+        assert!(validate_base_url("http://127.0.0.1:11434/v1").is_ok());
+        assert!(validate_base_url("http://0.0.0.0:8000").is_ok());
+        assert!(validate_base_url("http://192.168.1.100:8000").is_ok());
+        assert!(validate_base_url("http://10.0.1.20:8080/v1").is_ok());
+        assert!(validate_base_url("http://172.16.0.5:8000").is_ok());
+
+        // 公网明文 HTTP 强制拦截保护密钥
+        assert!(validate_base_url("http://api.openai.com/v1").is_err());
+        assert!(validate_base_url("http://api.deepseek.com").is_err());
+        assert!(validate_base_url("http://47.98.12.34:8000").is_err());
+
+        // 非法协议拦截
+        assert!(validate_base_url("ftp://127.0.0.1").is_err());
+        assert!(validate_base_url("").is_err());
     }
 }

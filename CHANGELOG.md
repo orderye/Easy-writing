@@ -20,6 +20,15 @@
   - 备份时间戳全面采用 UTC 格式（`YYYYMMDD_HHMMSSZ`）。
   - 云端备份自动轮转修剪，默认保留最近 20 份完整快照。
   - 窗口关闭退出时的静默同步超时保护由 5 秒放宽至 10 秒。
+### 第三方审校专项深度加固 (Third-Party Review Hardening)
+- **切章丢稿双边界防御闭环 (P0)**：
+  - 引入 `SaveOutcome` 强类型状态机（`Saved`、`Failed`、`EditedDuringSave`），废除有歧义的单纯布尔返回值；
+  - `request_switch_chapter` 全面拦截所有非 `saved` 状态（含 `dirty`、`error`、`saving`），彻底封死自动保存失败后直接切章覆盖正文的控制流漏洞；
+  - 切章确认弹窗改造为闭环交互：保存期间禁用操作并展示加载状态，检测到持续输入自动追平重存，保存失败时坚决阻止切章并提示创作者。
+- **AI Agent 提炼哈希重试保护 (P1)**：并发提炼任务在任意 Agent 失败时跳过正文哈希标记，杜绝 429 或网络抖动后锁死提炼状态，支持随时重试补齐。
+- **章节梗概独立更新去重 (P1)**：去重键绑定 `chapter_id + payload_hash`，彻底解开同名章节修改正文后旧梗概阻断新梗概入库的死锁。
+- **设定更新与正文严格串行 (P1)**：冲突裁决在 `await` 设定库更新成功后方才触发正文插入，防止正文与设定库脱节。
+- **AI Gateway 远程 HTTPS 协议强校验与 Tauri CSP 策略**：拦截远程明文 HTTP 请求以防 API Key 泄露（仅允许本地/局域网 HTTP），补齐 Tauri 2 最小权限 CSP 防御层。
 
 ### 架构健壮性与功能完善 (Robustness & Features)
 - **大纲与章节梗概设定回滚支持 (P1-1)**：在 `revert_setting_change` 与 `apply_conflict_setting_update` 中补齐对 `chapter`、`volume`、`outline` 及 `novel` 描述的回滚更新逻辑。

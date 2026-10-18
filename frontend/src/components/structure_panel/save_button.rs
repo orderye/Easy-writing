@@ -21,10 +21,10 @@ pub fn perform_save(app_ctx: AppContext) {
 /// 状态判定交给 `save_state::resolve_save_status`：若保存期间用户又输入了内容
 /// （`edit_seq` 已变），保存成功也不能标记为 "saved" —— 否则切章逻辑看到
 /// "saved" 就直接切走，那段输入会被静默丢弃。
-pub async fn perform_save_async(app_ctx: AppContext) -> bool {
+pub async fn perform_save_async(app_ctx: AppContext) -> save_state::SaveOutcome {
     let Some(mut chapter) = app_ctx.current_chapter.get_untracked() else {
         // 没有当前章节，视为无事发生（不算失败，避免自动保存误报）
-        return true;
+        return save_state::SaveOutcome::Saved;
     };
 
     let seq_at_save = app_ctx.edit_seq.get_untracked();
@@ -55,11 +55,12 @@ pub async fn perform_save_async(app_ctx: AppContext) -> bool {
     }
 
     let edited_since = app_ctx.edit_seq.get_untracked() != seq_at_save;
+    let outcome = save_state::resolve_save_outcome(succeeded, edited_since);
     app_ctx
         .save_status
-        .set(save_state::resolve_save_status(succeeded, edited_since).to_string());
+        .set(outcome.as_status_str().to_string());
 
-    succeeded
+    outcome
 }
 
 #[component]
