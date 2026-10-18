@@ -306,6 +306,89 @@ export function set_ghost_completion_enabled(enabled) {
   }
 }
 
+let cachedAppDataDir = '';
+
+export function set_app_data_dir(dir) {
+  cachedAppDataDir = dir || '';
+}
+
+export function get_app_data_dir() {
+  return cachedAppDataDir;
+}
+
+export function resolve_asset_url(src) {
+  if (!src) return '';
+  if (src.startsWith('asset://local/')) {
+    const rel = src.slice('asset://local/'.length);
+    return convertRelToLocalUrl(rel, cachedAppDataDir);
+  }
+  const imgIdx = src.indexOf('images/');
+  if (imgIdx !== -1 && (src.startsWith('asset:') || src.startsWith('http://asset.localhost') || src.startsWith('https://asset.localhost') || src.startsWith('/'))) {
+    const rel = src.slice(imgIdx);
+    return convertRelToLocalUrl(rel, cachedAppDataDir);
+  }
+  return src;
+}
+
+export function normalize_asset_url(src) {
+  if (!src) return '';
+  if (src.startsWith('asset://local/')) return src;
+  if (src.startsWith('data:') || src.startsWith('blob:')) return src;
+  if ((src.startsWith('http://') || src.startsWith('https://')) && !src.includes('asset.localhost')) {
+    return src;
+  }
+  try {
+    const decoded = decodeURIComponent(src);
+    const imgIdx = decoded.indexOf('images/');
+    if (imgIdx !== -1) {
+      return 'asset://local/' + decoded.slice(imgIdx);
+    }
+  } catch (e) {}
+  const imgIdx = src.indexOf('images/');
+  if (imgIdx !== -1) {
+    return 'asset://local/' + src.slice(imgIdx);
+  }
+  return src;
+}
+
+function convertRelToLocalUrl(relPath, appDataDir) {
+  if (!relPath) return '';
+  let base = appDataDir || '';
+  while (base.endsWith('/')) {
+    base = base.slice(0, -1);
+  }
+  const abs = relPath.startsWith('/') ? relPath : (base ? base + '/' + relPath : relPath);
+  try {
+    if (typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.convertFileSrc === 'function') {
+      return window.__TAURI__.core.convertFileSrc(abs);
+    }
+    if (typeof window !== 'undefined' && window.__TAURI__ && typeof window.__TAURI__.convertFileSrc === 'function') {
+      return window.__TAURI__.convertFileSrc(abs);
+    }
+  } catch (e) {}
+  return relPath;
+}
+
+function transformDocImages(node, transformSrc) {
+  if (!node || typeof node !== 'object') return node;
+  if (node.type === 'image' && node.attrs && node.attrs.src) {
+    return {
+      ...node,
+      attrs: {
+        ...node.attrs,
+        src: transformSrc(node.attrs.src),
+      },
+    };
+  }
+  if (Array.isArray(node.content)) {
+    return {
+      ...node,
+      content: node.content.map(child => transformDocImages(child, transformSrc)),
+    };
+  }
+  return node;
+}
+
 export function mount_editor(elementId, initialJson, onUpdateCb) {
   const container = document.getElementById(elementId);
   if (!container) {
@@ -324,6 +407,7 @@ export function mount_editor(elementId, initialJson, onUpdateCb) {
   if (initialJson && initialJson.trim() !== '') {
     try {
       content = JSON.parse(initialJson);
+      content = transformDocImages(content, resolve_asset_url);
     } catch (e) {
       console.warn('[TiptapBridge] Failed to parse initial JSON, fallback to empty:', e);
       content = {};
@@ -388,7 +472,9 @@ export function destroy_editor() {
 
 export function get_content_json() {
   if (!activeEditor) return '{}';
-  return JSON.stringify(activeEditor.getJSON());
+  const json = activeEditor.getJSON();
+  const normalized = transformDocImages(json, normalize_asset_url);
+  return JSON.stringify(normalized);
 }
 
 export function get_content_plain() {
@@ -405,7 +491,8 @@ export function set_content(jsonStr) {
   if (!activeEditor) return false;
   try {
     const json = JSON.parse(jsonStr || '{}');
-    activeEditor.commands.setContent(json, false);
+    const resolved = transformDocImages(json, resolve_asset_url);
+    activeEditor.commands.setContent(resolved, false);
     return true;
   } catch (err) {
     console.error('[TiptapBridge] Failed to set content JSON:', err);
@@ -492,7 +579,10 @@ export function insert_horizontal_rule() {
 }
 
 export function insert_image(src, alt = '') {
-  if (activeEditor) activeEditor.chain().focus().setImage({ src, alt }).run();
+  if (activeEditor) {
+    const runtimeUrl = resolve_asset_url(src);
+    activeEditor.chain().focus().setImage({ src: runtimeUrl, alt }).run();
+  }
 }
 
 export function undo() {
@@ -508,6 +598,10 @@ if (typeof window !== 'undefined') {
   window.TiptapBridge = {
     mount_editor,
     destroy_editor,
+    set_app_data_dir,
+    get_app_data_dir,
+    resolve_asset_url,
+    normalize_asset_url,
     on_selection_update,
     on_lexicon_term_accepted,
     set_lexicon,

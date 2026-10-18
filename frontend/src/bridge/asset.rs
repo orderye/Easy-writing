@@ -11,8 +11,11 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen(inline_js = r#"
 export function asset_rel_to_url(relPath, appDataDir) {
   if (!relPath) return "";
-  // 已是可直接使用的 URL 时原样返回（例如用户粘贴的外链）
-  if (/^(https?:|data:|asset:|blob:)/i.test(relPath)) return relPath;
+  if (relPath.startsWith("asset://local/")) {
+    relPath = relPath.slice("asset://local/".length);
+  }
+  // 已是可直接使用的 URL 时原样返回（例如用户粘贴的外链，但不包含已脱敏的 asset://local/）
+  if (/^(https?:|data:|blob:)/i.test(relPath) || (/^asset:/i.test(relPath) && !relPath.startsWith("asset://local/"))) return relPath;
   let base = appDataDir || "";
   while (base.endsWith("/")) {
     base = base.slice(0, -1);
@@ -30,14 +33,40 @@ export function asset_rel_to_url(relPath, appDataDir) {
   }
   return relPath;
 }
+
+export function canonicalize_asset_src(src) {
+  if (!src) return "";
+  if (src.startsWith("asset://local/")) return src;
+  if (/^(data:|blob:)/i.test(src)) return src;
+  if (/^(https?:)/i.test(src) && !src.includes("asset.localhost")) return src;
+  try {
+    const decoded = decodeURIComponent(src);
+    const imgIdx = decoded.indexOf("images/");
+    if (imgIdx !== -1) {
+      return "asset://local/" + decoded.slice(imgIdx);
+    }
+  } catch (e) {}
+  const imgIdx = src.indexOf("images/");
+  if (imgIdx !== -1) {
+    return "asset://local/" + src.slice(imgIdx);
+  }
+  return src;
+}
 "#)]
 extern "C" {
     fn asset_rel_to_url(rel_path: &str, app_data_dir: &str) -> String;
+    fn canonicalize_asset_src(src: &str) -> String;
 }
 
 /// 把相对路径转为 asset URL。`app_data_dir` 为空时退化为原路径。
 pub fn resolve_asset_url(rel_path: &str, app_data_dir: &str) -> String {
     asset_rel_to_url(rel_path, app_data_dir)
+}
+
+/// 把包含本机绝对路径的 asset URL 或运行时 URL 归一化为跨设备通用的 `asset://local/<rel_path>`。
+#[allow(dead_code)]
+pub fn to_canonical_asset_url(src: &str) -> String {
+    canonicalize_asset_src(src)
 }
 #[wasm_bindgen(inline_js = r#"
 export function copy_text_to_clipboard(text) {

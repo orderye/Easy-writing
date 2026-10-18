@@ -431,6 +431,69 @@ pub fn revert_setting_change(
                 params![before_content, target_id],
             )?;
         }
+        "chapter" => {
+            conn.execute(
+                "UPDATE chapter SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![before_content, target_id],
+            )?;
+        }
+        "volume" => {
+            conn.execute(
+                "UPDATE volume SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![before_content, target_id],
+            )?;
+        }
+        "outline" | "novel" => {
+            let is_chapter: bool = conn
+                .query_row(
+                    "SELECT 1 FROM chapter WHERE id = ?1",
+                    params![target_id],
+                    |_| Ok(true),
+                )
+                .unwrap_or(false);
+            if is_chapter {
+                conn.execute(
+                    "UPDATE chapter SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
+                    params![before_content, target_id],
+                )?;
+            } else {
+                let is_volume: bool = conn
+                    .query_row(
+                        "SELECT 1 FROM volume WHERE id = ?1",
+                        params![target_id],
+                        |_| Ok(true),
+                    )
+                    .unwrap_or(false);
+                if is_volume {
+                    conn.execute(
+                        "UPDATE volume SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![before_content, target_id],
+                    )?;
+                } else {
+                    let updated = conn
+                        .execute(
+                            "UPDATE novel SET description = ?1, updated_at = datetime('now') WHERE id = ?2",
+                            params![before_content, target_id],
+                        )
+                        .unwrap_or(0);
+                    if updated == 0 {
+                        let novel_id: Option<String> = conn
+                            .query_row(
+                                "SELECT novel_id FROM setting_change WHERE id = ?1",
+                                params![change_id],
+                                |r| r.get(0),
+                            )
+                            .ok();
+                        if let Some(nid) = novel_id {
+                            let _ = conn.execute(
+                                "UPDATE novel SET description = ?1, updated_at = datetime('now') WHERE id = ?2",
+                                params![before_content, nid],
+                            );
+                        }
+                    }
+                }
+            }
+        }
         _ => {}
     }
 
@@ -531,6 +594,87 @@ pub fn apply_conflict_setting_update(
                     new_content,
                     reason,
                 );
+            }
+        }
+        "chapter" => {
+            if let Some(cid) = chapter_id {
+                let old_summary: Option<String> = conn
+                    .query_row(
+                        "SELECT summary FROM chapter WHERE id = ?1",
+                        params![cid],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                if let Some(old_s) = old_summary {
+                    conn.execute(
+                        "UPDATE chapter SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![new_content, cid],
+                    )?;
+                    let _ = record_setting_change(
+                        conn,
+                        novel_id,
+                        Some(cid),
+                        "chapter",
+                        cid,
+                        setting_title,
+                        &old_s,
+                        new_content,
+                        reason,
+                    );
+                }
+            }
+        }
+        "outline" => {
+            if let Some(cid) = chapter_id {
+                let old_summary: Option<String> = conn
+                    .query_row(
+                        "SELECT summary FROM chapter WHERE id = ?1",
+                        params![cid],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                if let Some(old_s) = old_summary {
+                    conn.execute(
+                        "UPDATE chapter SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![new_content, cid],
+                    )?;
+                    let _ = record_setting_change(
+                        conn,
+                        novel_id,
+                        Some(cid),
+                        "chapter",
+                        cid,
+                        setting_title,
+                        &old_s,
+                        new_content,
+                        reason,
+                    );
+                }
+            } else {
+                let old_desc: Option<String> = conn
+                    .query_row(
+                        "SELECT description FROM novel WHERE id = ?1",
+                        params![novel_id],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                if let Some(old_d) = old_desc {
+                    conn.execute(
+                        "UPDATE novel SET description = ?1, updated_at = datetime('now') WHERE id = ?2",
+                        params![new_content, novel_id],
+                    )?;
+                    let _ = record_setting_change(
+                        conn,
+                        novel_id,
+                        None,
+                        "novel",
+                        novel_id,
+                        setting_title,
+                        &old_d,
+                        new_content,
+                        reason,
+                    );
+                }
             }
         }
         _ => {}

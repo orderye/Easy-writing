@@ -1,5 +1,8 @@
 # Easy-writing · 中长篇小说工作台 — 实施计划（终版）
 
+> ⚠️ **[ARCHIVED BASELINE]**  
+> 本文档为立项初期的工程实施规划基线归档，记录初始架构设想。后续版本演进的实际工程结构（如前端独立 crate `frontend/`、跨平台统一模型 crate `shared-types/`、工作区 `Cargo.toml`）及最新特性变更请以代码库实际目录与 [CHANGELOG.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/CHANGELOG.md) 为准。
+
 > 基于 [框架方案与 PRD](file:///Users/roy/Downloads/%E7%9F%AD%E7%AF%87%E5%B0%8F%E8%AF%B4%E5%B7%A5%E4%BD%9C%E5%8F%B0%20%C2%B7%20%E6%A1%86%E6%9E%B6%E6%96%B9%E6%A1%88%E4%B8%8E%20PRD.md) 设计 · 已通过工程架构审核并完成 6 项细节修正  
 > 日期：2026-10-14 · 作者：Roy & AI Pair Programming
 
@@ -23,7 +26,7 @@
    - Phase 3：多 Agent 调度与 AI 能力（3.5 周）
    - Phase 4：WebDAV 同步、深色模式与发布（1.5 周）
 7. [核心业务时序图](#七核心业务时序图)
-8. [P1 功能与后续排期](#八p1-功能与后续排期)
+8. [P1 功能与交付闭环（全部 100% 交付）](#八p1-功能与交付闭环全部-100-交付)
 
 ---
 
@@ -37,7 +40,7 @@ Easy-writing 是一款面向独立中长篇小说创作者的**本地桌面工�
 * **前端架构**：**Leptos 0.7 (Rust → WASM) + Tiptap 2 (JS 核心编辑器混搭)**。
 * **单部体量支撑**：按 **100 万字 / 300 章节** 进行数据流与视图渲染性能基准设计。
 * **设定冲突改动**：改动前后保留留档（`setting_change` 表），撤销 UI 交互列入 P1。
-* **导入外部稿件**：MVP 暂不包含批量解析，留作 P1 功能。
+* **导入外部稿件**：MVP 暂不包含批量解析，已作为 P1 功能交付（后续在 v0.3.x 升级支持 EPUB 与 TXT/MD 模块化解耦解析）。
 * **外观主题**：支持浅色模式与深色模式（Tailwind `dark:` 规范，Phase 4 交付）。
 
 ---
@@ -178,13 +181,13 @@ extern "C" {
       "security": {
         "assetProtocol": {
           "enable": true,
-          "scope": ["$APPDATA/images/*"]
+          "scope": ["$APPDATA/images/**"]
         }
       }
     }
   }
   ```
-* 编辑器中引用的图片统一映射为：`asset://localhost/<rel_path>`，通过统一的相对路径保证 WebDAV 整库还原后跨设备可用。
+* 编辑器 ProseMirror JSON 中存储统一的跨设备相对路径 `asset://local/<rel_path>`，运行时由 Bridge 动态映射为本地绝对资产协议，保证 WebDAV 整库还原与跨设备同步时图片永不失效。
 
 ---
 
@@ -201,132 +204,70 @@ extern "C" {
 ## 四、项目目录结构
 
 ```
-easy-writing/
-├── src-tauri/                          # Tauri Rust 后端（服务层）
-│   ├── src/
-│   │   ├── main.rs                     # 应用入口、插件注册、Commands 绑定
-│   │   ├── db/                         # 数据库操作层
-│   │   │   ├── mod.rs                  # 连接池、PRAGMA 初始化（外键 + WAL）
-│   │   │   ├── schema.rs               # refinery 嵌入式迁移调用
-│   │   │   ├── novel.rs                # 作品 CRUD
-│   │   │   ├── volume.rs               # 卷目 CRUD
-│   │   │   ├── chapter.rs              # 章节元数据与正文单独读取
-│   │   │   ├── worldview.rs            # 世界观条目
-│   │   │   ├── character.rs            # 角色卡与别名
-│   │   │   ├── plot.rs                 # 剧情与伏笔状态
-│   │   │   ├── agent.rs                # 预设 Agent 与提示词
-│   │   │   ├── extraction.rs           # 提炼候选与去重指纹
-│   │   │   ├── llm_profile.rs          # 模型接口管理
-│   │   │   └── app_setting.rs          # 本地偏好
-│   │   ├── ai/                         # AI 网关层
-│   │   │   ├── mod.rs
-│   │   │   ├── gateway.rs              # 统一转发与流式缓冲
-│   │   │   ├── openai.rs               # OpenAI 兼容协议
-│   │   │   ├── anthropic.rs            # Anthropic 兼容协议
-│   │   │   ├── context.rs              # 上下文裁剪与相关度装配
-│   │   │   └── consistency.rs          # 设定一致性检测（前后双检）
-│   │   ├── agent/                      # Agent 调度层
-│   │   │   ├── mod.rs
-│   │   │   ├── dispatcher.rs           # Agent 路由分发
-│   │   │   ├── polish.rs               # 6 处修饰提示词处理器
-│   │   │   └── extraction.rs           # 4 Agent 提炼（带信号量限流）
-│   │   ├── sync/                       # 同步模块
-│   │   │   ├── mod.rs
-│   │   │   ├── webdav.rs               # WebDAV 协议客户端
-│   │   │   ├── backup.rs               # 快照备份（SQLite Backup API）
-│   │   │   └── restore.rs              # 云端覆盖恢复与补图
-│   │   ├── keyring.rs                  # OS 钥匙串读写代理
-│   │   ├── asset.rs                    # 图片压缩、哈希与存储
-│   │   └── commands/                   # 暴露给前端的 Tauri Command 集合
-│   │       ├── mod.rs
-│   │       ├── novel_cmd.rs
-│   │       ├── chapter_cmd.rs
-│   │       ├── settings_cmd.rs
-│   │       ├── ai_cmd.rs
-│   │       ├── sync_cmd.rs
-│   │       └── config_cmd.rs
-│   ├── migrations/                     # SQL 版本迁移
-│   │   └── V001__init.sql
-│   ├── tauri.conf.json                 # Tauri 2 核心配置
-│   └── Cargo.toml
+easy-writing/                           # Cargo 多包工作区根目录 (Workspace Root)
+├── Cargo.toml                          # 顶层工作区清单：[workspace] members: src-tauri, frontend, shared-types
 │
-├── src/                                # Leptos 前端（Rust WASM）
-│   ├── main.rs                         # 挂载入口
-│   ├── app.rs                          # 根组件、布局组装
-│   ├── components/
-│   │   ├── layout/                     # 框架布局
-│   │   │   ├── app_shell.rs            # 三栏布局容器
-│   │   │   ├── left_panel.rs           # 左栏（设定）
-│   │   │   ├── right_panel.rs          # 右栏（结构）
-│   │   │   ├── writing_stage.rs        # 中间写作台
-│   │   │   └── panel_toggle.rs         # 栏位折叠触发器
-│   │   ├── settings_panel/             # 左栏四类设定
-│   │   │   ├── settings_tabs.rs
-│   │   │   ├── worldview.rs
-│   │   │   ├── characters.rs
-│   │   │   ├── plot_lines.rs
-│   │   │   └── outline.rs
-│   │   ├── structure_panel/            # 右栏卷章管理
-│   │   │   ├── save_button.rs
-│   │   │   ├── volume_list.rs
-│   │   │   └── chapter_list.rs
-│   │   ├── editor/                     # 写作工作区
-│   │   │   ├── chapter_nav.rs          # 章节面包屑与快速提炼入口
-│   │   │   ├── editor_wrapper.rs       # Tiptap 挂载容器
-│   │   │   └── status_bar.rs           # 字数与保存指示器
-│   │   ├── ai/                         # AI 交互视图
-│   │   │   ├── chat_box.rs             # 严格模式正文对话框
-│   │   │   ├── polish_button.rs        # 通用 AI 修饰按钮
-│   │   │   ├── polish_diff.rs          # 修饰对比与采纳弹层
-│   │   │   ├── extraction_panel.rs     # 提炼候选审核面板
-│   │   │   └── conflict_card.rs        # 设定冲突裁决卡片
-│   │   ├── config/                     # 设置视图
-│   │   │   ├── config_page.rs
-│   │   │   ├── llm_profiles.rs
-│   │   │   ├── agent_settings.rs
-│   │   │   └── webdav_config.rs
-│   │   └── common/                     # 通用基础组件
-│   │       ├── confirm_dialog.rs
-│   │       ├── toast.rs
-│   │       └── modal.rs
-│   ├── state/                          # 细粒度响应式 Signal 上下文
-│   │   ├── novel_state.rs
-│   │   ├── editor_state.rs
-│   │   ├── settings_state.rs
-│   │   └── ui_state.rs
-│   ├── bridge/                         # WASM ↔ JS 绑定声明
-│   │   └── tiptap.rs
-│   └── tauri_api/                      # Tauri Invoke 包装层
-│       ├── novel.rs
-│       ├── chapter.rs
-│       ├── ai.rs
-│       └── sync.rs
+├── shared-types/                       # 跨平台共享领域类型 (Rust Crate: shared-types)
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs                      # Novel, Chapter, Setting, RestoreReport 等跨端统一数据模型
+│
+├── frontend/                           # Leptos 0.7 CSR 前端应用 (Rust WASM)
+│   ├── Cargo.toml
+│   ├── Trunk.toml                      # Trunk WASM 打包流水线配置
+│   ├── index.html                      # 宿主页面
+│   ├── public/                         # 静态资源与构建好的 tiptap-bridge.bundle.js
+│   ├── src/
+│   │   ├── main.rs                     # WASM 挂载入口
+│   │   ├── app.rs                      # 根组件、布局组装
+│   │   ├── bridge/                     # WASM ↔ JS 桥接 (tiptap.rs, asset.rs)
+│   │   ├── components/                 # UI 组件 (layout, editor, ai, config, settings)
+│   │   ├── state.rs                    # 细粒度响应式 Signal 上下文 (AppContext)
+│   │   └── tauri_api/                  # 类型安全 IPC 包装层
+│   └── styles/
+│       └── main.css                    # Tailwind CSS 样式
+│
+├── src-tauri/                          # Tauri 2 桌面运行时与服务后端 (easy-writing-core)
+│   ├── Cargo.toml
+│   ├── tauri.conf.json                 # Tauri 2 核心配置与权限白名单
+│   ├── build.rs
+│   ├── migrations/                     # SQL 阶梯版本迁移 (V001, V002, V003)
+│   │   ├── V001__init.sql
+│   │   ├── V002__legacy_safe_migrations.sql
+│   │   └── V003__indices_and_cleanup.sql
+│   └── src/
+│       ├── main.rs / lib.rs            # 应用入口、插件注册、Command 路由
+│       ├── db/                         # 数据库操作与连接池
+│       ├── ai/                         # AI 网关与协议转换
+│       ├── agent/                      # 润色、提炼调度引擎
+│       ├── sync/                       # WebDAV 备份还原与原子上传
+│       ├── keyring.rs                  # OS 钥匙串代理
+│       └── commands/                   # 暴露给前端的 Tauri Command 集合
 │
 ├── js/                                 # 富文本核心与依赖打包层
-│   ├── src/
-│   │   ├── tiptap-bridge.js            # 核心通信实现
-│   │   └── extensions.js               # 自定义 ProseMirror 扩展
-│   ├── package.json                    # Tiptap 依赖
-│   └── esbuild.config.mjs              # 单文件 Bundle 配置
+│   ├── package.json                    # Tiptap 2 与 ProseMirror 依赖
+│   ├── esbuild.config.js               # 打包为 tiptap-bridge.bundle.js
+│   └── src/
+│       └── tiptap-bridge.js            # 自定义扩展与 DOM 桥接实现
 │
-├── styles/
-│   └── main.css                        # Tailwind 4 基础样式与 Prose 覆盖
-│
-├── index.html                          # 宿主页面
-├── Trunk.toml                          # Trunk WASM 构建流水线配置
-├── Cargo.toml                          # 前端 Crate
-├── Cargo.workspace.toml                # Workspace 根配置
 └── Docs/                               # 规范与设计归档
-    └── Easy-writing · 实施计划.md
+    ├── Easy-writing · 实施计划.md
+    ├── Easy-writing 审校整改方案.md
+    └── 双远程发布流程.md
 ```
 
 ---
 
-## 五、数据库 Schema（完整 DDL）
+## 五、数据库 Schema（初始 V001 DDL 基线）
+
+> ⚠️ **DDL 版本与演进说明**：以下记录为立项时 V001 的初始 DDL 基线。随着版本演进，工程已通过后续阶梯迁移全面补齐：
+> - `V002`：`chapter_revision`（章节历史版本快照）、`character_relation`（角色关系拓扑网）、`novel_lexicon`（专有词库与补全）、`chat_session` / `chat_message`（多轮对话记录）及设定回滚审计字段；
+> - `V003`：`idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 性能索引。
+> 最新完整建表脚本请参阅 `src-tauri/migrations/`。
 
 > [!IMPORTANT]
-> **连接池强制参数**：每个 SQLite 连接建立时，必须通过 `r2d2` 回调执行：  
-> `PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;`
+> **连接池强制参数**：每个 SQLite 连接建立时，通过 `r2d2` 回调（`PragmaCustomizer`）统一执行：  
+> `PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;`
 
 ```sql
 -- V001__init.sql
@@ -703,8 +644,8 @@ gantt
 
 * **4.1 WebDAV 增量镜像同步（4 天）**
   * 实现基于 `reqwest` 的 WebDAV 客户端（PROPFIND, MKCOL, PUT, GET）。
-  * **备份流**：先增量上传新增图片（根据 SHA-256 哈希跳过已存在图片） → 调 SQLite Backup API 生成无锁一致性快照并压缩 → 原子上传 `backup_YYYYMMDD_HHMMSS.db.gz`。
-  * **恢复流**：拉取云端历史备份列表 → 用户确认选定版本 → 本地自动先留一份保底快照 → 整体替换本地 DB 文件 → 扫描缺失图片并补齐下载。
+  * **备份流**：先增量上传新增图片（根据 SHA-256 哈希跳过已存在图片） → 调 SQLite Backup API 生成无锁一致性快照并压缩 → 原子上传 `backup_YYYYMMDD_HHMMSSZ.db.gz`（先写入 `.tmp`，比对 Content-Length 校验完整性后，通过 WebDAV `MOVE` 原子重命名）。
+  * **恢复流**：拉取云端历史备份列表 → 检查迁移版本（拒绝高版本降级破坏） → 用户确认选定版本 → 本地自动导出保留配置与留底快照 → 整体还原本地 DB 文件 → 扫描体检钥匙串悬空 API Key 并引导重填 → 扫描缺失图片并补齐下载。
 
 * **4.2 深色模式与写作偏好设置（3 天）**
   * 全局适配 Tailwind `dark:` 类选择器，包括三栏背景、卡片阴影与 Tiptap 编辑器样式。
@@ -796,7 +737,7 @@ sequenceDiagram
     User->>Panel: 逐条审核（采纳 / 编辑后采纳 / 忽略）
     Panel->>Tauri: invoke("resolve_candidate", { id, action })
     Tauri->>Tauri: 采纳项正式转为 Worldview/Character/Plot 正式条目
-    Tauri->>Tauri: 记录当前章节正文 MD5 至 extracted_hash
+    Tauri->>Tauri: 记录当前章节正文 SHA-256 (content_plain) 至 extracted_hash
 ```
 
 ---
@@ -816,10 +757,12 @@ MVP 发布后规划的 P1 进阶特性已全部实现并合并入 `main`：
 | **章节按状态与标题筛选** | §3.2 | ✅ 已交付 | `1622a2e` | 长篇连载（200+ 章）时的目录即时关键字搜索与状态胶囊过滤。 |
 | **退出应用自动 WebDAV 同步** | §5.3 | ✅ 已交付 | `126e980` | 软件关闭触发异步静默镜像备份，保障跨设备平滑切换。 |
 | **长篇正文/章节虚拟滚动** | §7.1 | ✅ 已交付 | `aeb1ef0` | 支撑 300+ 章节大目录的高性能虚拟渲染，将 DOM 节点维持在 ~25 个。 |
-| **外部稿件（txt/md）导入解析** | PRD 待确认项 | ✅ 已交付 | `fcf360c` | 存量长篇小说批量导入并引导式正则自动拆卷拆章。 |
+| **外部稿件（txt/md/epub）导入解析** | PRD 待确认项 | ✅ 已交付 | `fcf360c` | 存量长篇小说批量导入并引导式正则自动拆卷拆章，支持 EPUB 与分卷手风琴预览。 |
 
 ---
 
-## 九、实施总结
+## 九、实施总结与演进交接
 
-本计划已补齐构建流水线、生命周期、本地图片协议、数据库完整约束、并发限流与去重等 6 大核心工程细节。技术方案与业务流程完全闭环，各阶段产出指标清晰，具备直接开展编码实现的标准。
+本实施计划所规划的 MVP 核心框架及后续 P1 进阶特性已全部实现并闭环交付（包括编辑器生命周期管理、本地图片协议、数据库完整约束、并发限流与去重指纹）。
+
+为保持工程文档的敏捷与真实性，本文档作为**初始架构规划基线**予以封存。自 v0.2.0 起的历次迭代细节、架构重构（如去繁化简、模块化导入、AI 自愈引擎）以及最新缺陷修复，请统一查阅 [CHANGELOG.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/CHANGELOG.md) 及 [《Docs 目录索引与全景导航》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/README.md)。

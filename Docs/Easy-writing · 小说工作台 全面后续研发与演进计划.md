@@ -1,7 +1,9 @@
-# Easy-writing · 小说工作台 全面研发与演进计划（100% 全量达成交付）
+# Easy-writing · 小说工作台 全面研发与演进计划（Phase 0 ~ Phase 3 达成交付）
 
-> 基于 [《实施计划》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20·%20实施计划.md)、[《框架方案与 PRD》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20·%20中长篇小说工作台%20框架方案与%20PRD.md) 编制与全量实施  
-> **适用版本**：v0.1.0-alpha → v1.0.0-release · **当前状态**：**Phase 0 ~ Phase 3 全部 100% 交付，0 报错 0 告警**
+> ⚠️ **[ARCHIVED MILESTONE]**  
+> 本文档记录 Phase 0 ~ Phase 3 基础能力的研发交付历程。自 v0.2.0 起的后续架构演进（包括代码去繁化简、EPUB/TXT 导入解耦、6 层自愈提炼、资产图库、审计整改等）请参阅 [CHANGELOG.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/CHANGELOG.md) 与专项技术报告。  
+> **规划基线**：[《实施计划》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20·%20实施计划.md)、[《框架方案与 PRD》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20·%20中长篇小说工作台%20框架方案与%20PRD.md)  
+> **交付状态**：**Phase 0 ~ Phase 3 全部 16 项核心任务 100% 交付，0 报错 0 告警**
 
 ---
 
@@ -75,15 +77,15 @@ flowchart TD
 - **3.1 外部长篇文稿批量导入与自动拆卷拆章（Commit: `fcf360c`）**：
   - 后端实现高效正则分词引擎，自动匹配识别 `第X卷`、`第X章/节/回/部`、`Chapter X` 及各类数字标题并包裹标准段落 HTML。
   - 提供 `ImportModal` 导入向导，支持本地 `.txt` / `.md` 上传或剪贴板直接粘贴，可视化展示层级预览树，并支持「新建独立作品」或「追加合并至当前作品」。
-- **3.2 角色关系图谱与可视化网络（Commit: `6a08888`）**：
+- **3.2 角色关系图谱与可视化网络（Commit: `6a08888` / `c14d548`）**：
   - 新建 `character_relation` 表及关联 API，角色卡面板增设「👤 角色卡」与「🕸️ 关系图谱」双视图切换。
-  - 基于动态数学极坐标算法生成轻量交互式 SVG 拓扑网络，角色头像节点与关系连线标签清晰可见，支持快速建立与解散角色纽带。
+  - 前端采用高效 Canvas 2D 力导向引擎（`graph-bridge.js`），支持角色节点拖拽、粒子脉冲动力学模拟、多关系连线聚合与星云爆炸图展示，超越了原定静态 SVG 方案。
 - **3.3 6 处修饰的独立 Prompt 模板管理（Commit: `57e4350`）**：
   - 数据库激活 `prompt_template` 表，AI 润色指令全量接入自定义模板调度（涵盖世界观、角色卡、剧情伏笔、全篇梗概、分卷大纲、单章摘要 6 处模块）。
   - 系统设置增设「修饰模板」管理视图，作者可自由修改各处 AI 润色要求并持久化，支持随时一键恢复出厂预设。
 - **3.4 300+ 章节长目录虚拟滚动（Virtual Scrolling）（Commit: `aeb1ef0`）**：
-  - 针对右栏结构目录引入视口虚拟滚动（Virtual Windowing），通过扁平化树节点索引与顶部/底部精准占位 Spacer，将 300+ 章节从 2500+ DOM 节点极致削减至屏幕可见的 ~25 个节点。
-  - 彻底消除 DOM 爆炸与卡顿，支持长篇章节切换自动定位当前章节到可视视口，并针对小型作品（<=30 章）保留无缝直出渲染。
+  - 在 `frontend/src/components/structure_panel/volume_list.rs` 中落地视口虚拟滚动（Virtual Windowing），通过扁平化树节点索引与顶部/底部精准占位 Spacer，将 300+ 章节从 2500+ DOM 节点极致削减至屏幕可见的 ~25 个节点。
+  - 经 274 万字《绍宋》（473 章）实测验证，彻底消除 DOM 爆炸与长列表卡顿，支持切章自动滚动居中，并对小型作品（<=30 章）保留无缝直出渲染。
 
 ---
 
@@ -94,5 +96,5 @@ flowchart TD
 2. **前后端架构一致性**：
    - 全面遵守 Leptos 0.7 响应式规范，闭包环境变量采用 `StoredValue` / `RwSignal` Copy 语义，彻底规避 `FnOnce` 与 `E0382` 借用冲突。
    - 所有数据库表结构迁移采用 `IF NOT EXISTS` 机制，保证已有用户数据库与全新安装均可零风险平滑演进。
-3. **版本就绪**：
-   - 包含 Phase 0 到 Phase 3 规划全部 16 项关键任务，已达到 **v1.0.0-release** 正式里程碑交付标准！
+3. **里程碑就绪**：
+   - 包含 Phase 0 到 Phase 3 规划全部 16 项关键任务，完成单机工作台的核心闭环，作为后续 v0.2.x ~ v0.3.x 迭代与最终 v1.0.0 正式版的稳固基石！

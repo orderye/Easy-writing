@@ -1,7 +1,6 @@
 use crate::bridge::tiptap;
 use crate::components::editor::image_upload::{pick_and_save_image, UploadEvent};
 use crate::state::AppContext;
-use crate::tauri_api::invoke_no_args;
 use leptos::prelude::*;
 
 #[component]
@@ -30,17 +29,12 @@ pub fn EditorToolbar(app_ctx: AppContext) -> impl IntoView {
                 }
             },
             move |rel_path, name| {
-                leptos::task::spawn_local(async move {
-                    // 相对路径 → asset:// URL，插入编辑器
-                    let app_dir = invoke_no_args::<String>("get_app_data_dir")
-                        .await
-                        .unwrap_or_default();
-                    let url = crate::bridge::asset::resolve_asset_url(&rel_path, &app_dir);
-                    tiptap::insert_image(&url, &name);
-                    app_ctx.save_status.set("dirty".to_string());
-                    upload_msg.set("✓ 图片已插入".to_string());
-                    is_uploading.set(false);
-                });
+                // 相对协议插入，保证正文 JSON 存储的是跨设备通用的规范相对路径
+                let canonical_src = format!("asset://local/{}", rel_path);
+                tiptap::insert_image(&canonical_src, &name);
+                app_ctx.save_status.set("dirty".to_string());
+                upload_msg.set("✓ 图片已插入".to_string());
+                is_uploading.set(false);
             },
         );
     };

@@ -185,6 +185,21 @@ pub fn maybe_auto_snapshot(
             "auto",
             "自动保存快照",
         )?;
+
+        // Prune auto-snapshots: retain latest 30 auto snapshots for this chapter
+        let _ = conn.execute(
+            "DELETE FROM chapter_revision 
+             WHERE chapter_id = ?1 
+               AND revision_type = 'auto' 
+               AND id NOT IN (
+                   SELECT id FROM chapter_revision 
+                   WHERE chapter_id = ?1 AND revision_type = 'auto' 
+                   ORDER BY created_at DESC, rowid DESC 
+                   LIMIT 30
+               )",
+            params![chapter_id],
+        );
+
         Ok(Some(rev))
     } else {
         Ok(None)

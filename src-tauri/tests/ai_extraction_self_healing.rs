@@ -10,7 +10,7 @@
 //! - 自修复 (Self-healing JSON recovery, truncation recovery, alias tolerance, conflict resolution)
 
 use easy_writing_lib::agent::extraction::{
-    compute_dedup_key, resolve_candidate_action, self_heal_and_parse_candidates, ExistingIndex,
+    compute_dedup_key, compute_update_dedup_key, resolve_candidate_action, self_heal_and_parse_candidates, ExistingIndex,
 };
 use easy_writing_lib::db;
 use shared_types::ExplodedProfile;
@@ -166,6 +166,16 @@ fn test_conflict_resolution_and_action_resolution() {
         compute_dedup_key("character", "韩 世忠"),
         compute_dedup_key("character", "韩世忠")
     );
+
+    // 5. 验证 update 动作的去重键：基于 target_id 和 payload 内容，绝不与基于标题的 create 冲突
+    let create_key = compute_dedup_key("character", "韩世忠");
+    let update_key1 = compute_update_dedup_key("character", "char-han", "在黄天荡截击金兀术");
+    let update_key2 = compute_update_dedup_key("character", "char-han", "在黄天荡 截击金兀术");
+    let update_key_different = compute_update_dedup_key("character", "char-han", "拜枢密使退隐西湖");
+
+    assert_ne!(create_key, update_key1, "update 候选不得与已有的 create dedup_key 冲突被误杀");
+    assert_eq!(update_key1, update_key2, "相同更新内容应正常去重");
+    assert_ne!(update_key1, update_key_different, "不同章节的全新更新内容不得相互覆盖");
 }
 
 #[test]

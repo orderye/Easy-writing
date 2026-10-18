@@ -2,7 +2,7 @@ use crate::db::DbPool;
 use crate::sync::webdav::WebDavClient;
 use chrono::Local;
 use flate2::read::GzDecoder;
-use shared_types::BackupFileInfo;
+pub use shared_types::{BackupFileInfo, DanglingKeyInfo, RestoreIssue, RestoreReport};
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
@@ -13,22 +13,6 @@ pub async fn list_remote_backups(
 ) -> Result<Vec<BackupFileInfo>, String> {
     let clean_dir = remote_dir.trim_matches('/').to_string();
     client.list_files(&clean_dir).await
-}
-
-/// 恢复过程中发现的单个不一致项。
-///
-/// 存在的意义：旧实现把这些情况全部 `let _ =` 吞掉，用户看到的是"恢复成功"，
-/// 实际素材可能缺失或被篡改。现在必须带回前端展示。
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct RestoreIssue {
-    pub filename: String,
-    pub reason: String,
-}
-
-/// 恢复结果报告。
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct RestoreReport {
-    pub issues: Vec<RestoreIssue>,
 }
 
 pub async fn run_consistency_restore(
@@ -64,6 +48,31 @@ pub async fn run_consistency_restore(
             .map_err(|e| format!("执行防覆写快照失败: {}", e))?;
     }
 
+    // 暂存本地独有的连接配置与机器相关设置，避免被远端全库覆盖
+    let preserved_webdav: Option<(String, String, String, String, String)> = {
+        let active_conn = pool.get().map_err(|e| e.to_string())?;
+        active_conn
+            .query_row(
+                "SELECT id, url, username, pwd_ref, remote_dir FROM webdav_config LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            )
+            .ok()
+    };
+
+    let preserved_settings: Vec<(String, String)> = {
+        let active_conn = pool.get().map_err(|e| e.to_string())?;
+        let mut stmt = active_conn
+            .prepare("SELECT key, value FROM app_setting WHERE key IN ('theme', 'left_panel_visible', 'right_panel_visible')")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
+        rows
+    };
+
     // 2. Download remote backup .db.gz
     let gz_bytes = client.download_file(&remote_backup_path).await?;
 
@@ -84,6 +93,23 @@ pub async fn run_consistency_restore(
         let src_conn = rusqlite::Connection::open(&temp_restored_path)
             .map_err(|e| format!("打开解压数据库失败: {}", e))?;
 
+        // 校验迁移版本，防止高版本数据直接冲毁低版本应用
+        let restored_version: i64 = src_conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if restored_version > crate::db::BASELINE_VERSION {
+            let _ = fs::remove_file(&temp_restored_path);
+            return Err(format!(
+                "还原终止：该云端备份由更新版本的 Easy-writing (schema v{}) 生成，当前客户端版本较低，请先升级本软件后再还原！",
+                restored_version
+            ));
+        }
+
         let mut target_conn = pool.get().map_err(|e| format!("获取目标数据库连接失败: {}", e))?;
 
         let backup = rusqlite::backup::Backup::new(&src_conn, &mut target_conn)
@@ -95,6 +121,31 @@ pub async fn run_consistency_restore(
     }
 
     let _ = fs::remove_file(&temp_restored_path);
+
+    // 恢复本地暂存的核心配置（WebDAV 连接凭据与机器外观设置）
+    {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        if let Some((id, url, username, pwd_ref, remote_dir)) = preserved_webdav {
+            let _ = conn.execute(
+                "INSERT INTO webdav_config (id, url, username, pwd_ref, remote_dir, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+                 ON CONFLICT(id) DO UPDATE SET
+                   url = excluded.url,
+                   username = excluded.username,
+                   pwd_ref = excluded.pwd_ref,
+                   remote_dir = excluded.remote_dir,
+                   updated_at = excluded.updated_at",
+                rusqlite::params![id, url, username, pwd_ref, remote_dir],
+            );
+        }
+        for (k, v) in preserved_settings {
+            let _ = conn.execute(
+                "INSERT INTO app_setting (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![k, v],
+            );
+        }
+    }
 
     // 5. Scan database for missing images and backfill from WebDAV
     let local_images_dir = app_data_dir.join("images");
@@ -185,7 +236,34 @@ pub async fn run_consistency_restore(
         }
     }
 
-    Ok(RestoreReport { issues })
+    // 6. 钥匙串 key_ref 有效性体检：检测哪些 profile 恢复后在本机缺乏密钥
+    let profiles: Vec<(String, String, String)> = {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare("SELECT id, name, key_ref FROM llm_profile")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
+        rows
+    };
+
+    let mut dangling_keys = Vec::new();
+    for (p_id, p_name, key_ref) in profiles {
+        if !key_ref.is_empty() {
+            if crate::keyring::get_secret(&key_ref).is_err() {
+                dangling_keys.push(DanglingKeyInfo {
+                    profile_id: p_id,
+                    profile_name: p_name,
+                    key_ref,
+                });
+            }
+        }
+    }
+
+    Ok(RestoreReport { issues, dangling_keys })
 }
 
 /// 计算与 asset.rs 保存素材时一致的 SHA-256 十六进制摘要。

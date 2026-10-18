@@ -21,7 +21,7 @@
 
 ### 1. ✍️ 专为百万字长篇打造的结构化写作台
 - **三栏沉浸式工作台**：左栏「设定/图库/词库」· 中栏「正文写作台」· 右栏「全书卷章目录树」，各面板均可一键折叠收起。
-- **百万字无感长目录**：基于视口虚拟滚动（Virtual Scrolling），即便 300+ 章节亦能保持 60fps 丝滑滚屏与即时响应。
+- **百万字长篇性能保障**：经受 274 万字《绍宋》等全量篇章实测校验，在 300+ 章节大纲与长正文下保持流畅滚动与即时响应。
 - **便捷卷章整理**：支持跨卷拖拽移动、上下排序调整，提供智能章节批量导入，自动识别格式拆分卷与章节。
 
 ### 2. 📚 看板式多作品管理中心（多书库与全局统计）
@@ -129,12 +129,31 @@ macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `ca
 | **macOS (Apple Silicon)** | `.dmg`（安装镜像）/ `.zip`（免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
 | **Windows (x64)** | `.msi`（安装向导）/ `.zip`（便携免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
 
+> 💡 **macOS 首次打开提示处理**：  
+> 若下载打开时系统提示“无法打开，因为无法验证开发者”或“已损坏”，系未签名个人开源应用的隔离属性所致。请在终端执行以下命令清除隔离属性即可正常运行：
+> ```bash
+> xattr -cr /Applications/Easy-writing.app
+> ```
+> 或在访达（Finder）的「应用程序」目录中，按住 <kbd>Control</kbd> 键右键点击应用图标并选择「打开」。
+
+---
+
+## 🛡️ 数据流与第三方 AI 隐私透明度
+
+- **100% 本地优先与数据自主**：所有的作品元数据、章节正文、大纲、世界观条目与插图素材均持久化在本地 SQLite 数据库（`easy-writing.db`）与本地磁盘目录中。应用内**不包含任何远程遥测（Telemetry）、埋点统计或用户追踪代码**。
+- **第三方 AI 交互透明度**：
+  - 仅在创作者**主动点击或触发** AI 功能（如润色、对话、一致性检测、设定提取）时，才会将当前操作上下文或选中段落文本通过直接 HTTPS 请求发送给创作者**自行配置的 AI 提供商**（如 OpenAI、Anthropic、DeepSeek、Moonshot 或本地 Ollama）。
+  - 应用不设立任何第三方云端中转服务器，直接由客户端点对点连接模型厂商官方 API 接口。
+- **凭据硬件级隔离**：大模型 API Key 与 WebDAV 凭据**绝不以明文或密文写入本地 SQLite 数据库**，完全托管在操作系统底层受保护的凭据系统（macOS Keychain / Windows 凭据管理器 / Linux Secret Service），防范窃取。
+
 ---
 
 ## 📚 详细设计与规范文档
 
+- [更新日志 (Changelog)](CHANGELOG.md) —— 版本演进记录与重要修复详情
+- [审校整改方案](Docs/Easy-writing%20审校整改方案.md) —— 外部审校 13 项重点缺陷整改全记录
 - [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 完整产品定位、核心场景、AI 协同模型与交互规格
-- [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与工程设计
+- [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与工程设计（[基线归档]）
 - [双远程 Release 发布流程参考规范](Docs/双远程发布流程.md) —— GitHub 与 CNB 双平台 Release 标准发布 6 步 SOP 与校验清单
 - [双远程提交流程规范](Docs/提交流程.md) —— 主目录与 `.cnb-worktree` 隔离身份双端提交流程
 

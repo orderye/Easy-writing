@@ -46,7 +46,7 @@ fn fresh_database_reaches_baseline_and_keeps_data() {
     let novel_id = {
         let pool = db::init_db(dir.clone()).unwrap();
         let conn = pool.get().unwrap();
-        assert_eq!(schema_version(&conn), 2, "新库应记录到基线版本");
+        assert_eq!(schema_version(&conn), db::BASELINE_VERSION, "新库应记录到基线版本");
         assert!(column_exists(&conn, "novel_lexicon", "term"));
         assert!(column_exists(&conn, "character_relation", "relation_name"));
         db::novel::create_novel(&conn, "迁移测试", "").unwrap().id
@@ -55,7 +55,7 @@ fn fresh_database_reaches_baseline_and_keeps_data() {
     // 再初始化一次：数据必须还在，版本号不变
     let pool = db::init_db(dir).unwrap();
     let conn = pool.get().unwrap();
-    assert_eq!(schema_version(&conn), 2);
+    assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
     assert_eq!(
         db::novel::get_novel(&conn, &novel_id).unwrap().unwrap().title,
         "迁移测试"
@@ -68,7 +68,7 @@ fn repeated_init_is_idempotent() {
     for i in 0..3 {
         let pool = db::init_db(dir.clone()).unwrap();
         let conn = pool.get().unwrap();
-        assert_eq!(schema_version(&conn), 2, "第 {} 次初始化后版本号不应增长", i + 1);
+        assert_eq!(schema_version(&conn), db::BASELINE_VERSION, "第 {} 次初始化后版本号不应增长", i + 1);
     }
 }
 
@@ -124,7 +124,7 @@ fn legacy_database_gets_missing_columns_backfilled() {
     let pool = db::init_db(dir).unwrap();
     let conn = pool.get().unwrap();
 
-    assert_eq!(schema_version(&conn), 2);
+    assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
     assert!(column_exists(&conn, "chat_session", "title"), "老库缺的 title 必须补上");
     assert!(column_exists(&conn, "asset", "deleted_at"));
     assert!(column_exists(&conn, "setting_change", "target_title"));

@@ -37,7 +37,7 @@ fs.writeFileSync(
   tmpModulePath,
   extractInlineJsBlocks(fs.readFileSync(ASSET_BRIDGE_SRC, 'utf8')).join('\n')
 );
-const { asset_rel_to_url, copy_text_to_clipboard } = await import(
+const { asset_rel_to_url, copy_text_to_clipboard, canonicalize_asset_src } = await import(
   pathToFileURL(tmpModulePath).href
 );
 
@@ -116,6 +116,29 @@ test('1. 缩略图渲染：相对路径转为 Tauri asset URL', () => {
     () => asset_rel_to_url(rel, appData + '///')
   );
   assert.equal(trailing, `${appData}/${rel}`);
+
+  // 1.6 支持 asset://local/ 相对协议动态解为运行时 URL
+  const canonical = 'asset://local/images/novel_1/scene.png';
+  const convertedCanonical = withGlobals(
+    {
+      window: {
+        __TAURI__: {
+          core: { convertFileSrc: (p) => `asset://localhost/${encodeURIComponent(p)}` },
+        },
+      },
+    },
+    () => asset_rel_to_url(canonical, appData)
+  );
+  assert.equal(
+    convertedCanonical,
+    `asset://localhost/${encodeURIComponent(appData + '/images/novel_1/scene.png')}`
+  );
+
+  // 1.7 canonicalize_asset_src 将绝对路径或运行时 URL 归一化为跨设备通用的 asset://local/ 协议
+  assert.equal(
+    canonicalize_asset_src(`asset://localhost/${encodeURIComponent(appData + '/images/novel_1/scene.png')}`),
+    'asset://local/images/novel_1/scene.png'
+  );
 });
 
 test('2. 复制路径：现代 Clipboard API 与 execCommand 回退', () => {

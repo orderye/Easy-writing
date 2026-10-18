@@ -84,7 +84,7 @@ pub fn update_candidate_status(conn: &Connection, id: &str, status: &str) -> Res
 pub fn is_candidate_ignored_or_accepted(conn: &Connection, novel_id: &str, dedup_key: &str) -> Result<bool> {
     let count: i32 = conn.query_row(
         "SELECT COUNT(*) FROM extraction_candidate 
-         WHERE novel_id = ?1 AND dedup_key = ?2 AND status IN ('accepted', 'ignored')",
+         WHERE novel_id = ?1 AND dedup_key = ?2 AND status IN ('pending', 'accepted', 'ignored')",
         params![novel_id, dedup_key],
         |row| row.get(0),
     )?;

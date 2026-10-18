@@ -183,6 +183,14 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                 on_rewrite_without_conflict=move || {
                     app_ctx.pending_conflict_text.set(None);
                 }
+                on_force_apply=move || {
+                    if let Some(text) = app_ctx.pending_conflict_text.get() {
+                        crate::bridge::tiptap::insert_at_cursor(&text);
+                        app_ctx.save_status.set("dirty".to_string());
+                        app_ctx.word_count.set(crate::bridge::tiptap::get_word_count());
+                        app_ctx.pending_conflict_text.set(None);
+                    }
+                }
             />
 
             // Unsaved changes confirm modal
@@ -241,10 +249,17 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                                         on:click={
                                             let tid = target_id_save.clone();
                                             move |_| {
-                                                perform_save(app_ctx);
-                                                app_ctx.is_unsaved_modal_open.set(false);
-                                                app_ctx.pending_switch_chapter.set(None);
-                                                do_switch_chapter(app_ctx, tid.clone());
+                                                let tid = tid.clone();
+                                                leptos::task::spawn_local(async move {
+                                                    app_ctx.is_unsaved_modal_open.set(false);
+                                                    let ok = crate::components::structure_panel::save_button::perform_save_async(app_ctx).await;
+                                                    if ok {
+                                                        app_ctx.pending_switch_chapter.set(None);
+                                                        do_switch_chapter(app_ctx, tid);
+                                                    } else {
+                                                        web_sys::console::error_1(&"切章前保存失败，已拦截切章操作以防丢稿".into());
+                                                    }
+                                                });
                                             }
                                         }
                                     >

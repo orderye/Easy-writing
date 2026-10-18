@@ -1,6 +1,8 @@
 # Easy-writing · 中长篇小说工作台 框架方案与 PRD
 
-Oct 14, 2026 · @Roy
+> ⚠️ **[ARCHIVED BASELINE]**  
+> 本文档为项目立项初期的《框架方案与 PRD》规划基线归档。记录了三栏布局、预设 Agent 分工、设定自生长、WebDAV 备份等产品核心范式。自 v0.2.0 起的历次迭代演进（如 EPUB/TXT 模块化导入、AI 全域提炼 6 层自愈、角色卡 6 维全息解构、角色关系力导向星云图、词库补全、资产图库、审计整改等）请参阅 [CHANGELOG.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/CHANGELOG.md) 与专项技术方案。  
+> 日期：2026-10-14 · @Roy
 
 ## 1. 产品概述
 
@@ -18,7 +20,8 @@ Easy-writing（中长篇小说工作台）是一个把设定、大纲、章节�
 | 类别 | 内容 |
 | --- | --- |
 | MVP 内 | 作品管理、左栏四类设定、右栏卷目/章节管理、写作台（富文本，左右栏可隐藏）、AI 辅助对话（严格按设定写作）、多 agent（预设 agent 与各自绑定的 API）、AI 修饰、手动提炼本章、设置（大模型 API、WebDAV）、手动保存与自动保存 |
-| 暂不做 | 多人协作、登录与账号体系、发布/投稿、排版导出（可后续加 Markdown/Word 导出）、Linux、移动端与网页版 |
+| 后续交付 (v0.2~v0.3) | 外部文稿导入（TXT/MD/EPUB 拆卷拆章）、词库自动补全、角色卡 6 维爆炸图、角色关系星云图谱、资产图库管理、软删除回收站、章节快照回滚、设定改动审计与一键撤销 |
+| 暂不做 | 多人协作、登录与账号体系、发布/投稿、排版导出（可后续加 Word 导出）、Linux、移动端与网页版 |
 
 **假设**：一部作品含多卷、每卷多章，按中长篇的体量设计；只有一卷时，界面把卷目折叠为单层即可。
 
@@ -28,13 +31,52 @@ Easy-writing 是一个本地桌面应用（先支持 Windows 和 macOS），分�
 
 ### 2.1 界面布局
 
-&#91;embedded content: 界面布局 · 三栏加写作台三层\]
+![界面布局 · 三栏加写作台三层](images/ui-layout.webp)
 
 左栏放四类设定，右栏放保存与卷目、章节，中间是写作台；带「AI 修饰」标记的六处输入框各有一个修饰按钮；左右两栏都可手动隐藏。
 
 ### 2.2 系统架构
 
-&#91;embedded content: 系统架构 · 前端、后端、存储与外部服务\]
+```mermaid
+flowchart TB
+    subgraph UI["界面展示层 (WebView · Leptos WASM + Tiptap 2)"]
+        Left["左栏：设定模块 (世界观/角色/剧情/大纲)"]
+        Mid["中间：写作台 (Tiptap 编辑器 + 严格 AI 对话框)"]
+        Right["右栏：结构模块 (卷目/章节目录树 + 自动保存)"]
+    end
+
+    subgraph Service["本地服务层 (Tauri 2 Core Process · Rust)"]
+        IPC["Tauri IPC Command / Event"]
+        ContentSvc["内容管理服务 (Novel, Chapter, Revision, Trash)"]
+        AIGateway["AI 网关与调度中心 (40ms 缓冲, 4 Agent 并发)"]
+        SyncSvc["WebDAV 同步服务 (原子上传, 跨设备恢复)"]
+        KeyringSvc["OS 系统钥匙串安全代理 (macOS Keychain / Windows Credential)"]
+    end
+
+    subgraph Storage["本地持久化存储"]
+        DB[("本地 SQLite 单库 (WAL 模式 + 阶梯迁移)")]
+        Images["本地素材目录 ($APPDATA/images/**)"]
+    end
+
+    subgraph Remote["外部云端服务 (按需调用)"]
+        LLMCloud["第三方 LLM API (OpenAI / Anthropic / 兼容模型)"]
+        WebDAVCloud["作者私有 WebDAV 服务器 (全库快照与增量图库)"]
+    end
+
+    UI <-->|"IPC (Invoke / Event)"| IPC
+    IPC --> ContentSvc
+    IPC --> AIGateway
+    IPC --> SyncSvc
+
+    ContentSvc --> DB
+    ContentSvc --> Images
+    SyncSvc --> DB
+    SyncSvc --> Images
+    SyncSvc <-->|"HTTPS (原子 PUT / MOVE)"| WebDAVCloud
+
+    AIGateway --> KeyringSvc
+    AIGateway <-->|"HTTPS SSE 流式转发"| LLMCloud
+```
 
 界面层只和本地服务层通信；AI 网关和同步服务分别代发大模型与 WebDAV 请求，密钥因此只留在服务层，不进入界面层，也不写进数据库。
 
@@ -315,9 +357,14 @@ Easy-writing 采用多 agent 分工：每个模块对应一个预设 agent，每
 
 ### 7.2 里程碑
 
-&#91;embedded content: 里程碑 · 4 个阶段，4 个关口\]
+```mermaid
+flowchart LR
+    Phase1["阶段一: 基础骨架<br>(Tauri2 + Leptos + Tiptap)"] --> Phase2["阶段二: 核心编辑<br>(三栏设定 + 卷章树 + 自动保存)"]
+    Phase2 --> Phase3["阶段三: AI 多 Agent<br>(网关流式 + 修饰 + 提炼 + 冲突裁决)"]
+    Phase3 --> Phase4["阶段四: WebDAV 同步<br>(快照原子上传 + 恢复 + 主题发布)"]
+```
 
-四个阶段按先后顺序推进，图中不按时间等比绘制；每个阶段的周期待排期后再补充。
+四个阶段按先后顺序推进，图中不按时间等比绘制；各阶段详细排期见 [《实施计划》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20·%20实施计划.md)。
 
 ### 7.3 风险与应对
 
@@ -335,9 +382,9 @@ Easy-writing 采用多 agent 分工：每个模块对应一个预设 agent，每
 | 多台设备各自备份 | 新内容被旧备份覆盖 | 备份文件名带时间、不覆盖；恢复时按时间列出，由用户手动选择 |
 | 密钥泄露 | 被他人盗用额度 | 存系统钥匙串、界面掩码、不入库、不上传 |
 
-### 7.4 已确认与待确认
+### 7.4 需求确认与后续交付闭环
 
-**已确认**
+**立项确认项**
 
 | 事项 | 结论 |
 | --- | --- |
@@ -357,8 +404,8 @@ Easy-writing 采用多 agent 分工：每个模块对应一个预设 agent，每
 | 正文编辑器 | 富文本：标题、加粗、斜体、字体颜色、对齐、引用、分隔线、列表、图片、撤销重做 |
 | 大纲与简介、摘要 | 合并为同一份内容，不单独建大纲表 |
 
-**待确认**
+**后续交付与闭环成果**
 
-1. 设定被对话框改动后的撤销：本文会留档改动前后的内容，撤销功能列为 P1，是否需要提到 P0？
-2. 体量预期：单部作品预计写到多少字、多少章？这决定章节列表、设定检索和备份体积要优化到什么程度。
-3. 是否需要导入已有稿件（如 txt、docx），并批量提炼其中的设定？
+1. **设定被对话框改动后的撤销**：已在 P1 交付，通过 `setting_change` 留档并在左栏提供「改动留档」抽屉与一键撤销恢复。
+2. **体量预期支撑**：基准设定为 100 万字 / 300 章节。在实际实现中通过视口虚拟滚动（DOM 节点稳定在 ~25 个）成功经受 274 万字《绍宋》（473 章）实测考验。
+3. **存量文稿导入与批量提炼**：已在 v0.3.3/v0.3.4 全面升级，实现 TXT、Markdown 与 EPUB 批量导入解耦，支持智能分卷分章与 6 层自愈 AI 提炼。

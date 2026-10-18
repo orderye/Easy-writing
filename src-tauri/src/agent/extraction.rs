@@ -1,7 +1,6 @@
 use crate::ai::gateway::AiGateway;
 use crate::ai::openai::ChatMessage;
 use crate::db::DbPool;
-use md5::Md5;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use shared_types::{Chapter, ExtractionCandidate, LlmProfile, Novel};
@@ -478,8 +477,19 @@ pub fn compute_dedup_key(kind: &str, title: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+pub fn compute_update_dedup_key(kind: &str, target_id: &str, payload: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(kind.as_bytes());
+    hasher.update(b":update:");
+    hasher.update(target_id.as_bytes());
+    hasher.update(b":");
+    let norm_payload: String = payload.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_lowercase();
+    hasher.update(norm_payload.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn compute_chapter_fingerprint(text: &str) -> String {
-    let mut hasher = Md5::new();
+    let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
     format!("{:x}", hasher.finalize())
 }
@@ -586,8 +596,16 @@ pub async fn run_parallel_extraction(
                         &existing,
                     );
 
-                    let dedup_key = compute_dedup_key(&item.kind, &item.title);
-                    // Check if already accepted or ignored
+                    let dedup_key = if resolved.action == "update" {
+                        compute_update_dedup_key(
+                            &item.kind,
+                            resolved.target_id.as_deref().unwrap_or(&item.title),
+                            &item.payload,
+                        )
+                    } else {
+                        compute_dedup_key(&item.kind, &item.title)
+                    };
+                    // Check if already pending, accepted or ignored
                     if let Ok(false) = crate::db::extraction::is_candidate_ignored_or_accepted(
                         &conn,
                         &novel.id,

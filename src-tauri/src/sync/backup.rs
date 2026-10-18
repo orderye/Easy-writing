@@ -1,6 +1,5 @@
 use crate::db::DbPool;
 use crate::sync::webdav::WebDavClient;
-use chrono::Local;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use std::fs;
@@ -72,16 +71,50 @@ pub async fn run_incremental_backup(
         .map_err(|e| format!("完成 Gzip 压缩流失败: {}", e))?;
 
     // 5. Atomic Upload to WebDAV
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%SZ").to_string();
     let backup_filename = format!("backup_{}.db.gz", timestamp);
+    let tmp_backup_filename = format!("{}.tmp", backup_filename);
+    let remote_tmp_path = format!("{}/{}", clean_dir, tmp_backup_filename);
     let remote_backup_path = format!("{}/{}", clean_dir, backup_filename);
 
+    let compressed_len = compressed_bytes.len() as u64;
+
+    // Upload to .tmp first
     client
-        .upload_file(&remote_backup_path, compressed_bytes)
+        .upload_file(&remote_tmp_path, compressed_bytes)
         .await?;
+
+    // Verify remote size if available
+    if let Ok(remote_size) = client.get_file_size(&remote_tmp_path).await {
+        if remote_size > 0 && remote_size != compressed_len {
+            let _ = client.delete_file(&remote_tmp_path).await;
+            let _ = fs::remove_file(&temp_db_path);
+            return Err(format!(
+                "上传校验失败：本地压缩大小 ({} bytes) 与远程文件大小 ({} bytes) 不一致",
+                compressed_len, remote_size
+            ));
+        }
+    }
+
+    // Atomically rename .tmp to destination .db.gz
+    if let Err(e) = client.move_file(&remote_tmp_path, &remote_backup_path).await {
+        let _ = client.delete_file(&remote_tmp_path).await;
+        let _ = fs::remove_file(&temp_db_path);
+        return Err(format!("重命名快照备份失败: {}", e));
+    }
 
     // 6. Clean up temporary snapshot file
     let _ = fs::remove_file(temp_db_path);
+
+    // 7. Prune old backups (keep latest 20)
+    if let Ok(backups) = client.list_files(&clean_dir).await {
+        if backups.len() > 20 {
+            for old_backup in &backups[20..] {
+                let old_path = format!("{}/{}", clean_dir, old_backup.filename);
+                let _ = client.delete_file(&old_path).await;
+            }
+        }
+    }
 
     Ok(backup_filename)
 }

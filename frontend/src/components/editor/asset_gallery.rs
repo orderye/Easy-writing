@@ -160,13 +160,8 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
 
     // 插入到光标处
     let on_insert = move |a: AssetInfo| {
-        let dir = app_dir.get();
-        if dir.is_empty() {
-            status.set("✕ 无法解析图片路径（应用数据目录获取失败），请重试".to_string());
-            return;
-        }
-        let url = crate::bridge::asset::resolve_asset_url(&a.rel_path, &dir);
-        crate::bridge::tiptap::insert_image(&url, &a.name);
+        let canonical_src = format!("asset://local/{}", a.rel_path);
+        crate::bridge::tiptap::insert_image(&canonical_src, &a.name);
         app_ctx.save_status.set("dirty".to_string());
         status.set(format!("✓ 已把「{}」插入光标处", a.name));
     };

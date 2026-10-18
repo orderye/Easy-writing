@@ -556,3 +556,25 @@ pub struct AppUpdateInfo {
     pub assets: Vec<AppUpdateAsset>,
     pub is_prerelease: bool,
 }
+
+/// 恢复过程中发现的单个不一致项。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RestoreIssue {
+    pub filename: String,
+    pub reason: String,
+}
+
+/// 跨设备恢复后钥匙串中缺失的 API Key 引用。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DanglingKeyInfo {
+    pub profile_id: String,
+    pub profile_name: String,
+    pub key_ref: String,
+}
+
+/// WebDAV 恢复结果报告（包含补图问题与悬空密钥体检结果）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RestoreReport {
+    pub issues: Vec<RestoreIssue>,
+    pub dangling_keys: Vec<DanglingKeyInfo>,
+}

@@ -216,6 +216,91 @@ impl WebDavClient {
         let items = parse_webdav_multistatus(&xml_text);
         Ok(items)
     }
+
+    pub async fn get_file_size(&self, remote_path: &str) -> Result<u64, String> {
+        let url = self.build_url(remote_path);
+        if let Ok(res) = self
+            .client
+            .head(&url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send()
+            .await
+        {
+            if res.status().is_success() {
+                if let Some(cl) = res.headers().get(reqwest::header::CONTENT_LENGTH) {
+                    if let Ok(s) = cl.to_str() {
+                        if let Ok(len) = s.parse::<u64>() {
+                            return Ok(len);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: PROPFIND Depth: 0
+        let propfind_method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
+        let res = self
+            .client
+            .request(propfind_method, &url)
+            .basic_auth(&self.username, Some(&self.password))
+            .header("Depth", "0")
+            .header("Content-Type", "application/xml; charset=utf-8")
+            .body(r#"<?xml version="1.0" encoding="utf-8" ?><D:propfind xmlns:D="DAV:"><D:prop><D:getcontentlength/></D:prop></D:propfind>"#)
+            .send()
+            .await
+            .map_err(|e| format!("PROPFIND 请求失败 ({}): {}", remote_path, e))?;
+
+        let text = res.text().await.unwrap_or_default();
+        let length_str = extract_tag_value(&text, "getcontentlength");
+        length_str
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| "无法获取远程文件大小".to_string())
+    }
+
+    pub async fn move_file(&self, src_path: &str, dest_path: &str) -> Result<(), String> {
+        let src_url = self.build_url(src_path);
+        let dest_url = self.build_url(dest_path);
+        let move_method = Method::from_bytes(b"MOVE").map_err(|e| e.to_string())?;
+
+        let res = self
+            .client
+            .request(move_method, &src_url)
+            .basic_auth(&self.username, Some(&self.password))
+            .header("Destination", dest_url)
+            .header("Overwrite", "T")
+            .send()
+            .await
+            .map_err(|e| format!("移动 WebDAV 文件失败 ({} -> {}): {}", src_path, dest_path, e))?;
+
+        let status = res.status();
+        if status.is_success() || status == StatusCode::CREATED || status == StatusCode::NO_CONTENT {
+            Ok(())
+        } else {
+            let err_text = res.text().await.unwrap_or_default();
+            Err(format!("WebDAV MOVE 失败 (HTTP {}): {}", status, err_text))
+        }
+    }
+
+    pub async fn delete_file(&self, remote_path: &str) -> Result<(), String> {
+        let url = self.build_url(remote_path);
+
+        let res = self
+            .client
+            .delete(&url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send()
+            .await
+            .map_err(|e| format!("删除 WebDAV 文件失败 ({}): {}", remote_path, e))?;
+
+        let status = res.status();
+        if status.is_success() || status == StatusCode::NO_CONTENT || status == StatusCode::NOT_FOUND {
+            Ok(())
+        } else {
+            let err_text = res.text().await.unwrap_or_default();
+            Err(format!("WebDAV DELETE 失败 (HTTP {}): {}", status, err_text))
+        }
+    }
 }
 
 /// Parse WebDAV XML Multi-Status response

@@ -2,15 +2,17 @@ use leptos::prelude::*;
 use shared_types::ConflictInfo;
 
 #[component]
-pub fn ConflictModal<F1, F2>(
+pub fn ConflictModal<F1, F2, F3>(
     is_open: RwSignal<bool>,
     conflict_info: RwSignal<Option<ConflictInfo>>,
     on_update_setting_and_continue: F1,
     on_rewrite_without_conflict: F2,
+    on_force_apply: F3,
 ) -> impl IntoView
 where
     F1: Fn(String) + Send + Sync + Copy + 'static,
     F2: Fn() + Send + Sync + Copy + 'static,
+    F3: Fn() + Send + Sync + Copy + 'static,
 {
     view! {
         {move || {
@@ -74,22 +76,32 @@ where
                                 // Choices footer
                                 <div class="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5">
                                     <button
-                                        class="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-md font-medium transition-colors"
+                                        class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-200 rounded-md font-medium transition-colors"
                                         on:click=move |_| is_open.set(false)
                                     >
-                                        "取消本次写入"
+                                        "放弃写入"
                                     </button>
                                     <button
-                                        class="px-3.5 py-1.5 text-xs bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-md font-semibold transition-colors"
+                                        class="px-3 py-1.5 text-xs bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-md font-semibold transition-colors"
                                         on:click=move |_| {
                                             on_rewrite_without_conflict();
                                             is_open.set(false);
                                         }
                                     >
-                                        "换一种不冲突的写法"
+                                        "换一种不冲突写法"
                                     </button>
                                     <button
-                                        class="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold shadow-xs transition-colors"
+                                        class="px-3 py-1.5 text-xs bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-md font-semibold transition-colors"
+                                        title="忽略冲突警告，保留既有设定不变，直接将生成的文字插入正文"
+                                        on:click=move |_| {
+                                            on_force_apply();
+                                            is_open.set(false);
+                                        }
+                                    >
+                                        "忽略警告并写入正文"
+                                    </button>
+                                    <button
+                                        class="px-3.5 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold shadow-xs transition-colors"
                                         on:click=move |_| {
                                             on_update_setting_and_continue(proposed_change.get());
                                             is_open.set(false);

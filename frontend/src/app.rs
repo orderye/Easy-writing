@@ -49,6 +49,10 @@ pub fn App() -> impl IntoView {
                     app_ctx.line_height.set(lh);
                 }
             }
+
+            if let Ok(dir) = invoke_no_args::<String>("get_app_data_dir").await {
+                crate::bridge::tiptap::set_app_data_dir(&dir);
+            }
             set_editor_style(fs_val, &lh_val);
 
             if let Ok(Some(interval)) = invoke_cmd("get_app_setting")

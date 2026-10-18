@@ -20,6 +20,9 @@ extern "C" {
     pub fn mount_editor(element_id: &str, initial_json: &str, on_update_cb: &js_sys::Function) -> bool;
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn set_app_data_dir(dir: &str);
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
     pub fn destroy_editor();
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]

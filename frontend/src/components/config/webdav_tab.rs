@@ -114,15 +114,26 @@ pub fn WebdavTab() -> impl IntoView {
         leptos::task::spawn_local(async move {
             let res = invoke_cmd("webdav_restore_backup")
                 .arg("filename", fn_clone.clone())
-                .send_unit()
+                .send::<shared_types::RestoreReport>()
                 .await;
 
             match res {
-                Ok(_) => {
-                    webdav_status.set(format!(
+                Ok(report) => {
+                    let mut msg = format!(
                         "✓ 版本 {} 还原成功！本地旧版已留存至 backups/ 目录防覆写。",
                         fn_clone
-                    ));
+                    );
+                    if !report.dangling_keys.is_empty() {
+                        let names: Vec<String> = report.dangling_keys.into_iter().map(|k| k.profile_name).collect();
+                        msg.push_str(&format!(
+                            " ⚠️ 检测到以下模型配置缺少本机钥匙串密钥，请在「模型接口」中重新填入：{}",
+                            names.join("、")
+                        ));
+                    }
+                    if !report.issues.is_empty() {
+                        msg.push_str(&format!(" (另有 {} 项素材补齐异常)", report.issues.len()));
+                    }
+                    webdav_status.set(msg);
                 }
                 Err(e) => {
                     webdav_status.set(format!("✕ 还原失败: {}", e));

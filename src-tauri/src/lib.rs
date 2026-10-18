@@ -36,7 +36,7 @@ pub fn run() {
 
                         tauri::async_runtime::spawn(async move {
                             let sync_task = commands::sync_cmd::run_silent_sync_if_configured(pool, app_data_dir);
-                            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), sync_task).await;
+                            let _ = tokio::time::timeout(std::time::Duration::from_secs(10), sync_task).await;
                             let _ = window_clone.destroy();
                         });
                     }
