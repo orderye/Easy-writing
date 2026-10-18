@@ -62,4 +62,4 @@ jobs:
       # 只测桌面后端 crate。workspace 里的 frontend 是 leptos CSR（仅面向 wasm32），
       # 用 --workspace 会把它拉进来为宿主目标白白编译一遍（跑 0 个测试）。
       - name: Backend tests
-        run: pnpm test:backend
+        run: cargo test -p easy-writing-core -p easy-writing-frontend
