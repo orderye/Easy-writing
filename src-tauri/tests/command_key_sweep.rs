@@ -5,7 +5,7 @@
 use easy_writing_lib::db;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, INVOKE_KEY};
+use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::Manager;
 
@@ -123,7 +123,9 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::ai_cmd::clear_chat_session,
             easy_writing_lib::commands::ai_cmd::delete_chat_session,
         ])
-        .build(tauri::generate_context!()).unwrap();
+        .build(mock_context(noop_assets()))
+        .unwrap();
+
     app.manage(pool);
 
     // Raw payloads; @@..@@ placeholders are substituted with the real row ids below.

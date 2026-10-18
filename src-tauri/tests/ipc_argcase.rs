@@ -14,7 +14,7 @@
 use easy_writing_lib::db;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, INVOKE_KEY};
+use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::Manager;
 
@@ -362,7 +362,7 @@ fn app_with_pool() -> (tauri::App<tauri::test::MockRuntime>, String) {
             easy_writing_lib::commands::set_app_setting,
             easy_writing_lib::commands::get_app_setting,
         ])
-        .build(tauri::generate_context!())
+        .build(mock_context(noop_assets()))
         .unwrap();
     app.manage(pool);
     (app, novel_id)

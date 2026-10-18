@@ -7,7 +7,7 @@
 use easy_writing_lib::db;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tauri::ipc::{CallbackFn, InvokeBody};
-use tauri::test::{mock_builder, INVOKE_KEY};
+use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::Manager;
 
@@ -36,7 +36,7 @@ fn real_user_database_is_readable() {
             easy_writing_lib::commands::list_plots,
             easy_writing_lib::commands::list_all_chapter_headers_for_novel,
         ])
-        .build(tauri::generate_context!())
+        .build(mock_context(noop_assets()))
         .unwrap();
     app.manage(pool);
 
