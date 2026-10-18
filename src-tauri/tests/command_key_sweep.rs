@@ -292,9 +292,10 @@ fn call(app: &tauri::App<tauri::test::MockRuntime>, cmd: &str, body: serde_json:
     static N: AtomicUsize = AtomicUsize::new(0);
     let label = format!("s{}", N.fetch_add(1, Ordering::SeqCst));
     let webview = tauri::WebviewWindowBuilder::new(app, label, Default::default()).build().unwrap();
+    let url: tauri::Url = if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }.parse().unwrap();
     let res = tauri::test::get_ipc_response(&webview, InvokeRequest {
         cmd: cmd.into(), callback: CallbackFn(0), error: CallbackFn(1),
-        url: "tauri://localhost".parse().unwrap(), body: InvokeBody::Json(body),
+        url, body: InvokeBody::Json(body),
         headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
     });
     match res { Ok(b) => Ok(b.deserialize::<serde_json::Value>().unwrap()), Err(e) => Err(e.to_string()) }

@@ -310,13 +310,14 @@ fn call(
     let webview = tauri::WebviewWindowBuilder::new(app, label, Default::default())
         .build()
         .unwrap();
+    let url: tauri::Url = if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }.parse().unwrap();
     let res = tauri::test::get_ipc_response(
         &webview,
         InvokeRequest {
             cmd: cmd.into(),
             callback: CallbackFn(0),
             error: CallbackFn(1),
-            url: "tauri://localhost".parse().unwrap(),
+            url,
             body: InvokeBody::Json(body),
             headers: Default::default(),
             invoke_key: INVOKE_KEY.to_string(),
