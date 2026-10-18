@@ -45,8 +45,12 @@ pub async fn load_novel_workspace(app_ctx: AppContext, novel: Novel, ensure_cont
         app_ctx.chapters_map.set(Vec::new());
         app_ctx.current_chapter.set(None);
         app_ctx.word_count.set(0);
+        crate::bridge::tiptap::set_content("");
+        crate::bridge::tiptap::set_editable(false);
+        app_ctx.save_status.set("saved".to_string());
         return;
     }
+
 
     let first_vol = vols[0].clone();
     let vol_id = first_vol.id.clone();
@@ -96,8 +100,12 @@ pub async fn load_novel_workspace(app_ctx: AppContext, novel: Novel, ensure_cont
         app_ctx.chapters_map.set(Vec::new());
         app_ctx.current_chapter.set(None);
         app_ctx.word_count.set(0);
+        crate::bridge::tiptap::set_content("");
+        crate::bridge::tiptap::set_editable(false);
+        app_ctx.save_status.set("saved".to_string());
         return;
     }
+
 
     let first_header = chs[0].clone();
     app_ctx.chapters_map.set(chs);

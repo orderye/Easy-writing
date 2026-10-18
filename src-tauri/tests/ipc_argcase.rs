@@ -328,10 +328,14 @@ fn call(
     }
 }
 
+static IPC_DIR_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
 fn app_with_pool() -> (tauri::App<tauri::test::MockRuntime>, String) {
-    let dir = std::env::temp_dir().join(format!("ew_ipc_{}", std::process::id()));
+    let count = IPC_DIR_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("ew_ipc_{}_{}", std::process::id(), count));
     let _ = std::fs::remove_dir_all(&dir);
     let pool = db::init_db(dir).unwrap();
+
     let novel_id = {
         let conn = pool.get().unwrap();
         db::novel::create_novel(&conn, "T", "").unwrap().id

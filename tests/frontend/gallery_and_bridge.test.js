@@ -243,3 +243,22 @@ test('4. 深色模式与面板收起的布局：编译生成的样式与结构�
   assert.ok(galleryCode.includes('grid grid-cols-3'), '图库主体须具备弹性网格列布局');
   assert.ok(galleryCode.includes('w-64 shrink-0'), '右侧详情栏需固定宽度并禁止收缩');
 });
+
+test('5. 空工作台与防孤儿输入契约：最后一章删除后清空并禁用编辑器，并展示引导空状态', () => {
+  const writingStagePath = path.join(repoRoot, 'frontend/src/components/layout/writing_stage.rs');
+  const writingStageCode = fs.readFileSync(writingStagePath, 'utf8');
+
+  assert.ok(writingStageCode.includes('当前没有打开的章节'), 'WritingStage 必须包含无打开章节时的引导文案');
+  assert.ok(writingStageCode.includes('新建章节'), 'WritingStage 必须提供新建章节的操作引导按钮');
+
+  const chapterListPath = path.join(repoRoot, 'frontend/src/components/structure_panel/chapter_list.rs');
+  const chapterListCode = fs.readFileSync(chapterListPath, 'utf8');
+
+  assert.ok(chapterListCode.includes('tiptap::set_editable(false)'), '删除最后一章后必须调用 set_editable(false) 关闭输入');
+  assert.ok(chapterListCode.includes('tiptap::set_content("")'), '删除最后一章后必须调用 set_content("") 清空编辑器残留内容');
+
+  const toolbarPath = path.join(repoRoot, 'frontend/src/components/editor/toolbar.rs');
+  const toolbarCode = fs.readFileSync(toolbarPath, 'utf8');
+  assert.ok(toolbarCode.includes('pointer-events-none'), '无章节时工具栏必须禁用点击交互');
+});
+

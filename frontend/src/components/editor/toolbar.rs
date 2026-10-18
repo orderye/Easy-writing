@@ -42,8 +42,16 @@ pub fn EditorToolbar(app_ctx: AppContext) -> impl IntoView {
     // 打开图库：复用已入库的图片，并可见「文件缺失」情况
     let on_open_gallery = move |_| app_ctx.is_asset_gallery_open.set(true);
 
+    let has_chapter = move || app_ctx.current_chapter.get().is_some();
+
     view! {
-        <div class="h-9 border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/80 px-4 flex items-center gap-1 select-none z-10 shrink-0 overflow-x-auto">
+        <div class=move || {
+            if has_chapter() {
+                "h-9 border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/80 px-4 flex items-center gap-1 select-none z-10 shrink-0 overflow-x-auto"
+            } else {
+                "h-9 border-b border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/80 px-4 flex items-center gap-1 select-none z-10 shrink-0 overflow-x-auto opacity-40 pointer-events-none"
+            }
+        }>
             // Headings
             <button
                 class="px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer"

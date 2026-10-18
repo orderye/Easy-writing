@@ -143,9 +143,14 @@ pub fn delete_chapter_by_id(app_ctx: AppContext, ch_id: String) {
                             do_switch_chapter(app_ctx, next_ch.id.clone());
                         } else {
                             app_ctx.current_chapter.set(None);
+                            tiptap::set_content("");
+                            tiptap::set_editable(false);
+                            app_ctx.word_count.set(0);
+                            app_ctx.save_status.set("saved".to_string());
                         }
                     }
                 }
+
             }
             Err(e) => {
                 web_sys::console::error_1(&format!("删除章节失败: {}", e).into());

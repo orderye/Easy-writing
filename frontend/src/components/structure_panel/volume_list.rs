@@ -74,6 +74,16 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
     };
 
     let on_delete_volume = move |v_id: String| {
+        // 若当前正在编辑的章节属于被删卷且未保存，阻断并提醒
+        if let Some(curr) = app_ctx.current_chapter.get() {
+            if curr.volume_id == v_id && app_ctx.save_status.get() != "saved" {
+                app_ctx.save_alert.set(Some(
+                    "该卷包含当前未保存的章节，请先保存或放弃修改后再删除。".to_string(),
+                ));
+                return;
+            }
+        }
+
         leptos::task::spawn_local(async move {
             let res = invoke_cmd("delete_volume")
                 .arg("id", v_id.clone())
@@ -83,7 +93,32 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
                 Ok(()) => {
                     let mut list = app_ctx.volumes_list.get();
                     list.retain(|v| v.id != v_id);
-                    app_ctx.volumes_list.set(list);
+                    app_ctx.volumes_list.set(list.clone());
+
+                    // 同步清理属于该卷的章节
+                    let mut ch_list = app_ctx.chapters_map.get();
+                    ch_list.retain(|c| c.volume_id != v_id);
+                    app_ctx.chapters_map.set(ch_list.clone());
+
+                    if let Some(curr) = app_ctx.current_chapter.get() {
+                        if curr.volume_id == v_id {
+                            if let Some(next_ch) = ch_list.first() {
+                                crate::components::structure_panel::chapter_list::do_switch_chapter(app_ctx, next_ch.id.clone());
+                            } else {
+                                app_ctx.current_chapter.set(None);
+                                crate::bridge::tiptap::set_content("");
+                                crate::bridge::tiptap::set_editable(false);
+                                app_ctx.word_count.set(0);
+                                app_ctx.save_status.set("saved".to_string());
+                            }
+                        }
+                    }
+
+                    if let Some(curr_v) = app_ctx.current_volume.get() {
+                        if curr_v.id == v_id {
+                            app_ctx.current_volume.set(list.first().cloned());
+                        }
+                    }
                 }
                 Err(e) => {
                     web_sys::console::error_1(&format!("删除卷失败: {}", e).into());
@@ -92,6 +127,7 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
             }
         });
     };
+
 
     // 把拖拽结果落库：同卷内重排 → reorder_chapters；跨卷 → move_chapter。
     //
