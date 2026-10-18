@@ -36,11 +36,12 @@ pub struct TolerantRawCandidate {
     pub target_id: Option<String>,
 }
 
-/// 自修复 JSON 解析引擎：容错处理 Markdown 代码块、前后说明闲聊、单对象、尾随逗号、注释、截断等各种模型异常
-pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Vec<RawCandidate> {
+/// 自修复 JSON 解析引擎：容错处理 Markdown 代码块、前后说明闲聊、单对象、尾随逗号、注释、截断等各种模型异常。
+/// 明确区分合法空数组 `[]`（返回 Ok(vec![])）与格式解析失败（返回 Err(...)）。
+pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Result<Vec<RawCandidate>, String> {
     let trimmed = raw_text.trim();
     if trimmed.is_empty() {
-        return Vec::new();
+        return Err("模型输出内容为空".to_string());
     }
 
     // 1. 清理 Markdown 代码块包裹 ```json ... ``` 或 ``` ... ```
@@ -64,7 +65,11 @@ pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Vec
         if let (Some(first_brace), Some(last_brace)) = (json_str.find('{'), json_str.rfind('}')) {
             if first_brace < last_brace {
                 json_str = format!("[{}]", &json_str[first_brace..=last_brace]);
+            } else {
+                return Err("模型输出中未包含有效的 JSON 对象或数组".to_string());
             }
+        } else {
+            return Err("模型输出中未包含 JSON 数组或对象标记".to_string());
         }
     } else if let (Some(start), Some(end)) = (json_str.find('['), json_str.rfind(']')) {
         if start <= end {
@@ -75,11 +80,24 @@ pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Vec
     // 3. 语法自修复：清理 JS 风格行注释 //... 与尾随逗号 ,] 或 ,}
     json_str = sanitize_json_syntax(&json_str);
 
+    // 3.5 显式检测合法空数组：若清洗后为合法空数组 `[]`，则明确返回成功空列表
+    let trimmed_json = json_str.trim();
+    if trimmed_json == "[]" {
+        return Ok(Vec::new());
+    }
+    if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed_json) {
+        if let Some(arr) = val.as_array() {
+            if arr.is_empty() {
+                return Ok(Vec::new());
+            }
+        }
+    }
+
     // 4. 第一轮尝试：直接宽松反序列化
     if let Ok(tolerants) = serde_json::from_str::<Vec<TolerantRawCandidate>>(&json_str) {
         let converted = convert_tolerants(tolerants, default_kind);
         if !converted.is_empty() {
-            return converted;
+            return Ok(converted);
         }
     }
 
@@ -88,13 +106,21 @@ pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Vec
         if let Ok(tolerants) = serde_json::from_str::<Vec<TolerantRawCandidate>>(&repaired) {
             let converted = convert_tolerants(tolerants, default_kind);
             if !converted.is_empty() {
-                return converted;
+                return Ok(converted);
             }
         }
     }
 
     // 6. 兜底回退：正则模式提取各个完整的独立 JSON 对象
-    fallback_regex_extract(&json_str, default_kind)
+    let regex_items = fallback_regex_extract(&json_str, default_kind);
+    if !regex_items.is_empty() {
+        return Ok(regex_items);
+    }
+
+    Err(format!(
+        "无法从模型输出中解析出任何有效候选条目: {}",
+        raw_text.chars().take(150).collect::<String>()
+    ))
 }
 
 /// 清理语法杂质（尾随逗号、行外注释等，且智能保护字符串内部的双斜杠）
@@ -600,75 +626,104 @@ pub async fn run_parallel_extraction(
     for (kind, task) in tasks {
         match task.await {
             Ok(Ok(raw_json)) => {
-                let items = self_heal_and_parse_candidates(&raw_json, kind);
-                if !items.is_empty() {
-                    let conn = pool.get().map_err(|e| e.to_string())?;
-                    for item in items {
-                        // 章节梗概归属于当前章节，去重键绑定 chapter_id 与 payload，
-                        // 避免被历史已采纳的旧梗概永久阻断更新。
-                        let (resolved, dedup_key) = if item.kind == "chapter_summary" {
-                            let action = if chapter.summary.trim().is_empty() {
-                                "create".to_string()
-                            } else {
-                                "update".to_string()
+                match self_heal_and_parse_candidates(&raw_json, kind) {
+                    Ok(items) => {
+                        if !items.is_empty() {
+                            let conn = match pool.get() {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    all_succeeded = false;
+                                    eprintln!("[Extraction] 获取数据库连接失败: {}", e);
+                                    continue;
+                                }
                             };
-                            let key = compute_chapter_summary_dedup_key(&chapter.id, &item.payload);
-                            (
-                                ResolvedAction {
-                                    action,
-                                    target_id: Some(chapter.id.clone()),
-                                },
-                                key,
-                            )
-                        } else {
-                            let res = resolve_candidate_action(
-                                &item.action,
-                                item.target_id.as_deref(),
-                                &item.title,
-                                &item.kind,
-                                &existing,
-                            );
-                            let key = if res.action == "update" {
-                                compute_update_dedup_key(
-                                    &item.kind,
-                                    res.target_id.as_deref().unwrap_or(&item.title),
-                                    &item.payload,
-                                )
-                            } else {
-                                compute_dedup_key(&item.kind, &item.title)
-                            };
-                            (res, key)
-                        };
+                            for item in items {
+                                // 章节梗概归属于当前章节，去重键绑定 chapter_id 与 payload，
+                                // 避免被历史已采纳的旧梗概永久阻断更新。
+                                let (resolved, dedup_key) = if item.kind == "chapter_summary" {
+                                    let action = if chapter.summary.trim().is_empty() {
+                                        "create".to_string()
+                                    } else {
+                                        "update".to_string()
+                                    };
+                                    let key = compute_chapter_summary_dedup_key(&chapter.id, &item.payload);
+                                    (
+                                        ResolvedAction {
+                                            action,
+                                            target_id: Some(chapter.id.clone()),
+                                        },
+                                        key,
+                                    )
+                                } else {
+                                    let res = resolve_candidate_action(
+                                        &item.action,
+                                        item.target_id.as_deref(),
+                                        &item.title,
+                                        &item.kind,
+                                        &existing,
+                                    );
+                                    let key = if res.action == "update" {
+                                        compute_update_dedup_key(
+                                            &item.kind,
+                                            res.target_id.as_deref().unwrap_or(&item.title),
+                                            &item.payload,
+                                        )
+                                    } else {
+                                        compute_dedup_key(&item.kind, &item.title)
+                                    };
+                                    (res, key)
+                                };
 
-                        // Check if already pending, accepted or ignored
-                        if let Ok(false) = crate::db::extraction::is_candidate_ignored_or_accepted(
-                            &conn,
-                            &novel.id,
-                            &dedup_key,
-                        ) {
-                            let agent_id = match item.kind.as_str() {
-                                "worldview" => "agent-worldview",
-                                "character" => "agent-character",
-                                "plot" => "agent-plot",
-                                _ => "agent-outline",
-                            };
+                                // Check if already pending, accepted or ignored
+                                match crate::db::extraction::is_candidate_ignored_or_accepted(
+                                    &conn,
+                                    &novel.id,
+                                    &dedup_key,
+                                ) {
+                                    Ok(false) => {
+                                        let agent_id = match item.kind.as_str() {
+                                            "worldview" => "agent-worldview",
+                                            "character" => "agent-character",
+                                            "plot" => "agent-plot",
+                                            _ => "agent-outline",
+                                        };
 
-                            if let Ok(cand) = crate::db::extraction::insert_candidate(
-                                &conn,
-                                &novel.id,
-                                &chapter.id,
-                                agent_id,
-                                &item.kind,
-                                &resolved.action,
-                                resolved.target_id.as_deref(),
-                                &item.title,
-                                &item.payload,
-                                &item.evidence,
-                                &dedup_key,
-                            ) {
-                                extracted_candidates.push(cand);
+                                        match crate::db::extraction::insert_candidate(
+                                            &conn,
+                                            &novel.id,
+                                            &chapter.id,
+                                            agent_id,
+                                            &item.kind,
+                                            &resolved.action,
+                                            resolved.target_id.as_deref(),
+                                            &item.title,
+                                            &item.payload,
+                                            &item.evidence,
+                                            &dedup_key,
+                                        ) {
+                                            Ok(cand) => {
+                                                extracted_candidates.push(cand);
+                                            }
+                                            Err(e) => {
+                                                all_succeeded = false;
+                                                eprintln!("[Extraction] 写入候选失败 (kind: {}, title: {}): {}", item.kind, item.title, e);
+                                            }
+                                        }
+                                    }
+                                    Ok(true) => {
+                                        // 既有重复条目，正常略过
+                                    }
+                                    Err(e) => {
+                                        all_succeeded = false;
+                                        eprintln!("[Extraction] 查询候选去重状态失败 (kind: {}, title: {}): {}", item.kind, item.title, e);
+                                    }
+                                }
                             }
                         }
+                    }
+                    Err(e) => {
+                        all_succeeded = false;
+                        eprintln!("[Extraction] Agent {} 输出解析失败: {}", kind, e);
                     }
                 }
             }
@@ -683,18 +738,19 @@ pub async fn run_parallel_extraction(
         }
     }
 
-    // 关键防御：仅当所有 Agent 均成功执行返回时，才更新 extracted_hash！
-    // 一旦有 Agent 失败（例如 429 限流、网络中断），不打 hash 戳，
+    // 关键防御：仅当所有 Agent 均成功执行返回、解析成功且入库无任何错误时，才更新 extracted_hash！
+    // 一旦有任何环节失败（如 429 限流、输出格式畸形、SQL 写失败），绝不打 hash 戳，
     // 使得用户再次触发提炼时，能够重新跑并有机会补齐缺失分类的候选。
     if all_succeeded {
         let conn = pool.get().map_err(|e| e.to_string())?;
-        let _ = conn.execute(
+        conn.execute(
             "UPDATE chapter SET extracted_hash = ?1 WHERE id = ?2",
             rusqlite::params![current_hash, chapter.id],
-        );
+        )
+        .map_err(|e| format!("更新章节 extracted_hash 失败: {}", e))?;
     } else {
         eprintln!(
-            "[Extraction] 部分 Agent 提炼未完全成功，跳过写入 extracted_hash 以支持后续重试补齐 (chapter_id: {})",
+            "[Extraction] 部分 Agent 提炼、解析或入库未完全成功，跳过写入 extracted_hash 以支持后续重试补齐 (chapter_id: {})",
             chapter.id
         );
     }
@@ -805,7 +861,7 @@ mod tests {
 ```
 请您审阅！如有变动随时告知。
 "#;
-        let cands = self_heal_and_parse_candidates(raw, "character");
+        let cands = self_heal_and_parse_candidates(raw, "character").expect("解析成功");
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].title, "韩世忠");
         assert_eq!(cands[0].kind, "character");
@@ -824,7 +880,7 @@ mod tests {
   "evidence": "御营司调兵符"
 }
 "#;
-        let cands = self_heal_and_parse_candidates(raw, "worldview");
+        let cands = self_heal_and_parse_candidates(raw, "worldview").expect("解析成功");
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].title, "御营司");
         assert_eq!(cands[0].kind, "worldview");
@@ -843,7 +899,7 @@ mod tests {
   },
 ]
 "#;
-        let cands = self_heal_and_parse_candidates(raw, "plot");
+        let cands = self_heal_and_parse_candidates(raw, "plot").expect("解析成功");
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].title, "明道宫兵变伏笔");
         assert!(cands[0].payload.contains("暗中密谋"));
@@ -867,7 +923,7 @@ mod tests {
     "title": "汪伯彦",
     "payload": "主和派宰执，力主南逃
 "#;
-        let cands = self_heal_and_parse_candidates(raw, "character");
+        let cands = self_heal_and_parse_candidates(raw, "character").expect("解析成功");
         // 截断自修复应当抢救下已完整闭合的第一个对象“赵玖”
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].title, "赵玖");
@@ -886,7 +942,7 @@ mod tests {
   }
 ]
 "#;
-        let cands = self_heal_and_parse_candidates(raw, "character");
+        let cands = self_heal_and_parse_candidates(raw, "character").expect("解析成功");
         assert_eq!(cands.len(), 1);
         assert_eq!(cands[0].title, "梁红玉");
         assert_eq!(cands[0].payload, "韩世忠之妻，击鼓退金兵");
@@ -906,10 +962,38 @@ mod tests {
   }
 ]
 "#;
-        let cands = self_heal_and_parse_candidates(raw, "chapter_summary");
+        let cands = self_heal_and_parse_candidates(raw, "chapter_summary").expect("解析成功");
         assert_eq!(cands.len(), 1);
         assert!(!cands[0].title.is_empty(), "当title为空时应自修复从payload提取");
         assert_eq!(cands[0].payload, "官家行在移驻下邳，军心初定，韩世忠引军来会。");
+    }
+
+    #[test]
+    fn self_heal_legitimate_empty_array() {
+        // 合法空数组：模型明确告知无提炼项，必须成功返回空列表而不是报错
+        let empty1 = "[]";
+        let empty2 = "```json\n[]\n```";
+        let empty3 = "  [ \n // 本章无提炼项 \n ] ";
+        let empty4 = "本章节没有需要提炼的设定：\n```json\n[]\n```";
+
+        assert_eq!(self_heal_and_parse_candidates(empty1, "worldview").unwrap().len(), 0);
+        assert_eq!(self_heal_and_parse_candidates(empty2, "character").unwrap().len(), 0);
+        assert_eq!(self_heal_and_parse_candidates(empty3, "plot").unwrap().len(), 0);
+        assert_eq!(self_heal_and_parse_candidates(empty4, "chapter_summary").unwrap().len(), 0);
+    }
+
+    #[test]
+    fn self_heal_unparseable_gibberish_returns_err() {
+        // 非法内容、纯报错文本或严重破损无候选的内容，必须返回 Err 以触发失败保护
+        let err1 = "";
+        let err2 = "抱歉，由于网络限制，我无法回答该问题。";
+        let err3 = "这是一个没有返回任何 JSON 的模型纯文本回答。";
+        let err4 = "[ { \"invalid_field\": 123 } ]";
+
+        assert!(self_heal_and_parse_candidates(err1, "worldview").is_err());
+        assert!(self_heal_and_parse_candidates(err2, "character").is_err());
+        assert!(self_heal_and_parse_candidates(err3, "plot").is_err());
+        assert!(self_heal_and_parse_candidates(err4, "chapter_summary").is_err());
     }
 
     #[test]

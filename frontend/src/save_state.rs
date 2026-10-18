@@ -61,6 +61,36 @@ pub fn auto_save_backoff_secs(base: u32, consecutive_failures: u32) -> u32 {
     base.saturating_mul(1u32 << shift).min(60)
 }
 
+/// 切章安全性终态判定。
+///
+/// 切章需要跨越异步 IPC（get_chapter），在等待目标章节加载期间：
+/// - 若用户输入了新字符（`current_edit_seq != start_edit_seq`），正文已落后，严禁覆盖；
+/// - 若保存状态处于非 `saved`（如保存失败或中途变脏），严禁覆盖；
+/// - 仅在完全干净且无新增编辑时，才允许将目标章节覆盖写入编辑器。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitchSafetyOutcome {
+    /// 安全：期间无任何新输入且处于 saved 状态，允许切章
+    SafeToSwitch,
+    /// 存在新编辑：读取目标章节期间产生了新击键，放弃切章以保全正文
+    AbortedDueToNewEdits,
+    /// 处于未保存状态：当前章节未成功保存，放弃切章
+    AbortedDueToUnsaved,
+}
+
+pub fn check_switch_safety(
+    start_edit_seq: u64,
+    current_edit_seq: u64,
+    current_save_status: &str,
+) -> SwitchSafetyOutcome {
+    if current_edit_seq != start_edit_seq {
+        SwitchSafetyOutcome::AbortedDueToNewEdits
+    } else if current_save_status != "saved" {
+        SwitchSafetyOutcome::AbortedDueToUnsaved
+    } else {
+        SwitchSafetyOutcome::SafeToSwitch
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +132,28 @@ mod tests {
         assert_eq!(auto_save_backoff_secs(30, 9), 60);
         // 用户把间隔调小也要有个下限，避免打爆 IPC
         assert_eq!(auto_save_backoff_secs(1, 0), 5);
+    }
+
+    #[test]
+    fn switch_safety_detects_concurrent_edits() {
+        // 等待 IPC 期间序号增加：拒绝覆盖
+        assert_eq!(
+            check_switch_safety(10, 11, "saved"),
+            SwitchSafetyOutcome::AbortedDueToNewEdits
+        );
+        // 等待 IPC 期间虽未增加序号，但处于未保存状态：拒绝覆盖
+        assert_eq!(
+            check_switch_safety(10, 10, "dirty"),
+            SwitchSafetyOutcome::AbortedDueToUnsaved
+        );
+        assert_eq!(
+            check_switch_safety(10, 10, "error"),
+            SwitchSafetyOutcome::AbortedDueToUnsaved
+        );
+        // 完全无改动且为 saved：安全切换
+        assert_eq!(
+            check_switch_safety(10, 10, "saved"),
+            SwitchSafetyOutcome::SafeToSwitch
+        );
     }
 }

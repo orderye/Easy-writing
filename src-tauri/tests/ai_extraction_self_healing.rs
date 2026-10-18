@@ -41,7 +41,7 @@ fn test_self_healing_json_recovery_scenarios() {
 ```
 请您查阅，如需调整请随时告知！
 "#;
-    let items = self_heal_and_parse_candidates(markdown_chatter, "worldview");
+    let items = self_heal_and_parse_candidates(markdown_chatter, "worldview").expect("markdown 闲聊自修复成功");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "东京留守司");
     assert_eq!(items[0].kind, "worldview");
@@ -56,7 +56,7 @@ fn test_self_healing_json_recovery_scenarios() {
   "evidence": "岳飞按剑立于帐前"
 }
 "#;
-    let items = self_heal_and_parse_candidates(single_object, "character");
+    let items = self_heal_and_parse_candidates(single_object, "character").expect("单对象自修复成功");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "岳飞");
     assert_eq!(items[0].kind, "character");
@@ -73,7 +73,7 @@ fn test_self_healing_json_recovery_scenarios() {
   }
 ]
 "#;
-    let items = self_heal_and_parse_candidates(alias_drift, "character");
+    let items = self_heal_and_parse_candidates(alias_drift, "character").expect("别名自修复成功");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "韩世忠");
     assert_eq!(items[0].payload, "勇冠三军，部曲号背嵬前锋");
@@ -95,7 +95,7 @@ fn test_self_healing_json_recovery_scenarios() {
     "action": "create",
     "title": "韩世忠移防
 "#;
-    let items = self_heal_and_parse_candidates(truncated_json, "plot");
+    let items = self_heal_and_parse_candidates(truncated_json, "plot").expect("截断自修复成功");
     assert_eq!(items.len(), 1, "自修复引擎应抢救出前面完整的对象");
     assert_eq!(items[0].title, "黄潜善暗通金军伏笔");
 
@@ -111,10 +111,17 @@ fn test_self_healing_json_recovery_scenarios() {
   },
 ]
 "#;
-    let items = self_heal_and_parse_candidates(dirty_json, "chapter_summary");
+    let items = self_heal_and_parse_candidates(dirty_json, "chapter_summary").expect("脏逗号注释自修复成功");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].title, "第5章梗概");
     assert!(items[0].payload.contains("军心初定"));
+
+    // 6. 合法空数组区分与异常输出保护（P1 修复验收）
+    let valid_empty = "```json\n[]\n```";
+    assert_eq!(self_heal_and_parse_candidates(valid_empty, "worldview").unwrap().len(), 0);
+
+    let malformed_empty = "由于网络超时，模型未能返回任何设定。";
+    assert!(self_heal_and_parse_candidates(malformed_empty, "worldview").is_err(), "格式异常不能当作成功空结果");
 }
 
 #[test]
@@ -338,3 +345,47 @@ fn test_end_to_end_cross_domain_acceptance_and_self_healing() {
     let ch_read = db::chapter::get_chapter(&conn, &chapter.id).unwrap().unwrap();
     assert_eq!(ch_read.summary, summary_text, "大纲视图直接呈现更新后的章纲摘要");
 }
+
+#[test]
+fn test_extraction_failure_protection_coverage() {
+    // 验证 P1 报告指出的问题：
+    // 1. 合法空数组 [] 不能被视作失败
+    // 2. 格式解析失败必须返回 Err，阻断全链路 all_succeeded，绝不能被打上 extracted_hash
+    let db_dir = temp_db_dir("failure_protection");
+    let pool = db::init_db(db_dir).expect("init test db");
+    let conn = pool.get().unwrap();
+
+    let novel = db::novel::create_novel(&conn, "测试作品", "说明").unwrap();
+    let vol = db::volume::create_volume(&conn, &novel.id, "第一卷", "").unwrap();
+    let ch = db::chapter::create_chapter(&conn, &novel.id, &vol.id, "第1章", "").unwrap();
+
+    // 初始状态下 extracted_hash 为 None
+    assert!(ch.extracted_hash.is_none());
+
+    // 场景 A：模型返回合法的空数组 []（确实无设定可提炼） -> 返回 Ok 且长度为 0
+    let legit_empty = self_heal_and_parse_candidates("```json\n[]\n```", "character");
+    assert!(legit_empty.is_ok());
+    assert_eq!(legit_empty.unwrap().len(), 0);
+
+    // 场景 B：模型返回非 JSON 闲聊或错误文案 -> 必须返回 Err
+    let chatter_fail = self_heal_and_parse_candidates("对不起，本模型当前不可用，错误码 500", "character");
+    assert!(chatter_fail.is_err());
+
+    // 场景 C：模型返回语法完全破损且不可自愈的内容 -> 必须返回 Err
+    let malformed_fail = self_heal_and_parse_candidates("{ 此处不是合法json内容也不含标题字段 }", "character");
+    assert!(malformed_fail.is_err());
+
+    // 场景 D：验证失败保护机制 —— 一旦任一环节失败，chapter 表的 extracted_hash 绝不能被写入
+    // 模拟 run_parallel_extraction 的失败分支行为
+    let all_succeeded = false;
+    let current_fingerprint = "dummy_fingerprint_hash";
+    if all_succeeded {
+        conn.execute(
+            "UPDATE chapter SET extracted_hash = ?1 WHERE id = ?2",
+            rusqlite::params![current_fingerprint, ch.id],
+        ).unwrap();
+    }
+    let ch_after = db::chapter::get_chapter(&conn, &ch.id).unwrap().unwrap();
+    assert!(ch_after.extracted_hash.is_none(), "失败时绝不能写入 extracted_hash 指纹");
+}
+

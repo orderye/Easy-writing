@@ -75,13 +75,21 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
 
     let on_delete_volume = move |v_id: String| {
         leptos::task::spawn_local(async move {
-            let _ = invoke_cmd("delete_volume")
+            let res = invoke_cmd("delete_volume")
                 .arg("id", v_id.clone())
                 .send_unit()
                 .await;
-            let mut list = app_ctx.volumes_list.get();
-            list.retain(|v| v.id != v_id);
-            app_ctx.volumes_list.set(list);
+            match res {
+                Ok(()) => {
+                    let mut list = app_ctx.volumes_list.get();
+                    list.retain(|v| v.id != v_id);
+                    app_ctx.volumes_list.set(list);
+                }
+                Err(e) => {
+                    web_sys::console::error_1(&format!("删除卷失败: {}", e).into());
+                    app_ctx.save_alert.set(Some(format!("删除卷失败：{}", e)));
+                }
+            }
         });
     };
 

@@ -500,6 +500,17 @@ export function set_content(jsonStr) {
   }
 }
 
+export function set_editable(editable) {
+  if (!activeEditor) return false;
+  try {
+    activeEditor.setEditable(Boolean(editable));
+    return true;
+  } catch (err) {
+    console.error('[TiptapBridge] Failed to set editor editable:', err);
+    return false;
+  }
+}
+
 export function insert_at_cursor(text) {
   if (!activeEditor) return false;
   activeEditor.commands.insertContent(text);
@@ -610,6 +621,7 @@ if (typeof window !== 'undefined') {
     get_content_plain,
     get_word_count,
     set_content,
+    set_editable,
     insert_at_cursor,
     replace_selection,
     get_selection_text,

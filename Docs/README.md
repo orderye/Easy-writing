@@ -29,6 +29,7 @@ flowchart TD
     Remediation --> R2["《Easy-writing 审校整改方案》<br>P0~P2 13项缺陷彻底修复与回归验证"]
     Remediation --> R3["《Easy-writing 审校报告-第三方》<br>v0.3.5 外部静态审校评分 (7.4/10)"]
     Remediation --> R4["《第三方审校整改闭环与实施报告》<br>切章丢稿防线、AI 提炼哈希重试、CSP 安全"]
+    Remediation --> R5["《Easy-writing 审校报告-第三方 02》<br>v0.3.6 二轮审校：AI 提炼全链路、切章异步锁、Win Release"]
 
     Operations --> O1["《提交流程》<br>GitHub / CNB 双远程与隔离 worktree"]
     Operations --> O2["《双远程发布流程》<br>版本晋级、多端构建、双平台 Release SOP"]
@@ -52,6 +53,7 @@ flowchart TD
 | [**Easy-writing 审校整改方案**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校整改方案.md) | 整改与验收结论 | v0.3.4 (100% 达标) | 逐一攻克切章竞态、提炼更新误杀、WebDAV 恢复保护、图片相对协议、原子上传等 13 项隐患 | `app_shell.rs`, `extraction.rs`, `restore.rs` |
 | [**Easy-writing 审校报告-第三方**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校报告-第三方.md) | 外部静态审校报告 | v0.3.5 (7.4 / 10) | 外部专家对 v0.3.5 源码静态审校，指出切章丢稿控制流漏洞、AI 提炼哈希锁死、CSP 缺失等要害 | `frontend/`, `src-tauri/` |
 | [**第三方审校整改闭环与实施报告**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校整改闭环方案与实施报告-第三方反馈.md) | 专项重构与防御闭环 | v0.3.5 (100% 修复) | SaveOutcome 状态机、非 saved 切章全拦截、AI 提炼哈希重试、章节梗概去重、远程 HTTPS 门禁与 CSP | `save_state.rs`, `extraction.rs`, `gateway.rs` |
+| [**Easy-writing 审校报告-第三方 02**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校报告-第三方%2002.md) | 外部二轮审校报告 | v0.3.6 | 外部对 v0.3.6 交付审校：AI 提炼全链路保护、切章异步锁、Windows Release 测试失败、删除数据库检查 | `extraction.rs`, `chapter_list.rs`, `package.json` |
 | [**提交流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/提交流程.md) | 协作运维规范 | 日常开发规范 | GitHub 主目录提交与 CNB `.cnb-worktree` 提交身份隔离、cherry-pick 重放流程 | `.git/worktrees/` |
 | [**双远程发布流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/双远程发布流程.md) | 版本发布 SOP | 发版运维规范 | 版本号 5 处晋级、自动化测试、桌面端打包、双端代码与 Tag 推送、GitHub & CNB 双端 Release 挂载 | `release-packages/` |
 
@@ -83,6 +85,7 @@ flowchart TD
    ├─ 《Easy-writing 审校整改方案》─ 13 项缺陷 100% 修复（切章 await、WebDAV 安全门、图片相对协议）
    ├─ 《Easy-writing 审校报告-第三方》 ─ 外部静态代码审校（7.4分，深挖切章丢稿控制流）
    ├─ 《第三方审校整改闭环与实施报告》 ─ P0 切章丢稿状态机、AI 哈希重试、CSP 安全全面闭环
+   ├─ 《Easy-writing 审校报告-第三方 02》 ─ 二轮审校整改（AI 提炼全链路保护、切章异步锁、Win Release 修复）
    └─ 《CHANGELOG.md》 ──────────── 设立变更日志跟踪基线与质量加固记录
 ```
 

@@ -99,11 +99,19 @@ extern "C" {
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]
     pub fn on_lexicon_term_accepted(cb: &js_sys::Function);
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
+    fn set_editable_raw(editable: bool) -> bool;
 }
 
 /// 装载正文。编辑器未挂载时返回 false（调用方必须处理，见 P1-3 的 pending 回放）。
 pub fn set_content(json_str: &str) -> bool {
     bridge_call("set_content", set_content_raw(json_str))
+}
+
+/// 锁定或解锁编辑器输入（切章等异步操作期间锁定，防止并发输入覆盖）。
+pub fn set_editable(editable: bool) -> bool {
+    bridge_call("set_editable", set_editable_raw(editable))
 }
 
 pub fn insert_at_cursor(text: &str) -> bool {
