@@ -131,14 +131,47 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
 
     // 把拖拽结果落库：同卷内重排 → reorder_chapters；跨卷 → move_chapter。
     //
-    // 采用「先本地改状态、再异步落库」的乐观更新：拖拽必须即时反馈，
-    // 等 IPC 往返再重绘会有明显延迟。
+    let reload_chapters_from_db = move || {
+        leptos::task::spawn_local(async move {
+            let volumes = app_ctx.volumes_list.get_untracked();
+            let mut all_chs = Vec::new();
+            for v in volumes {
+                if let Ok(chs) = invoke_cmd("list_chapter_headers")
+                    .arg("volume_id", v.id)
+                    .send::<Vec<ChapterHeader>>()
+                    .await
+                {
+                    all_chs.extend(chs);
+                }
+            }
+            app_ctx.chapters_map.set(all_chs);
+        });
+    };
+
+    let reload_volumes_from_db = move || {
+        leptos::task::spawn_local(async move {
+            if let Some(novel) = app_ctx.current_novel.get_untracked() {
+                if let Ok(vols) = invoke_cmd("list_volumes")
+                    .arg("novel_id", novel.id)
+                    .send::<Vec<Volume>>()
+                    .await
+                {
+                    app_ctx.volumes_list.set(vols);
+                }
+            }
+        });
+    };
+
+    // 把拖拽结果落库：同卷内重排 → reorder_chapters；跨卷 → move_chapter。
+    //
+    // 采用乐观更新提供即时反馈，若落库失败则立刻回滚并从数据库重新对齐，绝不残留脏状态。
     let apply_chapter_drop = move |dragged_id: String,
                                    from_volume: String,
                                    target_id: String,
                                    is_before: bool| {
+        let old_chapters = app_ctx.chapters_map.get();
         // 以当前展示顺序为基准计算新的 id 序列
-        let mut list = app_ctx.chapters_map.get();
+        let mut list = old_chapters.clone();
         let Some(from_idx) = list.iter().position(|c| c.id == dragged_id) else {
             return;
         };
@@ -164,6 +197,7 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
         }
         target_idx = target_idx.min(list.len());
 
+        let rollback_list = old_chapters;
         if same_volume {
             // 同卷排序：插入到目标位置后重写该卷的 sort_order 序列
             list.insert(target_idx, moved.clone());
@@ -176,10 +210,16 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
                 .collect();
 
             leptos::task::spawn_local(async move {
-                let _ = invoke_cmd("reorder_chapters")
+                let res = invoke_cmd("reorder_chapters")
                     .arg("chapter_ids", ordered_ids)
                     .send_unit()
                     .await;
+                if let Err(e) = res {
+                    web_sys::console::error_1(&format!("章节排序失败: {}", e).into());
+                    app_ctx.chapters_map.set(rollback_list);
+                    reload_chapters_from_db();
+                    app_ctx.save_alert.set(Some(format!("章节排序保存失败，已恢复原顺序：{}", e)));
+                }
             });
         } else {
             // 跨卷移动：改 volume_id 并给出卷内新序号
@@ -190,12 +230,18 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
             app_ctx.chapters_map.set(list);
 
             leptos::task::spawn_local(async move {
-                let _ = invoke_cmd("move_chapter")
+                let res = invoke_cmd("move_chapter")
                     .arg("chapter_id", dragged_id)
                     .arg("new_volume_id", target_volume)
                     .arg("new_sort_order", new_sort_order)
                     .send_unit()
                     .await;
+                if let Err(e) = res {
+                    web_sys::console::error_1(&format!("跨卷移动章节失败: {}", e).into());
+                    app_ctx.chapters_map.set(rollback_list);
+                    reload_chapters_from_db();
+                    app_ctx.save_alert.set(Some(format!("跨卷移动章节保存失败，已恢复原位置：{}", e)));
+                }
             });
         }
     };
@@ -205,7 +251,8 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
         if dragged_id == target_id {
             return;
         }
-        let mut list = app_ctx.volumes_list.get();
+        let old_volumes = app_ctx.volumes_list.get();
+        let mut list = old_volumes.clone();
         let Some(from_idx) = list.iter().position(|v| v.id == dragged_id) else {
             return;
         };
@@ -221,14 +268,22 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
         list.insert(target_idx, moved);
         app_ctx.volumes_list.set(list.clone());
 
+        let rollback_volumes = old_volumes;
         let ordered_ids: Vec<String> = list.iter().map(|v| v.id.clone()).collect();
         leptos::task::spawn_local(async move {
-            let _ = invoke_cmd("reorder_volumes")
+            let res = invoke_cmd("reorder_volumes")
                 .arg("volume_ids", ordered_ids)
                 .send_unit()
                 .await;
+            if let Err(e) = res {
+                web_sys::console::error_1(&format!("卷目排序失败: {}", e).into());
+                app_ctx.volumes_list.set(rollback_volumes);
+                reload_volumes_from_db();
+                app_ctx.save_alert.set(Some(format!("分卷排序保存失败，已恢复原顺序：{}", e)));
+            }
         });
     };
+
 
     // Calculate flattened tree nodes reactively
     let flat_tree_nodes = move || {

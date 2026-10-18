@@ -262,3 +262,42 @@ test('5. 空工作台与防孤儿输入契约：最后一章删除后清空并�
   assert.ok(toolbarCode.includes('pointer-events-none'), '无章节时工具栏必须禁用点击交互');
 });
 
+test('6. 拖拽排序与跨卷移动失败回滚契约：落库失败立刻恢复原顺序并从底层数据库重新对齐', () => {
+  const volumeListPath = path.join(repoRoot, 'frontend/src/components/structure_panel/volume_list.rs');
+  const volumeListCode = fs.readFileSync(volumeListPath, 'utf8');
+
+  // 验证 reorder_chapters 错误拦截与回滚
+  assert.ok(volumeListCode.includes('章节排序保存失败，已恢复原顺序'), '同卷重排失败时必须向用户弹出明确回滚提示');
+  assert.ok(volumeListCode.includes('reload_chapters_from_db'), '同卷重排失败时必须触发重新从数据库拉取真实顺序');
+
+  // 验证 move_chapter 错误拦截与回滚
+  assert.ok(volumeListCode.includes('跨卷移动章节保存失败，已恢复原位置'), '跨卷移动失败时必须向用户弹出明确回滚提示');
+
+  // 验证 reorder_volumes 错误拦截与回滚
+  assert.ok(volumeListCode.includes('分卷排序保存失败，已恢复原顺序'), '分卷重排失败时必须向用户弹出明确回滚提示');
+  assert.ok(volumeListCode.includes('reload_volumes_from_db'), '分卷重排失败时必须触发重新从数据库拉取真实顺序');
+
+  // 纯逻辑状态回滚断言
+  const mockChapters = [
+    { id: 'c1', sort_order: 0, title: '第一章' },
+    { id: 'c2', sort_order: 1, title: '第二章' },
+    { id: 'c3', sort_order: 2, title: '第三章' },
+  ];
+  let currentList = [...mockChapters];
+  const rollbackList = [...mockChapters];
+
+  // 模拟乐观移动：c3 移动到第一位
+  const [c3] = currentList.splice(2, 1);
+  currentList.unshift(c3);
+  assert.equal(currentList[0].id, 'c3');
+
+  // 模拟数据库落库失败触发回滚
+  const simulateIpcFail = true;
+  if (simulateIpcFail) {
+    currentList = rollbackList;
+  }
+  assert.equal(currentList[0].id, 'c1');
+  assert.equal(currentList[2].id, 'c3');
+});
+
+

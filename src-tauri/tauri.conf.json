@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Easy-writing",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "identifier": "com.easywriting.desktop",
   "build": {
     "beforeDevCommand": "pnpm build:assets",
@@ -27,8 +27,10 @@
         "enable": true,
         "scope": ["$APPDATA/images/**"]
       },
-      "csp": "default-src 'self' tauri:; img-src 'self' tauri: blob: data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost tauri: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*;"
+      "csp": "default-src 'self' tauri:; img-src 'self' tauri: blob: data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost tauri:;",
+      "devCsp": "default-src 'self' tauri:; img-src 'self' tauri: blob: data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; connect-src 'self' ipc: http://ipc.localhost tauri: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*;"
     }
+
   },
   "bundle": {
     "active": true,
