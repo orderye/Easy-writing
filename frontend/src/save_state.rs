@@ -30,6 +30,7 @@ impl SaveOutcome {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_safe_to_switch(&self) -> bool {
         matches!(self, SaveOutcome::Saved)
     }
@@ -45,6 +46,7 @@ pub fn resolve_save_outcome(succeeded: bool, edited_since: bool) -> SaveOutcome 
 }
 
 /// 保存完成后的目标状态字符串（兼容保留）。
+#[allow(dead_code)]
 pub fn resolve_save_status(succeeded: bool, edited_since: bool) -> &'static str {
     resolve_save_outcome(succeeded, edited_since).as_status_str()
 }
