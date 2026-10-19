@@ -1,7 +1,50 @@
 use crate::state::AppContext;
 use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
 use shared_types::ExtractionCandidate;
+
+/// 后端返回的单条 Agent 失败记录（已脱敏，不含正文与密钥）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentFailure {
+    pub agent: String,
+    pub kind: String,
+    pub reason: String,
+}
+
+/// 一次提炼的完整结果。
+///
+/// 关键点：`all_succeeded` 与 `failures` 让前端能区分
+/// 「本章确实没有新设定」和「提炼失败」—— 后者必须提示作者，
+/// 否则 Key 失效会被静默成「模型认为本章无新内容」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtractionOutcome {
+    pub candidates: Vec<ExtractionCandidate>,
+    pub succeeded_agents: usize,
+    pub failures: Vec<AgentFailure>,
+    pub skipped_fingerprint_match: bool,
+    pub all_succeeded: bool,
+}
+
+fn failure_hint(outcome: &ExtractionOutcome) -> Option<String> {
+    if outcome.failures.is_empty() {
+        return None;
+    }
+    let is_auth = outcome.failures.iter().any(|f| f.kind == "auth");
+    if is_auth {
+        return Some(
+            "模型服务拒绝了本次请求，请检查 API Key 是否正确、是否已过期或欠费。".to_string(),
+        );
+    }
+    let agents: Vec<&str> = outcome.failures.iter().map(|f| f.agent.as_str()).collect();
+    Some(format!(
+        "{} / {} 个 Agent 未完成（{}）。详情：{}",
+        outcome.succeeded_agents,
+        outcome.succeeded_agents + outcome.failures.len(),
+        agents.join("、"),
+        outcome.failures[0].reason
+    ))
+}
 
 #[component]
 pub fn ExtractionModal(
@@ -10,6 +53,7 @@ pub fn ExtractionModal(
     candidates: RwSignal<Vec<ExtractionCandidate>>,
     is_extracting: RwSignal<bool>,
 ) -> impl IntoView {
+    let failure_message: RwSignal<Option<String>> = RwSignal::new(None);
     let on_resolve = move |candidate_id: String, action: &'static str| {
         let cid = candidate_id.clone();
         leptos::task::spawn_local(async move {
@@ -53,14 +97,25 @@ pub fn ExtractionModal(
             let nid = novel.id;
             let cid = chapter.id;
             is_extracting.set(true);
+            failure_message.set(None);
             leptos::task::spawn_local(async move {
-                if let Ok(cands) = invoke_cmd("trigger_chapter_extract")
+                match invoke_cmd("trigger_chapter_extract")
                     .arg("novel_id", nid)
                     .arg("chapter_id", cid)
-                    .send::<Vec<ExtractionCandidate>>()
+                    .send::<ExtractionOutcome>()
                     .await
                 {
-                    candidates.set(cands);
+                    Ok(outcome) => {
+                        if let Some(msg) = failure_hint(&outcome) {
+                            // 提炼失败必须让作者看见 —— 静默成「无新设定」
+                            // 会让配置错误永久无法被发现。
+                            failure_message.set(Some(msg));
+                        }
+                        candidates.set(outcome.candidates);
+                    }
+                    Err(e) => {
+                        failure_message.set(Some(format!("提炼请求失败：{e}")));
+                    }
                 }
                 is_extracting.set(false);
             });
@@ -104,6 +159,21 @@ pub fn ExtractionModal(
 
                             // Body
                             <div class="p-5 flex-1 overflow-y-auto space-y-3">
+                                {move || failure_message.get().map(|msg| {
+                                    view! {
+                                        <div class="rounded-lg border border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-950/40 px-4 py-3">
+                                            <p class="text-xs font-semibold text-red-800 dark:text-red-300">
+                                                "⚠ 本次提炼未完整完成"
+                                            </p>
+                                            <p class="text-xs text-red-700 dark:text-red-400 mt-1 leading-relaxed">
+                                                {msg}
+                                            </p>
+                                            <p class="text-[11px] text-red-600/80 dark:text-red-500/80 mt-1.5">
+                                                "下方候选仅来自成功的 Agent，未完成的部分不会计入本章提炼记录，可稍后重试补齐。"
+                                            </p>
+                                        </div>
+                                    }
+                                })}
                                 {move || if is_extracting.get() {
                                     view! {
                                         <div class="py-12 flex flex-col items-center justify-center text-slate-500 dark:text-slate-400 space-y-3">

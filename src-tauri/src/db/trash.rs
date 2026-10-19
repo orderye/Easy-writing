@@ -175,52 +175,71 @@ pub fn restore_trash_item(conn: &Connection, item_type: &str, item_id: &str) -> 
     Ok(())
 }
 
-pub fn purge_trash_item(conn: &Connection, item_type: &str, item_id: &str) -> Result<()> {
+/// 彻底删除回收站中的一个项目。
+///
+/// **必须整组原子**：`"volume"` 分支要连删章节与卷两条语句。
+/// 旧实现直接顺序执行两条 DELETE，中途出错会留下「章节没了、卷还在」的
+/// 半删除状态，而且没有任何回滚手段。这里包进事务，由调用方传入 `&mut` 连接。
+pub fn purge_trash_item(
+    conn: &mut Connection,
+    item_type: &str,
+    item_id: &str,
+) -> Result<()> {
+    let tx = conn.transaction()?;
+
     match item_type {
         "novel" => {
-            purge_novel(conn, item_id)?;
+            purge_novel(&tx, item_id)?;
         }
         "volume" => {
-            conn.execute("DELETE FROM chapter WHERE volume_id = ?1", params![item_id])?;
-            conn.execute("DELETE FROM volume WHERE id = ?1", params![item_id])?;
+            tx.execute("DELETE FROM chapter WHERE volume_id = ?1", params![item_id])?;
+            tx.execute("DELETE FROM volume WHERE id = ?1", params![item_id])?;
         }
         "chapter" => {
-            conn.execute("DELETE FROM chapter WHERE id = ?1", params![item_id])?;
+            tx.execute("DELETE FROM chapter WHERE id = ?1", params![item_id])?;
         }
         "worldview" => {
-            conn.execute("DELETE FROM worldview_entry WHERE id = ?1", params![item_id])?;
+            tx.execute("DELETE FROM worldview_entry WHERE id = ?1", params![item_id])?;
         }
         "character" => {
-            conn.execute("DELETE FROM character WHERE id = ?1", params![item_id])?;
+            tx.execute("DELETE FROM character WHERE id = ?1", params![item_id])?;
         }
         "plot" => {
-            conn.execute("DELETE FROM plot_item WHERE id = ?1", params![item_id])?;
+            tx.execute("DELETE FROM plot_item WHERE id = ?1", params![item_id])?;
         }
         _ => {}
     }
+    tx.commit()?;
     Ok(())
 }
 
-pub fn empty_trash(conn: &Connection, novel_id: &str) -> Result<()> {
-    conn.execute(
+/// 清空某作品的整个回收站（5 张表的软删记录）。
+///
+/// 同上：5 条 DELETE 必须同生共死，否则磁盘满 / 库被锁时
+/// 会留下「章节清空了但设定还在」的残局。
+pub fn empty_trash(conn: &mut Connection, novel_id: &str) -> Result<()> {
+    let tx = conn.transaction()?;
+
+    tx.execute(
         "DELETE FROM chapter WHERE novel_id = ?1 AND deleted_at IS NOT NULL",
         params![novel_id],
     )?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM volume WHERE novel_id = ?1 AND deleted_at IS NOT NULL",
         params![novel_id],
     )?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM worldview_entry WHERE novel_id = ?1 AND deleted_at IS NOT NULL",
         params![novel_id],
     )?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM character WHERE novel_id = ?1 AND deleted_at IS NOT NULL",
         params![novel_id],
     )?;
-    conn.execute(
+    tx.execute(
         "DELETE FROM plot_item WHERE novel_id = ?1 AND deleted_at IS NOT NULL",
         params![novel_id],
     )?;
+    tx.commit()?;
     Ok(())
 }

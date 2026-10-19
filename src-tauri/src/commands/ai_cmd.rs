@@ -244,7 +244,7 @@ pub async fn trigger_chapter_extract(
     pool: State<'_, DbPool>,
     novel_id: String,
     chapter_id: String,
-) -> Result<Vec<ExtractionCandidate>, String> {
+) -> Result<crate::agent::outcome::ExtractionOutcome, String> {
     let (novel, chapter, profile, api_key) = {
         let conn = pool.get().map_err(|e| e.to_string())?;
 

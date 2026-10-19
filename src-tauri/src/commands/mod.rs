@@ -254,7 +254,7 @@ pub fn save_chapter_content(
                 // 长度门槛已在 should_trigger_auto_extract 里判过，此处不再重复。
                 {
                     let gateway_arc = std::sync::Arc::new(crate::ai::gateway::AiGateway::new());
-                    if let Ok(candidates) = crate::agent::extraction::run_parallel_extraction(
+                    if let Ok(outcome) = crate::agent::extraction::run_parallel_extraction(
                         gateway_arc,
                         pool_clone,
                         novel,
@@ -263,7 +263,13 @@ pub fn save_chapter_content(
                         api_key,
                     ).await {
                         use tauri::Emitter;
-                        let _ = handle_clone.emit("extraction_completed", candidates.len());
+                        let _ = handle_clone.emit("extraction_completed", outcome.candidates.len());
+                        // 自动提炼是后台触发的，作者不在弹窗前。
+                        // 失败必须留下痕迹，否则配置错误会永久静默
+                        // （旧实现只发候选数，全员 401 与「本章无新内容」无法区分）。
+                        if let Some(msg) = outcome.summarize() {
+                            eprintln!("[auto-extract] 提炼未完整完成：{msg}");
+                        }
                     }
                 }
             }
@@ -685,14 +691,14 @@ pub fn purge_trash_item(
     item_type: String,
     item_id: String,
 ) -> Result<(), String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
-    crate::db::trash::purge_trash_item(&conn, &item_type, &item_id).map_err(|e| e.to_string())
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::purge_trash_item(&mut conn, &item_type, &item_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn empty_trash(pool: State<DbPool>, novel_id: String) -> Result<(), String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
-    crate::db::trash::empty_trash(&conn, &novel_id).map_err(|e| e.to_string())
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::trash::empty_trash(&mut conn, &novel_id).map_err(|e| e.to_string())
 }
 
 // Import commands

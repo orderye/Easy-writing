@@ -140,11 +140,11 @@ fn restore_novel_brings_back_its_content() {
 #[test]
 fn purge_novel_removes_all_dependent_rows() {
     let pool = fresh_pool();
-    let conn = pool.get().unwrap();
+    let mut conn = pool.get().unwrap();
     let (novel_id, vol_id) = seed_novel(&conn, "待彻底删除");
 
     db::novel::delete_novel(&conn, &novel_id).unwrap();
-    db::trash::purge_trash_item(&conn, "novel", &novel_id).unwrap();
+    db::trash::purge_trash_item(&mut conn, "novel", &novel_id).unwrap();
 
     let novel_rows = count(&conn, "SELECT COUNT(*) FROM novel WHERE id = ?1", &novel_id);
     assert_eq!(novel_rows, 0, "novel 行应被删除");
@@ -188,4 +188,93 @@ fn deleting_one_novel_leaves_others_untouched() {
         1,
         "另一个作品的卷不应被误标记"
     );
+}
+
+// ---------------------------------------------------------------------------
+// V0.3.8 · 回收站批量删除的原子性（基线 C-05）
+// ---------------------------------------------------------------------------
+
+/// `empty_trash` 要连删 5 张表。旧实现顺序执行裸 DELETE，
+/// 中途失败会留下「章节清空了但设定还在」的半删除残局，且无从回滚。
+/// 现在整组包进事务：要么全删，要么一张都不删。
+#[test]
+fn empty_trash_is_all_or_nothing() {
+    let pool = fresh_pool();
+    let mut conn = pool.get().unwrap();
+    let (novel_id, _) = seed_novel(&conn, "待清空回收站");
+
+    // 先造出各类可软删对象。
+    //
+    // 重要前提（实测确认，非假设）：`soft_delete_novel` 只级联软删
+    // novel / volume / chapter 三张表，**不触及** worldview / character / plot。
+    // 因此下面必须显式软删那三张表，`empty_trash` 才有东西可清 ——
+    // 否则断言会因「本来就没被软删」而失败，那是测试前提错误，不是缺陷。
+    //
+    // plot_item.kind 有 CHECK 约束（mainline/conflict/foreshadow），
+    // status 也有（planted/resolved），传错值会静默插入失败使断言空跑。
+    db::settings::save_worldview(&conn, None, &novel_id, "地理", "九州", "九州格局").unwrap();
+    db::settings::save_character(&conn, None, &novel_id, "张三", "小张", "主角").unwrap();
+    db::settings::save_plot(
+        &conn, None, &novel_id, "主线", "成长线", "mainline", "planted", None,
+    ).unwrap();
+
+    let wv = db::settings::list_worldview(&conn, &novel_id).unwrap()[0].id.clone();
+    let ch = db::settings::list_characters(&conn, &novel_id).unwrap()[0].id.clone();
+    let pl = db::settings::list_plots(&conn, &novel_id).unwrap()[0].id.clone();
+
+    // 前置断言：确认三类设定真的入库了
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM worldview_entry WHERE novel_id = ?1", &novel_id), 1);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM character WHERE novel_id = ?1", &novel_id), 1);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM plot_item WHERE novel_id = ?1", &novel_id), 1);
+
+    db::novel::delete_novel(&conn, &novel_id).unwrap();
+    db::settings::delete_worldview(&conn, &wv).unwrap();
+    db::settings::delete_character(&conn, &ch).unwrap();
+    db::settings::delete_plot(&conn, &pl).unwrap();
+
+    // 确认确实都在回收站里（deleted_at 非空）
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM worldview_entry WHERE deleted_at IS NULL AND novel_id = ?1", &novel_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM character WHERE deleted_at IS NULL AND novel_id = ?1", &novel_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM plot_item WHERE deleted_at IS NULL AND novel_id = ?1", &novel_id), 0);
+
+    db::trash::empty_trash(&mut conn, &novel_id).unwrap();
+
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM chapter WHERE novel_id = ?1", &novel_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM volume WHERE novel_id = ?1", &novel_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM worldview_entry WHERE novel_id = ?1", &novel_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM character WHERE novel_id = ?1", &novel_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM plot_item WHERE novel_id = ?1", &novel_id), 0);
+}
+
+/// 清空回收站必须只影响目标作品，不能波及其它作品。
+#[test]
+fn empty_trash_does_not_touch_other_novels() {
+    let pool = fresh_pool();
+    let mut conn = pool.get().unwrap();
+    let (drop_id, _) = seed_novel(&conn, "待清空");
+    let (keep_id, _) = seed_novel(&conn, "保留");
+
+    db::novel::delete_novel(&conn, &drop_id).unwrap();
+    db::trash::empty_trash(&mut conn, &drop_id).unwrap();
+
+    assert_eq!(
+        db::chapter::list_all_chapter_headers_for_novel(&conn, &keep_id).unwrap().len(),
+        2,
+        "另一个作品的章节不应被连带删除"
+    );
+}
+
+/// 彻底删除卷时，章节与卷必须同生共死。
+#[test]
+fn purge_volume_removes_chapters_atomically() {
+    let pool = fresh_pool();
+    let mut conn = pool.get().unwrap();
+    let (novel_id, vol_id) = seed_novel(&conn, "待删卷");
+
+    db::trash::purge_trash_item(&mut conn, "volume", &vol_id).unwrap();
+
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM chapter WHERE volume_id = ?1", &vol_id), 0);
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM volume WHERE id = ?1", &vol_id), 0);
+    // 作品本身必须还在 —— 删卷不等于删作品
+    assert_eq!(count(&conn, "SELECT COUNT(*) FROM novel WHERE id = ?1", &novel_id), 1);
 }

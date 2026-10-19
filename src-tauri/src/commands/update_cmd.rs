@@ -161,6 +161,18 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
         return Err("仅支持打开 http/https 协议的链接".to_string());
     }
 
+    // 协议校验不够：只限制 `http(s)://` 仍允许打开内网地址，
+    // 例如云元数据服务 `http://169.254.169.254/...` 或路由器管理页，
+    // 等于给前端一个「让系统浏览器访问本机/内网」的入口。
+    //
+    // 这里额外拒绝明显的本机与私有网段目标。更新链接应当永远指向公网
+    // 仓库地址，没有任何正当理由需要跳转到 127.0.0.1 或局域网 IP。
+    if let Some(host) = extract_host(trimmed) {
+        if is_local_or_private_host(&host) {
+            return Err(format!("出于安全考虑，不允许打开指向本机或内网的链接：{host}"));
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
@@ -188,6 +200,56 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 从 URL 中取出 host 部分。
+fn extract_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://")?.1;
+    // 去掉 userinfo、path、query、fragment
+    let after_auth = rest.rsplit_once('@').map(|(_, r)| r).unwrap_or(rest);
+    let host_part = after_auth
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    // 处理 IPv6 字面量 [::1]:8080
+    let host = if let Some(stripped) = host_part.strip_prefix('[') {
+        stripped.split(']').next().unwrap_or("").to_string()
+    } else {
+        host_part
+            .split(':')
+            .next()
+            .unwrap_or("")
+            .to_string()
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
+/// 是否指向本机或私有网段。
+fn is_local_or_private_host(host: &str) -> bool {
+    if host == "localhost" || host.ends_with(".localhost") || host == "::1" || host == "0.0.0.0" {
+        return true;
+    }
+    // 云厂商元数据端点
+    if host == "169.254.169.254" || host == "metadata.google.internal" {
+        return true;
+    }
+    // 解析失败时保守放过（真正的拦截交给协议与浏览器），
+    // 但能解析出的私有网段一律拒绝。
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+                || v4.is_multicast()
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            v6.is_loopback() || v6.is_unspecified() || v6.is_multicast()
+        }
+        Err(_) => false,
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn set_ignored_update_version(pool: State<DbPool>, version: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
@@ -211,5 +273,33 @@ mod tests {
         assert!(!is_version_newer("v0.1.0", "0.1.0"));
         assert!(!is_version_newer("0.0.9", "0.1.0"));
         assert!(!is_version_newer("0.0.99", "0.1.0"));
+    }
+
+    #[test]
+    fn external_url_blocks_local_and_private_targets() {
+        // 云元数据端点：最高危的一个
+        assert!(is_local_or_private_host("169.254.169.254"));
+        assert!(is_local_or_private_host("metadata.google.internal"));
+        // 本机与环回
+        assert!(is_local_or_private_host("localhost"));
+        assert!(is_local_or_private_host("127.0.0.1"));
+        assert!(is_local_or_private_host("::1"));
+        // 私有网段
+        assert!(is_local_or_private_host("192.168.1.1"));
+        assert!(is_local_or_private_host("10.0.0.5"));
+        assert!(is_local_or_private_host("172.16.0.1"));
+        // 正常公网地址必须放行，否则功能会被误伤
+        assert!(!is_local_or_private_host("github.com"));
+        assert!(!is_local_or_private_host("api.github.com"));
+        assert!(!is_local_or_private_host("8.8.8.8"));
+    }
+
+    #[test]
+    fn extract_host_handles_ports_and_ipv6() {
+        assert_eq!(extract_host("https://github.com/x/y").as_deref(), Some("github.com"));
+        assert_eq!(extract_host("http://127.0.0.1:8080/a").as_deref(), Some("127.0.0.1"));
+        assert_eq!(extract_host("https://user:pw@example.com/p").as_deref(), Some("example.com"));
+        assert_eq!(extract_host("http://[::1]:9000/x").as_deref(), Some("::1"));
+        assert_eq!(extract_host("not-a-url"), None);
     }
 }

@@ -941,7 +941,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "easy-writing-core"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -967,7 +967,7 @@ dependencies = [
 
 [[package]]
 name = "easy-writing-frontend"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "console_error_panic_hook",
  "gloo-timers",
@@ -4143,7 +4143,7 @@ dependencies = [
 
 [[package]]
 name = "shared-types"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "serde",
  "serde_json",

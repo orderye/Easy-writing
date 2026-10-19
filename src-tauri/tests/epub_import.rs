@@ -244,3 +244,118 @@ fn test_parse_plain_text_document_structure() {
     assert!(preview.total_word_count > 0);
 }
 
+
+// ---------------------------------------------------------------------------
+// V0.3.8 · 导入边界（基线 C-09）
+//
+// 原有 3 个测试全部是正常路径。这里补上异常输入：
+// 恶意 / 畸形 EPUB 不得让解析阶段无界占用内存。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn rejects_oversized_epub_payload() {
+    // 远超 64 MiB 入口上限。构造方式是直接喂字节，不真的生成 64 MiB 文件，
+    // 边界判断发生在解码之前。
+    let huge = vec![b'A'; 65 * 1024 * 1024];
+    let err = easy_writing_lib::import::epub::parse_import_epub("huge.epub", &huge)
+        .expect_err("超过入口上限的文件必须被拒绝");
+    assert!(
+        err.contains("过大") || err.contains("上限"),
+        "错误信息应说明是体积超限，实际：{err}"
+    );
+}
+
+#[test]
+fn rejects_non_zip_payload_with_clear_message() {
+    // 一个 HTML 错误页被当成 .epub 传入 —— 常见的用户误操作。
+    let html = b"<!DOCTYPE html><html><body>404 Not Found</body></html>";
+    let err = easy_writing_lib::import::epub::parse_import_epub("page.epub", html)
+        .expect_err("非 ZIP 数据必须被拒绝");
+    assert!(
+        err.contains("ZIP") || err.contains("EPUB"),
+        "错误信息应说明不是有效 EPUB，实际：{err}"
+    );
+}
+
+#[test]
+fn rejects_zip_bomb_entry() {
+    // 压缩炸弹：一个解压后 ~48 MiB 的高重复内容条目，远超单条目 16 MiB 上限，
+    // 但压缩后只有几十 KB。解析必须在读取阶段就中止。
+    let mut buf = Vec::new();
+    let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buf));
+    let options =
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    zip.start_file("mimetype", options).unwrap();
+    zip.write_all(b"application/epub+zip").unwrap();
+    zip.start_file("META-INF/container.xml", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#).unwrap();
+    zip.start_file("OEBPS/content.opf", options).unwrap();
+    zip.write_all(br#"<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
+<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>BombBook</dc:title></metadata>
+<manifest><item id="c1" href="bomb.xhtml" media-type="application/xhtml+xml"/></manifest>
+<spine><itemref idref="c1"/></spine>
+</package>"#).unwrap();
+
+    // 48 MiB 的高重复内容 —— deflate 压缩率极高
+    zip.start_file("OEBPS/bomb.xhtml", options).unwrap();
+    let bomb_chunk = "A".repeat(1024 * 1024);
+    for _ in 0..48 {
+        zip.write_all(bomb_chunk.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap();
+
+    let result = easy_writing_lib::import::epub::parse_import_epub("bomb.epub", &buf);
+    // 关键断言：无论它是「被拒绝」还是「成功但正文为空」，
+    // 都**不能**是因为把 48 MiB 读进了内存。压缩后体积很小，
+    // 因此必须走的是上限拒绝路径。
+    match result {
+        Err(e) => {
+            assert!(
+                e.contains("上限") || e.contains("超过"),
+                "应因上限被拒绝，实际：{e}"
+            );
+        }
+        Ok(preview) => panic!(
+            "48 MiB 条目不应被接受为正常 EPUB，实际解析出 {} 卷",
+            preview.volumes.len()
+        ),
+    }
+}
+
+#[test]
+fn rejects_zip_with_too_many_entries() {
+    let mut buf = Vec::new();
+    let mut zip = ZipWriter::new(std::io::Cursor::new(&mut buf));
+    let options =
+        SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    // 超过 20000 条上限
+    for i in 0..20_050 {
+        zip.start_file(format!("OEBPS/spam{:05}.txt", i), options).unwrap();
+        zip.write_all(b"x").unwrap();
+    }
+    zip.finish().unwrap();
+
+    let err = easy_writing_lib::import::epub::parse_import_epub("spam.epub", &buf)
+        .expect_err("条目数超限必须被拒绝");
+    assert!(
+        err.contains("上限") || err.contains("超过"),
+        "错误信息应说明条目数超限，实际：{err}"
+    );
+}
+
+#[test]
+fn normal_epub_still_imports_after_limits_were_added() {
+    // 加了上限不能误伤正常文件 —— 这是本组测试存在的意义。
+    let data = create_sample_epub(
+        "正常作品",
+        &[("第一卷", &[("第一章", "这是正文内容，应当正常解析。")])],
+    );
+    let preview = easy_writing_lib::import::epub::parse_import_epub("ok.epub", &data)
+        .expect("正常 EPUB 不得被上限误伤");
+    assert_eq!(preview.novel_title, "正常作品");
+}

@@ -8,6 +8,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  # V0.3.8 P0-3：版本一致性门禁。
+  # 版本字段散落在 5 个文件里，全靠人工同步，漏改不会有任何报错。
+  # 这个 job 把它固化成可执行检查，且刻意放在最前面 —— 版本错了，
+  # 后面所有构建与测试的结论都无意义。
+  version:
+    name: 版本一致性
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check version fields agree across manifest / Cargo / tauri.conf
+        run: node scripts/check-version.mjs
+
   frontend:
     name: 前端（依赖护栏 + 桥接测试）
     runs-on: ubuntu-latest
@@ -63,3 +78,34 @@ jobs:
       # 用 --workspace 会把它拉进来为宿主目标白白编译一遍（跑 0 个测试）。
       - name: Backend tests
         run: cargo test -p easy-writing-core -p easy-writing-frontend
+
+  # V0.3.8 P1-1：性能门禁。
+  #
+  # 阈值刻意宽松（500ms）。理由：CI runner 的 CPU 与开发机差异很大，
+  # 我们没有在 runner 上采集过真实分布，任何更紧的阈值都会产生噪音，
+  # 最终导致大家养成忽略红色构建的习惯。
+  # 这个门槛只用于拦截「劣化一个数量级」的回归（如误引入 N+1），
+  # 精确的性能治理以本机定期跑出的报告为准。
+  performance:
+    name: 性能门禁（长篇基准）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev build-essential curl wget file
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run long-novel performance benchmarks with gate
+        env:
+          EW_PERF_GATE_MS: "500"
+        run: cargo test -p easy-writing-core --test perf_benchmark -- --ignored --test-threads=1

@@ -158,6 +158,10 @@ pub async fn webdav_restore_backup(
     pool: State<'_, DbPool>,
     filename: String,
 ) -> Result<crate::sync::restore::RestoreReport, String> {
+    // 在最靠近入口处挡住路径穿越：filename 会直接拼进 WebDAV URL，
+    // 而 build_url 只做字符串拼接、不做规范化。
+    crate::sync::backup::validate_backup_filename(&filename)?;
+
     let (client, remote_dir) = get_webdav_client_and_remote_dir(pool.inner())?;
     let app_data_dir = app
         .path()

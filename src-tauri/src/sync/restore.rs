@@ -4,7 +4,6 @@ use chrono::Local;
 use flate2::read::GzDecoder;
 pub use shared_types::{BackupFileInfo, DanglingKeyInfo, RestoreIssue, RestoreReport};
 use std::fs;
-use std::io::Read;
 use std::path::PathBuf;
 
 pub async fn list_remote_backups(
@@ -24,7 +23,6 @@ pub async fn run_consistency_restore(
 ) -> Result<RestoreReport, String> {
     let clean_dir = remote_dir.trim_matches('/').to_string();
     let remote_backup_path = format!("{}/{}", clean_dir, backup_filename);
-
     // 1. Local Safety Fallback Snapshot
     let local_backups_dir = app_data_dir.join("backups");
     let _ = fs::create_dir_all(&local_backups_dir);
@@ -77,11 +75,33 @@ pub async fn run_consistency_restore(
     let gz_bytes = client.download_file(&remote_backup_path).await?;
 
     // 3. Gunzip decompression
+    //
+    //    上限保护：一个 .gz 的解压体积可以远超其自身大小（压缩炸弹）。
+    //    取前 MAX+1 字节即可判断越界，不把整包读进内存。
     let mut decoder = GzDecoder::new(&gz_bytes[..]);
     let mut decompressed_db_bytes = Vec::new();
-    decoder
-        .read_to_end(&mut decompressed_db_bytes)
-        .map_err(|e| format!("解压 WebDAV 备份包失败: {}", e))?;
+    // 分块读取并在超限时立即中止。
+    {
+        use std::io::Read;
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut total = 0usize;
+        loop {
+            let n = decoder
+                .read(&mut buf)
+                .map_err(|e| format!("解压 WebDAV 备份包失败: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            total += n;
+            if total > crate::sync::backup::MAX_RESTORE_DECOMPRESSED_BYTES {
+                return Err(format!(
+                    "备份解压后超过 {} MiB 上限，已中止恢复（可能是损坏文件或压缩炸弹）。",
+                    crate::sync::backup::MAX_RESTORE_DECOMPRESSED_BYTES / (1024 * 1024)
+                ));
+            }
+            decompressed_db_bytes.extend_from_slice(&buf[..n]);
+        }
+    }
 
     // 4. Save to temporary file and restore into active DB using SQLite Backup API
     let temp_dir = std::env::temp_dir();
@@ -89,26 +109,31 @@ pub async fn run_consistency_restore(
     fs::write(&temp_restored_path, decompressed_db_bytes)
         .map_err(|e| format!("写入解压临时文件失败: {}", e))?;
 
+    // 4a. **预检门槛** —— 覆盖现有数据库之前必须先证明这份备份是好的。
+    //
+    //     这是本次 V0.3.8 新增的关键防线。旧实现在这里直接
+    //     `Backup::run_to_completion` 覆盖目标库，只用
+    //     `schema_version > BASELINE_VERSION` 一项做检查，
+    //     而该项在读取失败时 `unwrap_or(0)` —— 损坏/非 SQLite 文件
+    //     会被当成 v0 合法旧库放行并覆盖用户数据。
+    let preflight = match crate::sync::backup::preflight_backup(&temp_restored_path) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = fs::remove_file(&temp_restored_path);
+            return Err(format!("恢复中止：备份未通过完整性检查，原数据未被改动。{e}"));
+        }
+    };
+
+    // 空库单独提示，但不自动拒绝 —— 作者可能确实要恢复到空白状态。
+    let manifest_notes = crate::sync::backup::cross_check_manifest(&temp_restored_path, &preflight)
+        .unwrap_or_else(|e| vec![format!("读取备份清单时出错：{e}")]);
+
     {
         let src_conn = rusqlite::Connection::open(&temp_restored_path)
             .map_err(|e| format!("打开解压数据库失败: {}", e))?;
 
-        // 校验迁移版本，防止高版本数据直接冲毁低版本应用
-        let restored_version: i64 = src_conn
-            .query_row(
-                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        if restored_version > crate::db::BASELINE_VERSION {
-            let _ = fs::remove_file(&temp_restored_path);
-            return Err(format!(
-                "还原终止：该云端备份由更新版本的 Easy-writing (schema v{}) 生成，当前客户端版本较低，请先升级本软件后再还原！",
-                restored_version
-            ));
-        }
+        // 高版本检查已由上面的 preflight_backup 承担（它读 schema_version
+        // 失败会直接报错，而不是 unwrap_or(0) 伪装成 v0 合法旧库）。
 
         let mut target_conn = pool.get().map_err(|e| format!("获取目标数据库连接失败: {}", e))?;
 
@@ -174,6 +199,26 @@ pub async fn run_consistency_restore(
     // 而用户完全看不出来。现在逐项校验并把问题带回上层。
     let mut issues: Vec<RestoreIssue> = Vec::new();
 
+    // 恢复摘要：作者在点下「恢复」之后需要立刻知道恢复了什么。
+    issues.push(RestoreIssue {
+        filename: "（恢复摘要）".to_string(),
+        reason: format!(
+            "已恢复到备份时的状态：schema v{}，{} 部作品 / {} 卷 / {} 章 / {} 字。{}",
+            preflight.schema_version,
+            preflight.novel_count,
+            preflight.volume_count,
+            preflight.chapter_count,
+            preflight.word_count,
+            manifest_notes.join(" ")
+        ),
+    });
+    if preflight.is_empty_library {
+        issues.push(RestoreIssue {
+            filename: "（恢复摘要）".to_string(),
+            reason: "注意：这份备份里一部作品都没有。如果你原本有作品，说明这份备份是空库或已损坏。".to_string(),
+        });
+    }
+
     for (file_path_str, hash) in asset_rows {
         let p = PathBuf::from(&file_path_str);
         let Some(filename) = p.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
@@ -220,7 +265,8 @@ pub async fn run_consistency_restore(
                     });
                     continue;
                 }
-                if let Err(e) = fs::write(&target_local_image, &img_data) {
+                if let Err(e) = crate::sync::backup::atomic_write(&target_local_image, &img_data)
+                {
                     issues.push(RestoreIssue {
                         filename: filename.clone(),
                         reason: format!("写入本地失败：{}", e),

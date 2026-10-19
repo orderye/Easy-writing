@@ -207,16 +207,113 @@ fn collect_toc_titles(nodes: &[NavNode], map: &mut HashMap<String, String>) {
 
 
 
+/// 归档内允许的最大条目数。
+
+/// 归档内允许的最大条目数。
+///
+/// 恶意 / 异常 EPUB 可以塞进数万个小文件（每个都触发一次解压与解析），
+/// 在没有上限的情况下会长时间占住解析流程。
+const MAX_ARCHIVE_ENTRIES: usize = 20_000;
+
+/// 归档声明解压后的总体积上限（512 MiB）。
+const MAX_TOTAL_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
+
+/// 单个文档解压后的最大字节数（16 MiB）。
+///
+/// 正文 XHTML 正常只有几十 KB；16 MiB 已经远超任何合理章节。
+/// 这是解压炸弹的兜底：`read_to_string` 会一直读到流结束，
+/// 上限不设置就等于让压缩包内容决定本机内存用量。
+const MAX_ENTRY_UNCOMPRESSED_BYTES: u64 = 16 * 1024 * 1024;
+
+/// 条目读取失败的原因分类。
+///
+/// 区分「超限」与「内容损坏」不是为了好看 —— 两者的正确处理完全相反：
+/// 超限意味着**不能继续**（继续就是让压缩炸弹决定我们的内存用量），
+/// 而单个文档损坏只是这一个文件读不出来，跳过它不影响其余章节。
+#[derive(Debug, PartialEq, Eq)]
+enum EntryReadError {
+    /// 超过体积上限 —— 必须中止整个导入。
+    TooLarge(String),
+    /// 读取失败 / 解压失败 / 非 UTF-8 —— 跳过该文档即可。
+    Corrupt,
+}
+
+/// 带上限的条目读取。
+///
+/// `zip::read_to_string` 会一路读到流结束。面对刻意构造的压缩炸弹
+/// （压缩后几 KB、解压后数 GB），这等同于把内存交给攻击者控制。
+/// 这里改成边读边计数，超限立即中止 —— 不信任 zip 头里可伪造的声明值。
+fn read_entry_text<R: Read>(entry: &mut R, out: &mut String) -> Result<(), EntryReadError> {
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    let mut total: u64 = 0;
+    loop {
+        let n = entry
+            .read(&mut chunk)
+            .map_err(|_| EntryReadError::Corrupt)?;
+        if n == 0 {
+            break;
+        }
+        total += n as u64;
+        if total > MAX_ENTRY_UNCOMPRESSED_BYTES {
+            return Err(EntryReadError::TooLarge(format!(
+                "解压后超过 {} MiB 上限（该文件可能是刻意构造的压缩炸弹）",
+                MAX_ENTRY_UNCOMPRESSED_BYTES / (1024 * 1024)
+            )));
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    out.push_str(&String::from_utf8_lossy(&buf));
+    Ok(())
+}
+
 /// 解析 EPUB 二进制数据并生成分卷分章预览结构
 pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, String> {
+    // 入口体积上限：base64 已在 IPC 边界整体解码进内存，这里再兜一层。
+    const MAX_EPUB_FILE_BYTES: usize = 64 * 1024 * 1024;
+    if data.len() > MAX_EPUB_FILE_BYTES {
+        return Err(format!(
+            "EPUB 文件过大（{} MiB），超过 {} MiB 上限，已拒绝导入。",
+            data.len() / (1024 * 1024),
+            MAX_EPUB_FILE_BYTES / (1024 * 1024)
+        ));
+    }
+
     let mut archive = ZipArchive::new(Cursor::new(data))
         .map_err(|e| format!("无法解压 EPUB 文件（非有效 ZIP 归档）：{}", e))?;
+
+    // 条目数量上限：在遍历之前拒绝，避免为畸形归档做无谓的工作。
+    if archive.len() > MAX_ARCHIVE_ENTRIES {
+        return Err(format!(
+            "EPUB 内含 {} 个文件，超过 {} 个上限，已拒绝导入（可能是畸形文件或刻意构造的压缩包）。",
+            archive.len(),
+            MAX_ARCHIVE_ENTRIES
+        ));
+    }
+
+    // 声明的解压总体积上限：比逐条读取更早拦截。
+    // zip 头里的 uncompressed_size 是不可信的，所以这里只用来做「明显过大」的快速拒绝，
+    // 真正的兜底仍是下面 read_entry_text 的逐条上限。
+    {
+        let mut declared_total: u64 = 0;
+        for i in 0..archive.len() {
+            if let Ok(f) = archive.by_index(i) {
+                declared_total = declared_total.saturating_add(f.size());
+                if declared_total > MAX_TOTAL_UNCOMPRESSED_BYTES {
+                    return Err(format!(
+                        "EPUB 解压后预计超过 {} MiB 上限，已拒绝导入。",
+                        MAX_TOTAL_UNCOMPRESSED_BYTES / (1024 * 1024)
+                    ));
+                }
+            }
+        }
+    }
 
     // 1. 读取 META-INF/container.xml 寻找 OPF 路径
     let opf_path = {
         let container_str = if let Ok(mut container_file) = archive.by_name("META-INF/container.xml") {
             let mut s = String::new();
-            if container_file.read_to_string(&mut s).is_ok() {
+            if read_entry_text(&mut container_file, &mut s).is_ok() {
                 Some(s)
             } else {
                 None
@@ -264,9 +361,11 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
             .by_name(&opf_path)
             .map_err(|_| format!("找不到指定的 OPF 文件: {}", opf_path))?;
         let mut s = String::new();
-        opf_file
-            .read_to_string(&mut s)
-            .map_err(|e| format!("读取 OPF 文件失败: {}", e))?;
+        read_entry_text(&mut opf_file, &mut s)
+            .map_err(|e| match e {
+                EntryReadError::TooLarge(m) => format!("读取 OPF 文件失败：{m}"),
+                EntryReadError::Corrupt => "读取 OPF 文件失败：内容损坏".to_string(),
+            })?;
         s
     };
 
@@ -337,7 +436,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
     if let Some(ncx_p) = &toc_ncx_path {
         if let Ok(mut file) = archive.by_name(ncx_p) {
             let mut ncx_xml = String::new();
-            if file.read_to_string(&mut ncx_xml).is_ok() {
+            if read_entry_text(&mut file, &mut ncx_xml).is_ok() {
                 let ncx_dir = if let Some(idx) = ncx_p.rfind('/') {
                     &ncx_p[..idx + 1]
                 } else {
@@ -352,7 +451,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
         if let Some(nav_p) = &nav_xhtml_path {
             if let Ok(mut file) = archive.by_name(nav_p) {
                 let mut nav_xml = String::new();
-                if file.read_to_string(&mut nav_xml).is_ok() {
+                if read_entry_text(&mut file, &mut nav_xml).is_ok() {
                     let nav_dir = if let Some(idx) = nav_p.rfind('/') {
                         &nav_p[..idx + 1]
                     } else {
@@ -391,7 +490,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
                 if !root.src.is_empty() {
                     if let Ok(mut file) = archive.by_name(&root.src) {
                         let mut html = String::new();
-                        if file.read_to_string(&mut html).is_ok() {
+                        if read_entry_text(&mut file, &mut html).is_ok() {
                             let (_, paras) = html_to_paragraphs(&html);
                             if !paras.is_empty() {
                                 let is_just_vol_title = paras.len() == 1
@@ -414,7 +513,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
                     }
                     if let Ok(mut file) = archive.by_name(&child.src) {
                         let mut html = String::new();
-                        if file.read_to_string(&mut html).is_ok() {
+                        if read_entry_text(&mut file, &mut html).is_ok() {
                             let (detected_h, mut paras) = html_to_paragraphs(&html);
                             let chap_title = if !child.title.is_empty() {
                                 child.title.clone()
@@ -451,7 +550,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
                 if !root.src.is_empty() {
                     if let Ok(mut file) = archive.by_name(&root.src) {
                         let mut html = String::new();
-                        if file.read_to_string(&mut html).is_ok() {
+                        if read_entry_text(&mut file, &mut html).is_ok() {
                             let (detected_h, mut paras) = html_to_paragraphs(&html);
                             let chap_title = if !root.title.is_empty() {
                                 root.title.clone()
@@ -525,10 +624,18 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
                     continue;
                 };
                 let mut s = String::new();
-                if file.read_to_string(&mut s).is_err() {
-                    continue;
+                // 读取失败要区分两种情况：
+                // - 超限（压缩炸弹）必须**中止整个导入**并让作者知道；
+                // - 单个文档损坏则跳过它，不该让整本书导不进来。
+                match read_entry_text(&mut file, &mut s) {
+                    Ok(()) => s,
+                    // 超限必须中止整个导入：继续读下去就是让压缩炸弹
+                    // 决定本机内存用量。单个文档损坏才允许跳过。
+                    Err(EntryReadError::TooLarge(e)) => {
+                        return Err(format!("EPUB 导入中止：文档「{}」{e}", item.full_path));
+                    }
+                    Err(EntryReadError::Corrupt) => continue,
                 }
-                s
             };
 
             let (heading_opt, mut paragraphs) = html_to_paragraphs(&html_content);

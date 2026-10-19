@@ -3,7 +3,7 @@ use crate::ai::openai::ChatMessage;
 use crate::db::DbPool;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use shared_types::{Chapter, ExtractionCandidate, LlmProfile, Novel};
+use shared_types::{Chapter, LlmProfile, Novel};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
@@ -117,10 +117,38 @@ pub fn self_heal_and_parse_candidates(raw_text: &str, default_kind: &str) -> Res
         return Ok(regex_items);
     }
 
+    // 错误消息里**只描述长度，不回显内容**。
+    //
+    // 旧实现拼接了模型输出的前 150 个字符，而模型输出中包含候选的
+    // `evidence` 字段 —— 那是直接摘自作者正文的原句。这条错误会一路
+    // 传到 eprintln!，等于把小说正文片段写进普通日志。
+    // 排障需要的只是「有多长」和「开头长什么样（脱敏后）」。
     Err(format!(
-        "无法从模型输出中解析出任何有效候选条目: {}",
-        raw_text.chars().take(150).collect::<String>()
+        "无法从模型输出中解析出任何有效候选条目（输出长度 {} 字符，起始片段：{}）",
+        raw_text.chars().count(),
+        redact_prose_fragment(raw_text)
     ))
+}
+
+/// 生成一段可用于排障、但不含正文原文的片段描述。
+///
+/// 只保留非中文、非字母数字的结构性符号（如 `{`, `[`, `"`），
+/// 并把它们替换成占位标记。这样排障时仍能看出「是不是 JSON」，
+/// 却拿不到任何正文内容。
+fn redact_prose_fragment(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars().take(150) {
+        if ch.is_ascii() && !ch.is_alphanumeric() {
+            out.push(ch);
+        } else if !out.ends_with('…') {
+            out.push('·');
+        }
+    }
+    if out.is_empty() {
+        "（空）".to_string()
+    } else {
+        out
+    }
 }
 
 /// 清理语法杂质（尾随逗号、行外注释等，且智能保护字符串内部的双斜杠）
@@ -542,15 +570,28 @@ pub async fn run_parallel_extraction(
     chapter: Chapter,
     profile: LlmProfile,
     api_key: String,
-) -> Result<Vec<ExtractionCandidate>, String> {
+) -> Result<crate::agent::outcome::ExtractionOutcome, String> {
     // 1. Check if chapter text has changed
     let current_hash = compute_chapter_fingerprint(&chapter.content_plain);
     if let Some(ref last_hash) = chapter.extracted_hash {
         if last_hash == &current_hash && !chapter.content_plain.trim().is_empty() {
-            // Already extracted with same text, return pending
+            // Already extracted with same text, return pending.
+            //
+            // 注意：这里返回的是**整个作品**的待审候选（list_pending_candidates
+            // 只按 novel_id 过滤），不是本章的。旧实现把它当作「本次提炼结果」
+            // 直接展示，作者会误以为这些是刚刚提炼出来的。
+            // 现在显式标记 skipped_fingerprint_match，由上层如实告知。
             let conn = pool.get().map_err(|e| e.to_string())?;
-            return crate::db::extraction::list_pending_candidates(&conn, &novel.id)
-                .map_err(|e| e.to_string());
+            let candidates =
+                crate::db::extraction::list_pending_candidates(&conn, &novel.id)
+                    .map_err(|e| e.to_string())?;
+            return Ok(crate::agent::outcome::ExtractionOutcome {
+                candidates,
+                succeeded_agents: 0,
+                failures: Vec::new(),
+                skipped_fingerprint_match: true,
+                all_succeeded: true,
+            });
         }
     }
 
@@ -622,6 +663,10 @@ pub async fn run_parallel_extraction(
 
     let mut extracted_candidates = Vec::new();
     let mut all_succeeded = true;
+    // 失败必须被**记录并上报**，不能只打日志 —— 旧实现把所有 Agent 失败
+    // 收敛成 `Ok(vec![])`，作者看到的是「本章没有新设定」，
+    // 于是 Key 失效、限流、断网全部被静默成「成功但没结果」。
+    let mut failures: Vec<crate::agent::outcome::AgentFailure> = Vec::new();
 
     for (kind, task) in tasks {
         match task.await {
@@ -634,6 +679,11 @@ pub async fn run_parallel_extraction(
                                 Err(e) => {
                                     all_succeeded = false;
                                     eprintln!("[Extraction] 获取数据库连接失败: {}", e);
+                                    failures.push(crate::agent::outcome::AgentFailure {
+                                        agent: kind.to_string(),
+                                        kind: crate::agent::outcome::ExtractionFailureKind::Database,
+                                        reason: "获取数据库连接失败".to_string(),
+                                    });
                                     continue;
                                 }
                             };
@@ -706,7 +756,12 @@ pub async fn run_parallel_extraction(
                                             }
                                             Err(e) => {
                                                 all_succeeded = false;
-                                                eprintln!("[Extraction] 写入候选失败 (kind: {}, title: {}): {}", item.kind, item.title, e);
+                                                eprintln!("[Extraction] 写入候选失败 (kind: {}): {}", item.kind, e);
+                                                failures.push(crate::agent::outcome::AgentFailure {
+                                                    agent: kind.to_string(),
+                                                    kind: crate::agent::outcome::ExtractionFailureKind::Database,
+                                                    reason: "写入候选记录失败".to_string(),
+                                                });
                                             }
                                         }
                                     }
@@ -715,7 +770,12 @@ pub async fn run_parallel_extraction(
                                     }
                                     Err(e) => {
                                         all_succeeded = false;
-                                        eprintln!("[Extraction] 查询候选去重状态失败 (kind: {}, title: {}): {}", item.kind, item.title, e);
+                                        eprintln!("[Extraction] 查询候选去重状态失败 (kind: {}): {}", item.kind, e);
+                                        failures.push(crate::agent::outcome::AgentFailure {
+                                            agent: kind.to_string(),
+                                            kind: crate::agent::outcome::ExtractionFailureKind::Database,
+                                            reason: "查询候选去重状态失败".to_string(),
+                                        });
                                     }
                                 }
                             }
@@ -723,17 +783,38 @@ pub async fn run_parallel_extraction(
                     }
                     Err(e) => {
                         all_succeeded = false;
-                        eprintln!("[Extraction] Agent {} 输出解析失败: {}", kind, e);
+                        // 旧实现直接打印 e，而 e 的文本里嵌了模型返回的前 150 个字符
+                        // （其中包含候选的 evidence 字段 —— 那是作者正文的原句片段）。
+                        // 改为只记录脱敏后的类别，不回显任何正文。
+                        let reason = crate::agent::outcome::sanitize_reason(&e);
+                        eprintln!("[Extraction] Agent {} 输出解析失败: {}", kind, reason);
+                        failures.push(crate::agent::outcome::AgentFailure {
+                            agent: kind.to_string(),
+                            kind: crate::agent::outcome::ExtractionFailureKind::MalformedOutput,
+                            reason,
+                        });
                     }
                 }
             }
             Ok(Err(e)) => {
                 all_succeeded = false;
-                eprintln!("[Extraction] Agent {} 执行失败: {}", kind, e);
+                let kind_class = crate::agent::outcome::classify_error(&e);
+                let reason = crate::agent::outcome::sanitize_reason(&e);
+                eprintln!("[Extraction] Agent {} 执行失败（{:?}）: {}", kind, kind_class, reason);
+                failures.push(crate::agent::outcome::AgentFailure {
+                    agent: kind.to_string(),
+                    kind: kind_class,
+                    reason,
+                });
             }
             Err(e) => {
                 all_succeeded = false;
                 eprintln!("[Extraction] Agent {} JoinError: {}", kind, e);
+                failures.push(crate::agent::outcome::AgentFailure {
+                    agent: kind.to_string(),
+                    kind: crate::agent::outcome::ExtractionFailureKind::Internal,
+                    reason: "Agent 任务异常终止".to_string(),
+                });
             }
         }
     }
@@ -755,7 +836,13 @@ pub async fn run_parallel_extraction(
         );
     }
 
-    Ok(extracted_candidates)
+    Ok(crate::agent::outcome::ExtractionOutcome {
+        succeeded_agents: 4 - failures.len() as usize,
+        candidates: extracted_candidates,
+        failures,
+        skipped_fingerprint_match: false,
+        all_succeeded,
+    })
 }
 
 #[cfg(test)]
