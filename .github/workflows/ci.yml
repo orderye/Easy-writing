@@ -79,6 +79,91 @@ jobs:
       - name: Backend tests
         run: cargo test -p easy-writing-core -p easy-writing-frontend
 
+  # V0.3.8 P1-1：真实 WebDAV 服务端集成测试。
+  #
+  # tests/webdav_integration.rs 用的是仓库自带的进程内测试服务端（随 backend job 运行），
+  # 它能证明客户端发出的请求符合 WebDAV 语义，但证明不了与真实产品的兼容性。
+  # 本 job 跑在真实 WebDAV 服务端上，补的正是这一层。
+  #
+  # 服务端选型记录（任务书 P1-1 B 要求）：
+  #   镜像        bytemark/webdav:2.4（固定标签，不用 latest）
+  #   实现        nginx + ngx_http_dav_module + nginx-dav-ext-module
+  #   支持方法    PROPFIND(Depth 0/1) / GET / HEAD / PUT / MOVE / DELETE / MKCOL / OPTIONS
+  #               —— 与 WebDavClient 实际发出的请求集合一致
+  #   认证        HTTP Basic（AUTH_TYPE=basic + USERNAME/PASSWORD）
+  #   测试目录    每次运行由测试自身用 MKCOL 创建独占子目录（ew-it-<pid>-<纳秒>），
+  #               结束时只删除该目录下由本测试创建的文件
+  #   凭据        ewtest/ewtest，仅存在于这个一次性容器内，不是任何生产账号
+  #
+  # 关键约束：EW_WEBDAV_IT_* 一旦设置，服务端不可达就是**失败**而不是跳过。
+  # 容器起不来、健康检查不过，这个 job 必须是红的 —— 不允许用「跳过」冒充通过。
+  webdav:
+    name: WebDAV 集成（真实服务端）
+    runs-on: ubuntu-latest
+    services:
+      webdav:
+        image: bytemark/webdav:2.4
+        env:
+          AUTH_TYPE: basic
+          USERNAME: ewtest
+          PASSWORD: ewtest
+        ports:
+          - 8080:80
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev build-essential curl wget file
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # 显式等待：service container 的端口映射就绪不等于 WebDAV 已能应答。
+      # 探测用的就是客户端真正依赖的 PROPFIND，而不是 TCP 连通性。
+      - name: Wait for WebDAV service (PROPFIND probe)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf -u ewtest:ewtest -X PROPFIND -H 'Depth: 0' \
+                 -H 'Content-Type: application/xml' \
+                 --data '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>' \
+                 http://127.0.0.1:8080/ >/dev/null; then
+              echo "WebDAV 服务端就绪（第 ${i} 次探测）"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "WebDAV 服务端未就绪，判定为失败（不跳过）" >&2
+          exit 1
+
+      - name: Run real-server WebDAV integration tests
+        env:
+          EW_WEBDAV_IT_URL: http://127.0.0.1:8080/
+          EW_WEBDAV_IT_USER: ewtest
+          EW_WEBDAV_IT_PASSWORD: ewtest
+        run: |
+          cargo test -p easy-writing-core --test webdav_real_server -- \
+            --nocapture --test-threads=1 2>&1 | tee webdav-it.log
+          # 日志脱敏护栏：凭据不得出现在留存的日志里。
+          if grep -q 'ewtest:ewtest\|EW_WEBDAV_IT_PASSWORD=' webdav-it.log; then
+            echo "日志中出现明文凭据" >&2
+            exit 1
+          fi
+
+      - name: Upload integration log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webdav-integration-log
+          path: webdav-it.log
+          if-no-files-found: warn
+
   # V0.3.8 P1-1：性能门禁。
   #
   # 阈值刻意宽松（500ms）。理由：CI runner 的 CPU 与开发机差异很大，
