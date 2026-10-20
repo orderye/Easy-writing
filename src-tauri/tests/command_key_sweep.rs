@@ -224,7 +224,8 @@ fn all_command_keys_resolve() {
 
     // 说明：ai_chat_stream / save_chapter_content / save_image_asset /
     // get_app_data_dir / scan_image_storage / prune_orphan_images /
-    // webdav_backup_now / webdav_restore_backup 的参数首参为 tauri::AppHandle，
+    // webdav_backup_now / webdav_restore_preflight / webdav_restore_backup
+    // 的参数首参为 tauri::AppHandle，
     // 在 MockRuntime 下无法注册（AppHandle 不实现 CommandArg<MockRuntime>），
     // 因此不在本 sweep 覆盖范围内；它们的键名契约由 ipc_argcase.rs 兜底。
 

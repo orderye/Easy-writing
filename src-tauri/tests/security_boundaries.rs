@@ -206,7 +206,8 @@ fn backup_manifest_contains_no_credentials() {
             [],
         ).unwrap();
 
-        let m = easy_writing_lib::sync::manifest::build_manifest(&conn, "0.3.8", 1);
+        let m = easy_writing_lib::sync::manifest::build_manifest(&conn, "0.3.8", 1, "")
+            .expect("清单生成不应失败");
         let json = serde_json::to_string(&m).unwrap();
 
         for secret in [

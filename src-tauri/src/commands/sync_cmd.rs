@@ -128,20 +128,30 @@ pub async fn webdav_test_connection(pool: State<'_, DbPool>) -> Result<(), Strin
 pub async fn webdav_backup_now(
     app: tauri::AppHandle,
     pool: State<'_, DbPool>,
-) -> Result<String, String> {
+) -> Result<shared_types::BackupReport, String> {
     let (client, remote_dir) = get_webdav_client_and_remote_dir(pool.inner())?;
     let app_data_dir = app
         .path()
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir());
 
-    crate::sync::backup::run_incremental_backup(
+    let outcome = crate::sync::backup::run_incremental_backup_detailed(
         pool.inner().clone(),
         &client,
         &remote_dir,
         app_data_dir,
     )
-    .await
+    .await?;
+
+    // 完整性缺口必须越过 IPC 边界：旧实现只回传 filename，
+    // 「清单没传上去 / 图片没同步 / 素材本地就缺」全部被吞在后端。
+    Ok(shared_types::BackupReport {
+        filename: outcome.filename,
+        verified: outcome.verified,
+        manifest_uploaded: outcome.manifest_uploaded,
+        image_upload_failures: outcome.image_upload_failures,
+        missing_assets: outcome.missing_assets,
+    })
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -152,11 +162,46 @@ pub async fn webdav_list_backups(
     crate::sync::restore::list_remote_backups(&client, &remote_dir).await
 }
 
+/// 恢复预检：下载并校验候选备份，返回覆盖数据库之前作者需要看到的全部事实。
+///
+/// **本命令不改动现有数据库**，因此可以被前端安全地反复调用。
+/// 返回的 `preflight_token` 是候选备份的 SHA-256，
+/// [`webdav_restore_backup`] 凭它找回同一份候选并重新校验。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn webdav_restore_preflight(
+    app: tauri::AppHandle,
+    pool: State<'_, DbPool>,
+    filename: String,
+) -> Result<crate::sync::restore::RestorePreflight, String> {
+    crate::sync::backup::validate_backup_filename(&filename)?;
+
+    let (client, remote_dir) = get_webdav_client_and_remote_dir(pool.inner())?;
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::temp_dir());
+
+    crate::sync::restore::run_restore_preflight(
+        pool.inner().clone(),
+        &client,
+        &remote_dir,
+        &filename,
+        app_data_dir,
+    )
+    .await
+}
+
+/// 执行恢复。必须先成功调用过 [`webdav_restore_preflight`]。
+///
+/// `confirm_empty_overwrite` 是空库覆盖闸门：本机有作品而候选备份为空时，
+/// 未显式确认则拒绝执行，且**不产生任何数据库、配置或素材变更**。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn webdav_restore_backup(
     app: tauri::AppHandle,
     pool: State<'_, DbPool>,
     filename: String,
+    preflight_token: String,
+    confirm_empty_overwrite: bool,
 ) -> Result<crate::sync::restore::RestoreReport, String> {
     // 在最靠近入口处挡住路径穿越：filename 会直接拼进 WebDAV URL，
     // 而 build_url 只做字符串拼接、不做规范化。
@@ -174,6 +219,9 @@ pub async fn webdav_restore_backup(
         &remote_dir,
         &filename,
         app_data_dir,
+        preflight_token,
+        confirm_empty_overwrite,
+        crate::sync::restore::RestoreHooks::default(),
     )
     .await
 }

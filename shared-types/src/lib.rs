@@ -310,6 +310,34 @@ pub struct BackupFileInfo {
     pub modified_at: String,
 }
 
+/// 一次整库备份的结果。
+///
+/// 存在的理由：后端本来就有这些字段，但 command 层只把 `filename`
+/// 透传给前端，于是「清单没传上去」「三张图没同步」「两个素材本地就缺」
+/// 全部在边界上被丢掉，作者只看到一个「✓ 备份成功」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupReport {
+    pub filename: String,
+    /// 备份包是否已通过大小校验与结构自检。未通过时不会轮转旧备份。
+    pub verified: bool,
+    /// 清单 sidecar 是否上传成功。为 false 时这份备份只能按历史无清单路径恢复。
+    pub manifest_uploaded: bool,
+    /// 文件存在但上传失败的图片文件名。
+    pub image_upload_failures: Vec<String>,
+    /// 数据库有记录、但备份时本地文件已缺失的素材 `rel_path`。
+    pub missing_assets: Vec<String>,
+}
+
+impl BackupReport {
+    /// 是否有任何需要告知作者的完整性缺口。
+    pub fn has_gaps(&self) -> bool {
+        !self.verified
+            || !self.manifest_uploaded
+            || !self.image_upload_failures.is_empty()
+            || !self.missing_assets.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TrashItem {
     pub id: String,
@@ -572,9 +600,133 @@ pub struct DanglingKeyInfo {
     pub key_ref: String,
 }
 
-/// WebDAV 恢复结果报告（包含补图问题与悬空密钥体检结果）。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+/// 备份清单的校验状态。
+///
+/// 三态而不是 bool，是因为「没有清单」与「清单校验没过」必须能被区分：
+/// 前者是历史备份的正常兼容路径，后者必须拒绝覆盖数据库。
+/// 旧实现把两者压成同一个 `Vec<String>` 提示，损坏的清单会被
+/// 静默当成「历史无清单备份」放行。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum ManifestCheck {
+    /// 服务端明确返回「文件不存在」（HTTP 404），按历史备份兼容路径处理。
+    Absent,
+    /// 清单存在且与备份内容一致。
+    Verified { asset_count: u64 },
+}
+
+impl ManifestCheck {
+    pub fn is_absent(&self) -> bool {
+        matches!(self, ManifestCheck::Absent)
+    }
+}
+
+/// 恢复预检结果。
+///
+/// 这是「覆盖数据库之前」交给作者的全部事实，数据来源必须是已下载、
+/// 已解压、已通过完整性检查的候选备份本身 —— 不是远端文件名，
+/// 也不是未经校验的清单声明。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RestorePreflight {
+    pub filename: String,
+    /// 候选备份压缩包的 SHA-256。执行阶段据此重新定位并重新校验候选文件，
+    /// 使「确认 A 却恢复 B」在结构上不可能发生。
+    ///
+    /// 刻意用哈希而不是文件路径：前端传回路径等于交出「恢复任意本地文件」的能力。
+    pub preflight_token: String,
+    pub schema_version: i64,
+    pub novel_count: i64,
+    pub volume_count: i64,
+    pub chapter_count: i64,
+    pub word_count: i64,
+    /// 候选备份结构完整但一部作品都没有。
+    pub is_empty_library: bool,
+    /// 本机当前库的作品数，用于判断是否会用空库覆盖非空库。
+    pub local_novel_count: i64,
+    pub local_is_empty: bool,
+    /// 本机有作品、而候选备份是空库 —— 必须二次确认才允许覆盖。
+    pub requires_empty_overwrite_confirm: bool,
+    pub manifest: ManifestCheck,
+    /// 候选备份是否通过 `PRAGMA integrity_check`。
+    /// 预检能返回就意味着已通过；保留该字段是为了让前端能明确展示这一项，
+    /// 而不是让作者去推断「没报错就是通过了」。
+    pub integrity_ok: bool,
+    /// 候选包压缩后字节数。
+    pub compressed_size_bytes: u64,
+    /// 备份数据库 `asset` 表记录的资产总数。
+    pub asset_total: u64,
+    /// 本机已存在且哈希与清单一致的资产数。
+    pub asset_present_locally: u64,
+    /// 本机缺失、需要在执行阶段从远端回填的资产数。
+    pub asset_missing_locally: u64,
+    /// 资产层面的可见问题（路径非法、重复、哈希格式错误、清单与库不一致等）。
+    pub asset_problems: Vec<String>,
+}
+
+/// 恢复的最终结局。四态互斥，不允许把「数据库覆盖成功」当成「整体恢复成功」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RestoreOutcome {
+    /// 数据库、本地配置、全部图片资产均恢复成功。安全快照已清理。
+    Success,
+    /// 数据库与本地配置恢复成功，但部分素材缺失或哈希不符。安全快照保留。
+    PartialAssets,
+    /// 关键阶段失败，已从安全快照回滚，原数据库未被改变。安全快照保留。
+    RolledBack,
+    /// 关键阶段失败**且回滚也失败**。安全快照保留，必须人工介入。
+    RollbackFailed,
+}
+
+impl RestoreOutcome {
+    /// 数据库内容是否已经被替换成备份内容且未回滚。
+    pub fn database_is_restored(&self) -> bool {
+        matches!(self, RestoreOutcome::Success | RestoreOutcome::PartialAssets)
+    }
+
+    /// 是否达到允许清理安全快照的状态。
+    ///
+    /// 只有完全成功才清理：部分成功意味着素材仍不完整，
+    /// 作者可能还要再恢复一次，此时快照是唯一的退路。
+    pub fn allows_snapshot_cleanup(&self) -> bool {
+        matches!(self, RestoreOutcome::Success)
+    }
+}
+
+/// 一次恢复的结构化摘要。
+///
+/// 取代旧实现塞进 `issues[0]` 的「（恢复摘要）」伪条目 —— 把结论混进
+/// 问题列表里，前端只能折叠成「另有 N 项异常」，作者看不到关键状态。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RestoreSummary {
+    pub schema_version: i64,
+    pub novel_count: i64,
+    pub volume_count: i64,
+    pub chapter_count: i64,
+    pub word_count: i64,
+    pub is_empty_library: bool,
+    pub manifest: ManifestCheck,
+    /// 本地 WebDAV 连接配置与界面设置是否成功写回。
+    pub config_restored: bool,
+    /// 配置恢复失败的具体阶段与原因；成功时为空。
+    /// 刻意不含凭据内容或钥匙串引用键名。
+    pub config_error: String,
+    /// 数据库覆盖是否成功。
+    pub database_restored: bool,
+    pub asset_total: u64,
+    pub asset_restored: u64,
+    pub asset_failed: u64,
+    /// 安全快照路径。仅在 `allows_snapshot_cleanup` 时为空。
+    pub snapshot_path: String,
+    pub snapshot_retained: bool,
+    /// 回滚失败时的原因；未发生回滚失败时为空。
+    pub rollback_error: String,
+}
+
+/// WebDAV 恢复结果报告。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RestoreReport {
+    pub outcome: RestoreOutcome,
+    pub summary: RestoreSummary,
     pub issues: Vec<RestoreIssue>,
     pub dangling_keys: Vec<DanglingKeyInfo>,
 }

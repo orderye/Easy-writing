@@ -2,6 +2,17 @@ use reqwest::{Client, Method, StatusCode};
 use shared_types::BackupFileInfo;
 use std::time::Duration;
 
+/// 一次「允许文件不存在」的远端读取结果。
+///
+/// 三态而不是 `Result<Option<Vec<u8>>>`：后者无法区分
+/// 「服务端说不存在」与「我们没能问到」，而这个区别决定了
+/// 恢复流程能否走历史备份兼容分支。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RemoteFetch {
+    Found(Vec<u8>),
+    NotFound,
+}
+
 #[derive(Clone, Debug)]
 pub struct WebDavClient {
     client: Client,
@@ -181,6 +192,51 @@ impl WebDavClient {
             .map_err(|e| format!("读取文件内容流失败: {}", e))?;
 
         Ok(bytes.to_vec())
+    }
+
+    /// 下载一个**允许不存在**的文件。
+    ///
+    /// ## 为什么不能直接用 `download_file` + `file_exists`
+    ///
+    /// 恢复流程需要区分三种情况，而 `download_file` 只能表达两种：
+    ///
+    /// 1. 文件存在且下载成功 → `Found`
+    /// 2. 服务端明确说「不存在」（404）→ `NotFound`，这是历史备份的兼容路径
+    /// 3. 网络中断、401/403、5xx、超时 → `Err`
+    ///
+    /// 把 3 折叠进 2 是危险的：一次网络抖动会让「有清单但没读到」的备份
+    /// 被当成「历史无清单备份」，从而跳过全部清单校验直接覆盖数据库。
+    /// `file_exists` 也帮不上忙 —— 它在网络错误时返回 `Ok(false)`，
+    /// 同样是把「不知道」当成「不存在」。
+    pub async fn download_file_optional(&self, remote_path: &str) -> Result<RemoteFetch, String> {
+        let url = self.build_url(remote_path);
+
+        let res = self
+            .client
+            .get(&url)
+            .basic_auth(&self.username, Some(&self.password))
+            .send()
+            .await
+            .map_err(|e| format!("从 WebDAV 下载文件失败 ({}): {}", remote_path, e))?;
+
+        let status = res.status();
+        if status == StatusCode::NOT_FOUND {
+            return Ok(RemoteFetch::NotFound);
+        }
+        if !status.is_success() {
+            // 401 / 403 / 405 / 5xx 一律不是「文件不存在」。
+            return Err(format!(
+                "WebDAV 下载失败 ({}): HTTP {}（这不是「文件不存在」，不能据此判定为历史备份）",
+                remote_path, status
+            ));
+        }
+
+        let bytes = res
+            .bytes()
+            .await
+            .map_err(|e| format!("读取文件内容流失败: {}", e))?;
+
+        Ok(RemoteFetch::Found(bytes.to_vec()))
     }
 
     pub async fn list_files(&self, remote_dir: &str) -> Result<Vec<BackupFileInfo>, String> {

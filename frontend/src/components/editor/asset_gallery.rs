@@ -803,7 +803,7 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
                     let name = target.name.clone();
                     let u = usage.get();
                     view! {
-                        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-60 p-6">
+                        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[60] p-6">
                             <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-700 overflow-hidden">
                                 <div class="px-5 py-3 bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
                                     <span class="text-lg">"🗂"</span>
@@ -857,7 +857,7 @@ pub fn AssetGalleryModal(app_ctx: AppContext) -> impl IntoView {
                     let id = target.id.clone();
                     let name = target.name.clone();
                     view! {
-                        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-60 p-6">
+                        <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-[60] p-6">
                             <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-red-200 dark:border-red-800 overflow-hidden">
                                 <div class="px-5 py-3 bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-800 flex items-center gap-2">
                                     <span class="text-lg">"⚠️"</span>

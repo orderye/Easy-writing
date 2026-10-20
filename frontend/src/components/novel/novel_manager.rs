@@ -685,7 +685,7 @@ pub fn NovelManagerModal(app_ctx: AppContext) -> impl IntoView {
                         return view! { <div></div> }.into_any();
                     };
                     view! {
-                        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-60 p-4">
+                        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
                             <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 dark:border-slate-800 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                                 <div class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-850">
                                     <h3 class="font-bold text-sm text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
@@ -752,7 +752,7 @@ pub fn NovelManagerModal(app_ctx: AppContext) -> impl IntoView {
                         return view! { <div></div> }.into_any();
                     };
                     view! {
-                        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-60 p-4">
+                        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-[60] p-4">
                             <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-md w-full border border-red-200 dark:border-red-900/60 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                                 <div class="px-5 py-3.5 bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-900/60 flex items-center gap-2">
                                     <span class="text-lg">"⚠️"</span>

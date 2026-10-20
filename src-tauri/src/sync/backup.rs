@@ -220,41 +220,6 @@ fn count(conn: &rusqlite::Connection, table: &str) -> Result<i64, String> {
     .map_err(|e| format!("统计 {table} 失败，备份结构可能不完整：{e}"))
 }
 
-/// 把预检结论与可选清单对照，产出「作者需要知道」的差异说明。
-///
-/// 清单是可选的：历史备份没有 sidecar，这一步只做结构校验，不因此拒绝恢复。
-pub fn cross_check_manifest(
-    path: &Path,
-    report: &PreflightReport,
-) -> Result<Vec<String>, String> {
-    let manifest = match manifest::read_sidecar(path)? {
-        Some(m) => m,
-        // 无清单 = 历史备份。这是正常情况，不是错误。
-        None => return Ok(vec!["该备份没有清单文件（历史备份），已按结构完整性校验通过。".into()]),
-    };
-
-    let mut notes = Vec::new();
-    let expected = manifest.entity_counts.get("novel").copied();
-    if let Some(exp) = expected {
-        if exp != report.novel_count {
-            notes.push(format!(
-                "清单记录 {} 个作品，备份实际含 {} 个，请确认是否为预期。",
-                exp, report.novel_count
-            ));
-        }
-    }
-    let expected_ch = manifest.entity_counts.get("chapter").copied();
-    if let Some(exp) = expected_ch {
-        if exp != report.chapter_count {
-            notes.push(format!(
-                "清单记录 {} 个章节，备份实际含 {} 个。",
-                exp, report.chapter_count
-            ));
-        }
-    }
-    Ok(notes)
-}
-
 // ---------------------------------------------------------------------------
 // 轮转
 // ---------------------------------------------------------------------------
@@ -295,6 +260,7 @@ pub fn plan_rotation(names: &[String], new_backup_verified: bool, keep: usize) -
 // 增量备份主流程
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackupOutcome {
     pub filename: String,
     /// 本次备份是否已通过结构自检。轮转只在此为 true 时执行。
@@ -303,6 +269,12 @@ pub struct BackupOutcome {
     pub manifest_uploaded: bool,
     /// 未同步成功的图片文件名。数据库本体不受影响，但作者应知道素材不完整。
     pub image_upload_failures: Vec<String>,
+    /// 数据库 `asset` 表有记录、但备份时本地文件已缺失的素材 `rel_path`。
+    ///
+    /// 与 `image_upload_failures` 不同：那些是「文件在、上传失败」，
+    /// 这些是「文件本来就不在」。清单会把它们记进 `missing_assets`，
+    /// 恢复时必须能明确告诉作者哪些素材从一开始就没进备份。
+    pub missing_assets: Vec<String>,
 }
 
 /// 生成快照 → 校验 → 上传 → 落清单 → 才轮转。
@@ -395,13 +367,34 @@ pub async fn run_incremental_backup_detailed(
         .map_err(|e| format!("完成 Gzip 压缩流失败: {e}"))?;
 
     let compressed_len = compressed_bytes.len() as u64;
+    let compressed_hash = manifest::sha256_hex(&compressed_bytes);
 
     // 6. Build manifest (sidecar). 不含任何凭据。
-    let manifest_json = {
+    //
+    //    清单生成失败必须让整次备份失败：一份计数全为 0 的伪造清单
+    //    比没有清单更糟 —— 它会让恢复时的交叉校验「通过」。
+    //    同时，备份时本地已缺失的素材必须回报，不能因为
+    //    reconcile_with_disk 把它们从清单里剔掉就当没发生。
+    let (manifest_json, missing_assets) = {
         let conn = pool.get().map_err(|e| format!("获取数据库连接失败: {e}"))?;
-        let mut m = manifest::build_manifest(&conn, env!("CARGO_PKG_VERSION"), compressed_len);
-        manifest::reconcile_with_disk(&mut m, &app_data_dir);
-        serde_json::to_vec_pretty(&m).map_err(|e| format!("序列化备份清单失败: {e}"))?
+        let mut m = manifest::build_manifest(
+            &conn,
+            env!("CARGO_PKG_VERSION"),
+            compressed_len,
+            &compressed_hash,
+        )
+        .map_err(|e| format!("生成备份清单失败，已放弃上传：{e}"))?;
+        let missing = manifest::reconcile_with_disk(&mut m, &app_data_dir);
+        if !missing.is_empty() {
+            eprintln!(
+                "[backup] {} 个素材文件在本地缺失，未进入本次备份",
+                missing.len()
+            );
+        }
+        (
+            serde_json::to_vec_pretty(&m).map_err(|e| format!("序列化备份清单失败: {e}"))?,
+            missing,
+        )
     };
 
     // 7. Atomic Upload to WebDAV
@@ -471,6 +464,7 @@ pub async fn run_incremental_backup_detailed(
         verified,
         manifest_uploaded,
         image_upload_failures,
+        missing_assets,
     })
 }
 
@@ -500,6 +494,16 @@ async fn prune_remote_backups(
             Ok(()) => deleted += 1,
             // 404 已被 delete_file 视为成功，这里拿到的是真失败
             Err(e) => failures.push(format!("{name}: {e}")),
+        }
+        // 清单 sidecar 必须跟着一起删。
+        //
+        // `list_files` 只返回 `.db.gz`，因此 sidecar 从不出现在 `names` 里，
+        // `plan_rotation` 也就永远看不到它 —— 少了这一行，每次轮转都会在
+        // 用户的 WebDAV 上留下一份孤儿 `.json`，日积月累无人清理。
+        // delete_file 把 404 视为成功，所以历史无清单备份不受影响。
+        let sidecar = format!("{path}.json");
+        if let Err(e) = client.delete_file(&sidecar).await {
+            failures.push(format!("{name}.json: {e}"));
         }
     }
     if !failures.is_empty() {

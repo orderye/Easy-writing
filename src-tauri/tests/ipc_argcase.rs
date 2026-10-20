@@ -61,7 +61,13 @@ fn every_command_declares_snake_case() {
     // 97 → 98：改动传播（P2-4）增加 find_affected_chapters。
     // 确定性影响面扫描：给定一个词，列出正文里提到它的章节与命中次数。
     // 已加入 command_key_sweep 的参数键用例。
-    assert_eq!(total, 98, "command count changed — re-audit the frontend call sites");
+    // 98 → 99：恢复两阶段化（V0.3.8 补充任务书 P0-3）增加 webdav_restore_preflight。
+    // 空库覆盖确认必须发生在覆盖之前，因此把恢复拆成「预检」+「执行」两个命令。
+    // 同时 webdav_restore_backup 增加 preflight_token 与 confirm_empty_overwrite 两个参数，
+    // webdav_backup_now 的返回类型由 String 改为 BackupReport（完整性缺口不再被边界吞掉）。
+    // 新命令首参为 AppHandle，与 webdav_restore_backup 同属 MockRuntime 已知限制，
+    // 不进入 command_key_sweep；两者的前端调用点均已核对（webdav_tab.rs）。
+    assert_eq!(total, 99, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
