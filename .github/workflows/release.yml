@@ -5,9 +5,80 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行模式：build-only 只构建验证不发布；release-tag 发布指定 tag'
+        required: true
+        type: choice
+        default: build-only
+        options:
+          - build-only
+          - release-tag
+      tag:
+        description: '正式发布的目标 tag（release-tag 模式必填，须为仓库中已存在的 vMAJOR.MINOR.PATCH）'
+        required: false
+        type: string
 
 jobs:
+  # V0.3.8 P1-5：发布门禁。
+  #
+  # 原来的版本校验步骤带着 `if: startsWith(github.ref, 'refs/tags/')`，
+  # 于是 workflow_dispatch 从 main 手动触发时整段校验被跳过，
+  # 紧接着 tauri-action 用 `tagName: ${{ github.ref_name }}` 创建 Release ——
+  # 产出一个名为「Easy-writing main」、tag 为 main 的正式发布产物。
+  #
+  # 现在改为：门禁无条件运行，判定逻辑在 scripts/release-gate.mjs 里（有测试），
+  # 后续所有 job 的 tag / 检出 ref / 是否发布都由门禁的输出唯一决定。
+  gate:
+    name: 发布门禁
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.gate.outputs.release_tag }}
+      is_release: ${{ steps.gate.outputs.is_release }}
+      checkout_ref: ${{ steps.gate.outputs.checkout_ref }}
+    steps:
+      # fetch-depth: 0 是必需的 —— 门禁要验证「指定的 tag 在仓库中真实存在」，
+      # 默认的浅克隆不带 tag。
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve release intent (branch names can never become a release tag)
+        id: gate
+        env:
+          INPUT_MODE: ${{ github.event.inputs.mode }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: node scripts/release-gate.mjs
+
+      # 版本一致性必须针对**将要被构建的那份内容**校验。
+      # 手动触发时触发 ref 是分支，而构建 ref 是 tag —— 少了这一步检出，
+      # 就会拿分支上的版本号去为 tag 背书。
+      - name: Checkout the exact ref that will be built
+        if: steps.gate.outputs.is_release == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.gate.outputs.checkout_ref }}
+          fetch-depth: 0
+
+      - name: Verify version consistency
+        run: |
+          if [ "${{ steps.gate.outputs.is_release }}" = "true" ]; then
+            # 正式发布：tag 必须与构建版本一致，且 CHANGELOG 必须有对应条目
+            node scripts/check-version.mjs --tag "${{ steps.gate.outputs.release_tag }}" --strict
+          else
+            # build-only：仍然校验 6 处版本字段自洽，只是不绑定 tag
+            node scripts/check-version.mjs
+          fi
+
   release:
+    name: 构建与发布
+    needs: gate
     permissions:
       contents: write
     strategy:
@@ -22,6 +93,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.checkout_ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,25 +122,53 @@ jobs:
       - name: Build frontend bridge and styles
         run: pnpm build:assets
 
-      # 发布门禁：tag 必须与构建配置里的版本号一致。
-      # 少了这一步，推 v0.3.9 的 tag 而 tauri.conf.json 还是 0.3.7 时，
-      # 发布会照常成功，只是产出一个版本号错乱的安装包。
-      - name: Verify tag matches build version
-        if: startsWith(github.ref, 'refs/tags/')
-        run: node scripts/check-version.mjs --tag "${{ github.ref_name }}" --strict
-
       # 发布前必须跑测试：发布流程如果绕开 CI，等于把未验证的包直接推给用户。
       - name: Run tests
         run: pnpm test
 
+      # macOS DMG 打包实测出现过瞬时失败（同一段代码，首次 bundle_dmg.sh 失败，
+      # 清掉它遗留的挂载卷与 rw.*.dmg 后重跑就成功）。
+      # 这里在构建前先把这类残留清掉，避免上一次失败污染本次尝试。
+      - name: Clean stale DMG artifacts (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          find target -type f -name 'rw.*.Easy-writing_*.dmg' -delete 2>/dev/null || true
+          while IFS= read -r line; do
+            case "$line" in
+              image-path*)
+                img="$(printf '%s' "${line#*image-path}" | sed 's/^[[:space:]]*: //' | sed 's/^[[:space:]]*//')"
+                case "$img" in
+                  *"/target/"*rw.*.dmg) echo "卸载残留卷 $img"; hdiutil detach "$img" -force || true ;;
+                esac
+                ;;
+            esac
+          done < <(hdiutil info || true)
+
       - name: Build and Publish Tauri Desktop App
+        if: needs.gate.outputs.is_release == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Easy-writing ${{ github.ref_name }}'
+          # buildCommand 让构建走带重试的脚本（scripts/tauri-build-retry.sh）。
+          # 注意：这一项的实际生效情况尚未在一次真实 CI 运行中确认过
+          # （本地无法执行 GitHub Actions）。即使它没被采纳，退回默认构建
+          # 也只是丢掉自动重试，不会产生错误产物 —— 见
+          # Docs/V0.3.8_RELEASE_ACCEPTANCE.md 的「待验证项」。
+          buildCommand: ./scripts/tauri-build-retry.sh ${{ matrix.args }}
+          tagName: ${{ needs.gate.outputs.release_tag }}
+          releaseName: 'Easy-writing ${{ needs.gate.outputs.release_tag }}'
           releaseBody: 'Easy-writing 小说工作台双端正式发布版本（支持 macOS 与 Windows）'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # build-only：只产出构建物供人工检查，绝不创建 Release。
+      # 前端资源已在上一步构建完成，这里只跑 tauri build（macOS 走重试脚本）。
+      - name: Build only (no release published) — macOS with DMG retry
+        if: needs.gate.outputs.is_release != 'true' && runner.os == 'macOS'
+        run: ./scripts/tauri-build-retry.sh ${{ matrix.args }}
+
+      - name: Build only (no release published) — other platforms
+        if: needs.gate.outputs.is_release != 'true' && runner.os != 'macOS'
+        run: pnpm tauri build ${{ matrix.args }}
