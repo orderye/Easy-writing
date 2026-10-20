@@ -125,6 +125,20 @@ async fn publish_backup(
     {
         let conn = pool.get().unwrap();
         seed_novels(&conn, titles);
+        // 每个用例发布的备份内容必须互不相同。
+        //
+        // 预检候选是按内容哈希寻址的（`<sha256>.db.gz`），两份字节相同的备份
+        // 会算出同一个 token。多个用例并行跑「空库备份」时真的会撞车：
+        // 一个用例恢复成功后 remove_candidate 删掉共享文件，另一个用例
+        // 随即收到「预检候选已失效」而不是它要断言的「未确认的空库覆盖」。
+        // 这个 flaky 是 CI 上真实跑出来的（run 39360016314），不是理论推演。
+        // 用每个用例唯一的临时目录路径做 nonce，保证 token 互不相同。
+        conn.execute(
+            "INSERT INTO app_setting (key, value) VALUES ('ew_test_nonce', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [source_app.to_string_lossy().to_string()],
+        )
+        .unwrap();
         if with_image {
             let nid = db::novel::list_novels(&conn).unwrap()[0].id.clone();
             easy_writing_lib::asset::save_image(

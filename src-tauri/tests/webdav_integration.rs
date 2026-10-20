@@ -60,6 +60,15 @@ fn seeded_pool(app: &Path, titles: &[&str], with_image: bool) -> db::DbPool {
         let v = db::volume::create_volume(&conn, &n.id, "第一卷", "").unwrap();
         db::chapter::create_chapter(&conn, &n.id, &v.id, "第一章", "").unwrap();
     }
+    // 保证每个用例发布的备份内容互不相同：预检候选按内容哈希寻址，
+    // 字节相同的两份备份会算出同一个 token，并行用例就会互相删掉对方的候选。
+    // 同 restore_safety.rs::publish_backup 里的处理，原因一致。
+    conn.execute(
+        "INSERT INTO app_setting (key, value) VALUES ('ew_test_nonce', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [app.to_string_lossy().to_string()],
+    )
+    .unwrap();
     if with_image {
         let nid = db::novel::list_novels(&conn).unwrap()[0].id.clone();
         easy_writing_lib::asset::save_image(&conn, app, &nid, "封面", "image/png", PNG_1PX)
