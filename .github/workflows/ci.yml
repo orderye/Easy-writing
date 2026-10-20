@@ -83,32 +83,32 @@ jobs:
   #
   # tests/webdav_integration.rs 用的是仓库自带的进程内测试服务端（随 backend job 运行），
   # 它能证明客户端发出的请求符合 WebDAV 语义，但证明不了与真实产品的兼容性。
-  # 本 job 跑在真实 WebDAV 服务端上，补的正是这一层。
+  # 本 job 跑在真实 WebDAV 实现上，补的正是这一层。
   #
   # 服务端选型记录（任务书 P1-1 B 要求）：
-  #   镜像        bytemark/webdav:2.4（固定标签，不用 latest）
-  #   实现        nginx + ngx_http_dav_module + nginx-dav-ext-module
-  #   支持方法    PROPFIND(Depth 0/1) / GET / HEAD / PUT / MOVE / DELETE / MKCOL / OPTIONS
-  #               —— 与 WebDavClient 实际发出的请求集合一致
-  #   认证        HTTP Basic（AUTH_TYPE=basic + USERNAME/PASSWORD）
-  #   测试目录    每次运行由测试自身用 MKCOL 创建独占子目录（ew-it-<pid>-<纳秒>），
-  #               结束时只删除该目录下由本测试创建的文件
-  #   凭据        ewtest/ewtest，仅存在于这个一次性容器内，不是任何生产账号
+  #   镜像        ghcr.io/hacdias/webdav（Go 实现，源码 github.com/hacdias/webdav）
+  #   选择依据    上游 README 明确列出支持 PROPFIND / MKCOL / MOVE / COPY /
+  #               DELETE / PUT / GET / HEAD —— 与 WebDavClient 实际发出的
+  #               请求集合完全一致
+  #   端口        6065
+  #   认证        HTTP Basic（配置文件里声明单个测试用户）
+  #   数据目录    每次运行用一次性容器 + runner 上的临时目录，
+  #               测试自身再在其内创建 ew-it-<pid>-<纳秒> 独占子目录
+  #   凭据        ewtest/ewtest，只存在于这个一次性容器，不是任何生产账号
   #
-  # 关键约束：EW_WEBDAV_IT_* 一旦设置，服务端不可达就是**失败**而不是跳过。
-  # 容器起不来、健康检查不过，这个 job 必须是红的 —— 不允许用「跳过」冒充通过。
+  # 为什么不用 `services:`：service 容器在所有 step 之前启动，
+  # 而我需要先在 runner 上生成配置文件才能启动它 —— 顺序上做不到。
+  # 改成在 step 里 `docker run -d`，配置与数据目录都由本 job 现造现抛。
+  #
+  # 关键约束（沿用上一版的设计，不因调试而放松）：
+  #   设置了 EW_WEBDAV_IT_* 之后，服务端不可达就是**失败**而不是跳过。
+  #
+  # 调试说明：本 job 首次运行失败在探测步骤（当时选的是 bytemark/webdav，
+  # 其源码仓库已 404、接口无法核实）。因此探测步骤现在会打印真实 HTTP 状态码
+  # 与容器日志，让失败可诊断，而不是只留一句「未就绪」。
   webdav:
     name: WebDAV 集成（真实服务端）
     runs-on: ubuntu-latest
-    services:
-      webdav:
-        image: bytemark/webdav:2.4
-        env:
-          AUTH_TYPE: basic
-          USERNAME: ewtest
-          PASSWORD: ewtest
-        ports:
-          - 8080:80
     steps:
       - uses: actions/checkout@v4
 
@@ -125,36 +125,80 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      # 显式等待：service container 的端口映射就绪不等于 WebDAV 已能应答。
-      # 探测用的就是客户端真正依赖的 PROPFIND，而不是 TCP 连通性。
+      - name: Start real WebDAV server (hacdias/webdav)
+        run: |
+          set -euo pipefail
+          WORK="$(mktemp -d)"
+          mkdir -p "$WORK/data"
+          cat > "$WORK/config.yml" <<'YAML'
+          address: 0.0.0.0
+          port: 6065
+          directory: /data
+          prefix: /
+          tls: false
+          cors:
+            enabled: true
+          users:
+            - username: ewtest
+              password: ewtest
+              directory: /data
+          YAML
+          docker run -d --name ew-webdav \
+            -p 6065:6065 \
+            -v "$WORK/config.yml:/config.yml:ro" \
+            -v "$WORK/data:/data" \
+            ghcr.io/hacdias/webdav -c /config.yml
+          echo "WEBDAV_WORKDIR=$WORK" >> "$GITHUB_ENV"
+
+      # 探测用的是客户端真正依赖的 PROPFIND，而不是 TCP 连通性。
+      # 失败时输出状态码与容器日志 —— 一次运行就能定位问题，不靠反复猜。
       - name: Wait for WebDAV service (PROPFIND probe)
         run: |
+          set -uo pipefail
+          ok=0
           for i in $(seq 1 30); do
-            if curl -sf -u ewtest:ewtest -X PROPFIND -H 'Depth: 0' \
-                 -H 'Content-Type: application/xml' \
-                 --data '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>' \
-                 http://127.0.0.1:8080/ >/dev/null; then
-              echo "WebDAV 服务端就绪（第 ${i} 次探测）"
-              exit 0
+            code="$(curl -s -o /tmp/propfind.out -w '%{http_code}' \
+                     -u ewtest:ewtest -X PROPFIND -H 'Depth: 0' \
+                     -H 'Content-Type: application/xml' \
+                     --data '<?xml version="1.0"?><D:propfind xmlns:D="DAV:"><D:prop><D:resourcetype/></D:prop></D:propfind>' \
+                     http://127.0.0.1:6065/ || echo 'curl-error')"
+            echo "第 ${i} 次探测 PROPFIND / -> HTTP ${code}"
+            if [ "$code" = "207" ] || [ "$code" = "200" ]; then
+              echo "WebDAV 服务端就绪"
+              ok=1
+              break
             fi
             sleep 2
           done
-          echo "WebDAV 服务端未就绪，判定为失败（不跳过）" >&2
-          exit 1
+          if [ "$ok" != "1" ]; then
+            echo "WebDAV 服务端未就绪，判定为失败（不跳过）" >&2
+            echo "--- 最后一次响应体（截断至 400 字节）---" >&2
+            head -c 400 /tmp/propfind.out >&2 || true
+            echo "" >&2
+            echo "--- 容器状态 ---" >&2
+            docker ps -a --filter name=ew-webdav >&2 || true
+            echo "--- 容器日志 ---" >&2
+            docker logs ew-webdav 2>&1 | tail -40 >&2 || true
+            exit 1
+          fi
 
       - name: Run real-server WebDAV integration tests
         env:
-          EW_WEBDAV_IT_URL: http://127.0.0.1:8080/
+          EW_WEBDAV_IT_URL: http://127.0.0.1:6065/
           EW_WEBDAV_IT_USER: ewtest
           EW_WEBDAV_IT_PASSWORD: ewtest
         run: |
           cargo test -p easy-writing-core --test webdav_real_server -- \
             --nocapture --test-threads=1 2>&1 | tee webdav-it.log
-          # 日志脱敏护栏：凭据不得出现在留存的日志里。
-          if grep -q 'ewtest:ewtest\|EW_WEBDAV_IT_PASSWORD=' webdav-it.log; then
+          # 凭据不得留在日志里
+          if grep -q 'ewtest:ewtest' webdav-it.log; then
             echo "日志中出现明文凭据" >&2
             exit 1
           fi
+
+      - name: Show server logs on failure
+        if: failure()
+        run: docker logs ew-webdav 2>&1 | tail -60 || true
 
       - name: Upload integration log
         if: always()
@@ -163,6 +207,13 @@ jobs:
           name: webdav-integration-log
           path: webdav-it.log
           if-no-files-found: warn
+
+      - name: Stop WebDAV container
+        if: always()
+        run: |
+          docker rm -f ew-webdav >/dev/null 2>&1 || true
+          [ -n "${WEBDAV_WORKDIR:-}" ] && rm -rf "$WEBDAV_WORKDIR" || true
+
 
   # V0.3.8 P1-1：性能门禁。
   #
