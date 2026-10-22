@@ -211,6 +211,21 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                         <span>"📥"</span>
                         <span>"导入"</span>
                     </button>
+                    <button
+                        class="flex items-center gap-1 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors px-1.5 py-0.5 rounded hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer text-[11px] font-medium border border-emerald-200 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 shadow-2xs whitespace-nowrap shrink-0"
+                        title="把作品导出为 txt / docx / epub，用于投稿或发布"
+                        on:click=move |_| {
+                            // 每次打开都清掉上一次的进度与结果，
+                            // 否则新一次导出会先闪出旧进度条。
+                            app_ctx.export_progress.set(None);
+                            app_ctx.export_summary.set(None);
+                            app_ctx.export_error.set(None);
+                            app_ctx.is_export_modal_open.set(true);
+                        }
+                    >
+                        <span>"📤"</span>
+                        <span>"导出"</span>
+                    </button>
                 </div>
 
                 // Row 2: Quick Theme Toggle & App Version

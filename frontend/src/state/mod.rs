@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use shared_types::{
-    Chapter, ChapterHeader, ConflictInfo, DeviceStateInfo, ExtractionCandidate, MissingKeyInfo,
-    Novel, PendingNotice, Volume,
+    Chapter, ChapterHeader, ConflictInfo, DeviceStateInfo, ExportProgress, ExportSummary,
+    ExtractionCandidate, MissingKeyInfo, Novel, PendingNotice, Volume,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -86,6 +86,18 @@ pub struct AppContext {
     ///
     /// 启动时体检一次，设置页据此显示「缺少密钥」徽标。
     pub missing_keys: RwSignal<Vec<MissingKeyInfo>>,
+
+    // 作品导出（任务书 T02）
+    /// 导出弹层是否打开。
+    pub is_export_modal_open: RwSignal<bool>,
+    /// 导出是否正在执行。
+    pub export_running: RwSignal<bool>,
+    /// 最近一次进度事件（由后端推送）。
+    pub export_progress: RwSignal<Option<ExportProgress>>,
+    /// 最近一次导出的结果摘要。
+    pub export_summary: RwSignal<Option<ExportSummary>>,
+    /// 导出过程中的错误文案。
+    pub export_error: RwSignal<Option<String>>,
 }
 
 impl AppContext {
@@ -142,6 +154,11 @@ impl AppContext {
             pending_sync_notice: RwSignal::new(None),
             config_active_tab: RwSignal::new("llm".to_string()),
             missing_keys: RwSignal::new(Vec::new()),
+            is_export_modal_open: RwSignal::new(false),
+            export_running: RwSignal::new(false),
+            export_progress: RwSignal::new(None),
+            export_summary: RwSignal::new(None),
+            export_error: RwSignal::new(None),
         }
     }
 }

@@ -122,11 +122,14 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::ai_cmd::append_chat_message,
             easy_writing_lib::commands::ai_cmd::clear_chat_session,
             easy_writing_lib::commands::ai_cmd::delete_chat_session,
+            easy_writing_lib::commands::export_cmd::cancel_export,
         ])
         .build(mock_context(noop_assets()))
         .unwrap();
 
     app.manage(pool);
+    // 导出取消标志：cancel_export 的参数是 State<ExportState>，要注册才能解析。
+    app.manage(easy_writing_lib::export::ExportState::default());
 
     // Raw payloads; @@..@@ placeholders are substituted with the real row ids below.
     let cases: &[(&str, &str)] = &[
@@ -220,11 +223,14 @@ fn all_command_keys_resolve() {
         ("append_chat_message", r#"{"session_id": "@@SESSION@@", "role": "user", "content": "v"}"#),
         ("clear_chat_session", r#"{"session_id": "@@SESSION@@"}"#),
         ("delete_chat_session", r#"{"session_id": "@@SESSION@@"}"#),
+        // 导出（任务书 T02）：只校验参数键可解析，不真的导出。
+        ("cancel_export", r#"{}"#),
     ];
 
     // 说明：ai_chat_stream / save_chapter_content / save_image_asset /
     // get_app_data_dir / scan_image_storage / prune_orphan_images /
-    // webdav_backup_now / webdav_restore_preflight / webdav_restore_backup
+    // webdav_backup_now / webdav_restore_preflight / webdav_restore_backup /
+    // choose_export_file / export_novel
     // 的参数首参为 tauri::AppHandle，
     // 在 MockRuntime 下无法注册（AppHandle 不实现 CommandArg<MockRuntime>），
     // 因此不在本 sweep 覆盖范围内；它们的键名契约由 ipc_argcase.rs 兜底。

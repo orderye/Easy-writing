@@ -7,6 +7,28 @@
 
 ## [Unreleased]
 
+### 作品导出：txt / docx / epub（PR-07 / 任务书 T02）
+
+> 作者要拿作品去投稿或发布，此前应用只能把内容留在库里。
+> 本轮把导出整条链补齐：Rust 侧导出模块 + 三个命令 + 前端弹层 + 进度与取消。
+
+- **三种格式**：txt（纯文本）、docx（Word 文档）、epub（电子书）。
+  DOCX 与 EPUB 都用仓库已有的 `zip` 自拼，**只新增 `tauri-plugin-dialog`** 一项依赖
+  —— 原计划的 `docx-rs` / `epub-builder` 经评估后不引入，理由见映射表 §二 T02。
+- **导出可被本仓库的导入器读回**：EPUB 产物直接喂给 `import/epub.rs` 解析，
+  2 卷 3 章全部还原（`epub_is_readable_by_own_importer`）。
+  导出器与导入器同仓，连自己的导入器都读不回来的书，更别指望别的阅读器能读。
+- **字数与应用统计一致**：导出时按 Tiptap `CharacterCount.characters()` 的
+  同一套口径**现算**（文本字符数 + 叶节点数），而不是读库里可能过期的 `word_count` 列。
+- **范围与排版可选**：整书 / 多卷 / 多章；卷章标题模板
+  （`{novel}` `{volume_index}` `{volume_title}` `{chapter_index}` `{chapter_title}`）；
+  段首缩进两字或段间空一行；是否包含正文图片。
+- **不阻塞、可取消、不留半成品**：重活在后台线程跑，界面照常响应；
+  进度由后端用事件推给前端；取消在**章边界**生效；
+  文件先写 `<目标名>.ew-export-part`，成功才改名，失败或取消一律删除。
+- **300 章 / 百万字实测通过**（`large_sample_export_completes_and_matches_stats`）。
+
+
 ### 数据安全：密钥缺失统一处理（PR-06 / 任务书 T05）
 
 > 换设备之后，数据库里的 `key_ref` 会指向本机钥匙串里**并不存在**的条目

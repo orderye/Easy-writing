@@ -3,6 +3,7 @@ pub mod ai;
 pub mod asset;
 pub mod commands;
 pub mod db;
+pub mod export;
 pub mod import;
 pub mod keyring;
 pub mod keys;
@@ -12,6 +13,7 @@ use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let app_data_dir = app
                 .path()
@@ -20,6 +22,8 @@ pub fn run() {
 
             let pool = db::init_db(app_data_dir)?;
             app.manage(pool);
+            // 导出取消标志：跨命令共享（导出命令置位、取消命令读取）。
+            app.manage(export::ExportState::default());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -147,6 +151,10 @@ pub fn run() {
             commands::parse_import_document,
             commands::parse_import_epub,
             commands::commit_import_novel,
+            // Export（任务书 T02）
+            commands::export_cmd::choose_export_file,
+            commands::export_cmd::export_novel,
+            commands::export_cmd::cancel_export,
             // Character Relations
             commands::list_character_relations,
             commands::save_character_relation,

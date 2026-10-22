@@ -1,5 +1,6 @@
 pub mod ai_cmd;
 pub mod config_cmd;
+pub mod export_cmd;
 pub mod sync_cmd;
 pub mod update_cmd;
 
