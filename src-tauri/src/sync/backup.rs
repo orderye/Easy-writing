@@ -291,6 +291,11 @@ pub struct BackupOutcome {
     pub rotated_deleted: u32,
     /// 本次使用的远端保留策略。
     pub retention: shared_types::RetentionPolicy,
+    /// 来源身份 sidecar 是否上传成功。
+    ///
+    /// 为 false 时这份备份对别的设备来说是「来源不明」，
+    /// 跨设备保护会退化成「无保护」，而不是「保护得更严」。
+    pub meta_uploaded: bool,
 }
 
 /// 生成快照 → 校验 → 上传 → 落清单 → 才轮转。
@@ -404,7 +409,7 @@ pub async fn run_incremental_backup_detailed(
     //    比没有清单更糟 —— 它会让恢复时的交叉校验「通过」。
     //    同时，备份时本地已缺失的素材必须回报，不能因为
     //    reconcile_with_disk 把它们从清单里剔掉就当没发生。
-    let (manifest_json, missing_assets) = {
+    let (manifest_json, missing_assets, manifest_schema_version) = {
         let conn = pool.get().map_err(|e| format!("获取数据库连接失败: {e}"))?;
         let mut m = manifest::build_manifest(
             &conn,
@@ -420,9 +425,11 @@ pub async fn run_incremental_backup_detailed(
                 missing.len()
             );
         }
+        let schema_version = m.schema_version;
         (
             serde_json::to_vec_pretty(&m).map_err(|e| format!("序列化备份清单失败: {e}"))?,
             missing,
+            schema_version,
         )
     };
 
@@ -482,6 +489,47 @@ pub async fn run_incremental_backup_detailed(
         }
     };
 
+    // 来源身份 sidecar（meta）。它回答的是「这份备份是谁写的」，
+    // 供别的设备判断「这是不是我刚写的那份」。
+    //
+    // meta 上传失败**不影响**备份本体，但必须让作者知道：
+    // 缺了它，这份备份对别的设备来说就是「来源不明」，
+    // 跨设备保护会退化成「无保护」，而不是「保护得更严」。
+    let device_state = crate::sync::device::load(&app_data_dir);
+    let meta = crate::sync::device::BackupMeta {
+        device_id: device_state.device_id.clone(),
+        device_name: device_state.device_name.clone(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        max_updated_at: match pool.get() {
+            Ok(conn) => crate::sync::device::max_updated_at(&conn).unwrap_or_default(),
+            Err(e) => {
+                eprintln!("[backup] 读取库内最大更新时间失败: {e}");
+                String::new()
+            }
+        },
+        schema_version: manifest_schema_version,
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        sha256: compressed_hash.clone(),
+    };
+    let remote_meta_path = format!(
+        "{}/{}",
+        clean_dir,
+        crate::sync::device::meta_sidecar_name(&backup_filename)
+    );
+    let meta_uploaded = match serde_json::to_vec_pretty(&meta) {
+        Ok(bytes) => match client.upload_file(&remote_meta_path, bytes).await {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("[backup] 来源身份上传失败（备份本体仍有效）: {e}");
+                false
+            }
+        },
+        Err(e) => {
+            eprintln!("[backup] 序列化备份来源信息失败（备份本体仍有效）: {e}");
+            false
+        }
+    };
+
     // 8. 只有确认落盘成功才允许轮转。
     //    verified 的含义是「这份备份我已经确认是完整可用的」。
     let verified = size_verified && preflight.is_valid;
@@ -498,6 +546,18 @@ pub async fn run_incremental_backup_detailed(
 
     let rotated_deleted = prune_remote_backups(client, &clean_dir, verified, policy).await?;
 
+    // 备份上传成功 → 本机内容与远端在「这一刻」是对齐的。
+    //
+    // 记录这个时间点，别的设备（或本机的另一条路径）才能判断
+    // 「远端比本机新」到底是「刚被别人更新了」还是「本机自己刚写的」。
+    if verified {
+        let mut state = device_state;
+        state.last_sync_at = Some(meta.created_at.clone());
+        if let Err(e) = crate::sync::device::save(&app_data_dir, &state) {
+            eprintln!("[backup] 写入同步状态失败（不影响备份本体）: {e}");
+        }
+    }
+
     Ok(BackupOutcome {
         filename: backup_filename,
         verified,
@@ -506,6 +566,7 @@ pub async fn run_incremental_backup_detailed(
         missing_assets,
         rotated_deleted: rotated_deleted as u32,
         retention: policy,
+        meta_uploaded,
     })
 }
 
@@ -548,6 +609,18 @@ pub async fn prune_remote_backups(
         let sidecar = format!("{path}.json");
         if let Err(e) = client.delete_file(&sidecar).await {
             failures.push(format!("{name}.json: {e}"));
+        }
+        // 来源身份 sidecar 同样必须跟着删。
+        //
+        // 留着它比不留更糟：下一台设备会把这份孤儿 meta 误当成
+        // 「远端最新备份的来源」，从而对着一个早已不存在的备份做冲突判定。
+        let meta_sidecar = format!(
+            "{}/{}",
+            clean_dir,
+            crate::sync::device::meta_sidecar_name(&name)
+        );
+        if let Err(e) = client.delete_file(&meta_sidecar).await {
+            failures.push(format!("{name}.meta.json: {e}"));
         }
     }
     if !failures.is_empty() {

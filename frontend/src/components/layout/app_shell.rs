@@ -125,7 +125,55 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
     });
 
     view! {
-        <div class="h-full w-full flex flex-row overflow-hidden bg-slate-100 dark:bg-slate-900">
+        <div class="h-full w-full flex flex-col bg-slate-100 dark:bg-slate-900">
+            // 跨设备冲突提示条。
+            //
+            // 退出应用时的静默同步遇到冲突会**跳过**而不是弹窗（弹窗会把
+            // 「关掉应用」变成「必须先处理冲突」），因此提示被记在设备状态里，
+            // 等下次启动时在这里告诉作者。
+            {move || {
+                let Some(notice) = app_ctx.pending_sync_notice.get() else {
+                    return view! { <div></div> }.into_any();
+                };
+                let remote_name = if notice.remote_device_name.trim().is_empty() {
+                    notice.remote_device_id.clone()
+                } else {
+                    notice.remote_device_name.clone()
+                };
+                view! {
+                    <div class="flex items-center justify-between gap-3 px-4 py-2 bg-amber-100 dark:bg-amber-950/60 border-b border-amber-300 dark:border-amber-700 text-xs text-amber-900 dark:text-amber-200">
+                        <span>
+                            "上次退出时检测到其它设备（" {remote_name} "）写入了更新的备份（" {notice.remote_filename.clone()} "），本次同步已跳过，远端未被覆盖。"
+                        </span>
+                        <span class="flex items-center gap-2 shrink-0">
+                            <button
+                                class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-medium cursor-pointer"
+                                on:click=move |_| {
+                                    app_ctx.config_active_tab.set("webdav".to_string());
+                                    app_ctx.is_config_open.set(true);
+                                }
+                            >
+                                "去处理"
+                            </button>
+                            <button
+                                class="px-2.5 py-1 bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 rounded font-medium text-amber-800 dark:text-amber-200 cursor-pointer"
+                                on:click=move |_| {
+                                    leptos::task::spawn_local(async move {
+                                        let _ = crate::tauri_api::invoke_cmd("sync_clear_device_notice")
+                                            .send_unit()
+                                            .await;
+                                        app_ctx.pending_sync_notice.set(None);
+                                    });
+                                }
+                            >
+                                "忽略"
+                            </button>
+                        </span>
+                    </div>
+                }.into_any()
+            }}
+
+            <div class="h-full w-full flex flex-row overflow-hidden">
             <SettingsPanel app_ctx=app_ctx />
             <WritingStage app_ctx=app_ctx />
             <StructurePanel app_ctx=app_ctx />
@@ -326,6 +374,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                     view! { <div></div> }.into_any()
                 }
             }}
+            </div>
         </div>
     }
 }

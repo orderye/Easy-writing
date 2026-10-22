@@ -1,9 +1,10 @@
 use crate::components::config::retention_panel::RetentionPanel;
+use crate::state::AppContext;
 use crate::tauri_api::{invoke_cmd, invoke_no_args};
 use leptos::prelude::*;
 use shared_types::{
-    BackupFileInfo, BackupReport, ManifestCheck, RestoreOutcome, RestorePreflight, RestoreReport,
-    WebdavConfig,
+    BackupConflictInfo, BackupFileInfo, BackupReport, DeviceStateInfo, ManifestCheck,
+    RestoreOutcome, RestorePreflight, RestoreReport, WebdavConfig,
 };
 
 /// 清单校验状态的人话版本。
@@ -61,7 +62,7 @@ fn outcome_text_classes(o: &RestoreOutcome) -> &'static str {
 /// 从原 config_modal.rs 拆出：凭据表单、云端快照列表与备份/还原动作
 /// 只服务于本标签页，拆开后这些状态不再与其他标签页共享。
 #[component]
-pub fn WebdavTab() -> impl IntoView {
+pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
     let webdav_url = RwSignal::new("https://dav.jianguoyun.com/dav/".to_string());
     let webdav_user = RwSignal::new(String::new());
     let webdav_pwd = RwSignal::new(String::new());
@@ -73,6 +74,8 @@ pub fn WebdavTab() -> impl IntoView {
     let restore_result = RwSignal::new(Option::<RestoreReport>::None);
     // 预检通过、等待作者确认的候选备份。Some(..) 即显示确认弹窗。
     let pending_restore = RwSignal::new(Option::<RestorePreflight>::None);
+    // 检测到的跨设备冲突。Some(..) 即显示「继续上传 / 先恢复 / 取消」弹窗。
+    let pending_conflict = RwSignal::new(Option::<BackupConflictInfo>::None);
 
     // 挂载时载入已保存的凭据与云端快照列表
     Effect::new(move |_| {
@@ -85,6 +88,10 @@ pub fn WebdavTab() -> impl IntoView {
             }
             if let Ok(list) = invoke_no_args::<Vec<BackupFileInfo>>("webdav_list_backups").await {
                 backups_list.set(list);
+            }
+            // 本机设备身份：作者需要能认出「这台机器」与「那台机器」。
+            if let Ok(state) = invoke_no_args::<DeviceStateInfo>("sync_get_device_state").await {
+                app_ctx.device_state.set(Some(state));
             }
         });
     });
@@ -138,13 +145,18 @@ pub fn WebdavTab() -> impl IntoView {
         });
     };
 
-    let on_backup_now = move |_| {
+    // 真正的上传动作。`override_conflict=true` 表示作者已经在冲突弹窗里
+    // 显式选择了「继续上传」。
+    let do_backup = move |override_conflict: bool| {
         is_webdav_syncing.set(true);
         backup_result.set(None);
         webdav_status.set("正在执行整库一致性快照与图片增量备份……".to_string());
 
         leptos::task::spawn_local(async move {
-            let res = invoke_no_args::<BackupReport>("webdav_backup_now").await;
+            let res = invoke_cmd("webdav_backup_now")
+                .arg("override_conflict", override_conflict)
+                .send::<BackupReport>()
+                .await;
             match res {
                 Ok(report) => {
                     // 「✓ 备份成功」不足以说明问题：清单没传上去、图片没同步、
@@ -178,6 +190,36 @@ pub fn WebdavTab() -> impl IntoView {
                 }
             }
             is_webdav_syncing.set(false);
+        });
+    };
+
+    // 备份按钮：先做跨设备冲突预检。
+    //
+    // 预检只读远端，不上传任何东西；发现冲突时把选择权交回作者
+    // （继续上传 / 先恢复 / 取消），而不是替他决定。
+    let on_backup_clicked = move |_| {
+        is_webdav_syncing.set(true);
+        webdav_status.set("正在检查远端是否存在其它设备写入的新备份……".to_string());
+
+        leptos::task::spawn_local(async move {
+            let res = invoke_no_args::<Option<BackupConflictInfo>>("webdav_backup_preflight").await;
+            match res {
+                Ok(Some(conflict)) => {
+                    pending_conflict.set(Some(conflict));
+                    webdav_status.set(
+                        "⚠ 检测到其它设备写入的新备份，请选择如何处理。".to_string(),
+                    );
+                }
+                Ok(None) => {
+                    pending_conflict.set(None);
+                    is_webdav_syncing.set(false);
+                    do_backup(false);
+                }
+                Err(e) => {
+                    is_webdav_syncing.set(false);
+                    webdav_status.set(format!("✕ 无法完成冲突预检，已取消本次备份：{e}"));
+                }
+            }
         });
     };
 
@@ -260,6 +302,18 @@ pub fn WebdavTab() -> impl IntoView {
                 // Form
                 <div class="space-y-3">
                     <h4 class="font-bold text-xs text-slate-800 dark:text-slate-100">"WebDAV 服务器凭据"</h4>
+                    {move || {
+                        let Some(st) = app_ctx.device_state.get() else {
+                            return view! { <div></div> }.into_any();
+                        };
+                        let last = st.last_sync_at.clone().unwrap_or_else(|| "尚未与远端对齐过".to_string());
+                        view! {
+                            <div class="text-[11px] text-slate-500 dark:text-slate-400">
+                                "本机设备标识：" {st.device_name.clone()} "（" {st.device_id.chars().take(8).collect::<String>()} "…）"
+                                " · 上次与远端对齐：" {last}
+                            </div>
+                        }.into_any()
+                    }}
                     <div class="space-y-1">
                         <label class="font-medium text-slate-600 dark:text-slate-400">"WebDAV 服务器地址"</label>
                         <input
@@ -311,7 +365,7 @@ pub fn WebdavTab() -> impl IntoView {
                         <button
                             class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                             disabled=move || is_webdav_syncing.get()
-                            on:click=on_backup_now
+                            on:click=on_backup_clicked
                         >
                             {move || if is_webdav_syncing.get() { "正在备份..." } else { "立即整库备份" }}
                         </button>
@@ -511,6 +565,73 @@ pub fn WebdavTab() -> impl IntoView {
                 }.into_any()
             }}
 
+            // 跨设备冲突弹窗：上传之前出现，由作者显式选择
+            {move || {
+                let Some(c) = pending_conflict.get() else {
+                    return view! { <div></div> }.into_any();
+                };
+                let remote_name = if c.remote_device_name.trim().is_empty() {
+                    c.remote_device_id.clone()
+                } else {
+                    c.remote_device_name.clone()
+                };
+                let last_sync = c.local_last_sync_at.clone().unwrap_or_else(|| "尚未与远端对齐过".to_string());
+                view! {
+                    <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[60] p-6">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-lg w-full border border-slate-200 dark:border-slate-700 overflow-hidden">
+                            <div class="px-5 py-3 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 flex items-center gap-2">
+                                <span class="text-lg">"⚠️"</span>
+                                <h3 class="font-bold text-sm text-slate-800 dark:text-slate-100">"远端存在其它设备写入的新备份"</h3>
+                            </div>
+                            <div class="p-5 space-y-3 text-xs text-slate-700 dark:text-slate-300 max-h-[60vh] overflow-y-auto">
+                                <div class="p-2.5 rounded border-2 border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/50 text-amber-900 dark:text-amber-200 font-semibold">
+                                    "远端最新备份「" {c.remote_filename.clone()} "」来自另一台设备（" {remote_name} "），                                     且比本机上次同步（" {last_sync} "）更新。继续上传会用本机内容覆盖远端。"
+                                </div>
+                                <div class="space-y-1">
+                                    <div>{"· 继续上传：用本机内容覆盖远端最新备份（远端那份会被顶掉）。"}</div>
+                                    <div>{"· 先恢复：先从右侧云端备份列表里挑一份恢复，把另一台设备的内容取回来。"}</div>
+                                    <div>{"· 取消：什么都不做，远端与本机都保持原样。"}</div>
+                                </div>
+                            </div>
+                            <div class="px-5 py-3 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-2">
+                                <button
+                                    class="px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded font-medium transition-colors cursor-pointer"
+                                    on:click=move |_| {
+                                        pending_conflict.set(None);
+                                        is_webdav_syncing.set(false);
+                                        webdav_status.set("已取消上传，远端与本机都未改动。".to_string());
+                                    }
+                                >
+                                    "取消"
+                                </button>
+                                <button
+                                    class="px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded font-medium transition-colors cursor-pointer"
+                                    on:click=move |_| {
+                                        pending_conflict.set(None);
+                                        is_webdav_syncing.set(false);
+                                        webdav_status.set(
+                                            "请在右侧「云端备份快照历史」里选择一份备份，点「预检并还原」查看内容后再决定。".to_string(),
+                                        );
+                                    }
+                                >
+                                    "先恢复"
+                                </button>
+                                <button
+                                    class="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded font-medium transition-colors cursor-pointer"
+                                    on:click=move |_| {
+                                        pending_conflict.set(None);
+                                        is_webdav_syncing.set(false);
+                                        do_backup(true);
+                                    }
+                                >
+                                    "继续上传"
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }.into_any()
+            }}
+
             // 恢复确认弹窗：**必须在覆盖数据库之前**出现
             {move || {
                 let Some(pf) = pending_restore.get() else {
@@ -558,6 +679,29 @@ pub fn WebdavTab() -> impl IntoView {
                                     }.into_any()
                                 } else { view! { <div></div> }.into_any() }}
 
+                                <div class="p-2 rounded bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700">
+                                    <div class="font-semibold mb-1">"来源设备"</div>
+                                    {move || if pf.is_from_other_device {
+                                        view! {
+                                            <div class="text-amber-700 dark:text-amber-300">
+                                                "这份备份来自另一台设备（"
+                                                {pf.source_device_name.clone().unwrap_or_else(|| "未知设备".to_string())}
+                                                "），恢复后本机内容将与它一致。"
+                                            </div>
+                                        }.into_any()
+                                    } else if pf.source_device_id.is_some() {
+                                        view! {
+                                            <div>"这份备份来自本机（" {pf.source_device_name.clone().unwrap_or_default()} "）。"</div>
+                                        }.into_any()
+                                    } else {
+                                        view! {
+                                            <div class="text-slate-500 dark:text-slate-400">
+                                                "这份备份没有来源信息（历史备份），无法判断来自哪台设备。"
+                                            </div>
+                                        }.into_any()
+                                    }}
+                                </div>
+
                                 <div class="grid grid-cols-2 gap-x-4 gap-y-1">
                                     <div>{format!("备份 schema：v{}", pf.schema_version)}</div>
                                     <div>"SQLite 完整性："{if pf.integrity_ok { "已通过" } else { "未通过" }}</div>
@@ -575,6 +719,17 @@ pub fn WebdavTab() -> impl IntoView {
                                         {pf.asset_missing_locally} " 个需从云端回填（共 " {pf.asset_total} " 个）"
                                     </div>
                                 </div>
+
+                                {move || if !pf.notes.is_empty() {
+                                    view! {
+                                        <div class="p-2 rounded bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 space-y-1">
+                                            <div class="font-semibold text-slate-700 dark:text-slate-300">"预检提示"</div>
+                                            {pf.notes.iter().map(|n| view! {
+                                                <div class="text-[11px] text-slate-600 dark:text-slate-400">{"· "}{n.clone()}</div>
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    }.into_any()
+                                } else { view! { <div></div> }.into_any() }}
 
                                 {move || if problems.is_empty() {
                                     view! { <div></div> }.into_any()
