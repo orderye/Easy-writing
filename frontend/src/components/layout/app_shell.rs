@@ -4,6 +4,7 @@ use crate::components::config::config_modal::ConfigModal;
 use crate::components::config::update_modal::UpdateModal;
 use crate::components::editor::asset_gallery::AssetGalleryModal;
 use crate::components::editor::revision_modal::RevisionModal;
+use crate::components::export::export_modal::ExportModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::novel::import_modal::ImportModal;
 use crate::components::novel::novel_manager::NovelManagerModal;
@@ -239,6 +240,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <NovelManagerModal app_ctx=app_ctx />
 
             <ImportModal is_open=app_ctx.is_import_modal_open app_ctx=app_ctx />
+
+            <ExportModal app_ctx=app_ctx />
 
             <ExtractionModal
                 app_ctx=app_ctx

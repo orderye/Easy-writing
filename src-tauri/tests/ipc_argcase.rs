@@ -22,6 +22,7 @@ const COMMAND_SOURCES: &[&str] = &[
     include_str!("../src/commands/mod.rs"),
     include_str!("../src/commands/ai_cmd.rs"),
     include_str!("../src/commands/config_cmd.rs"),
+    include_str!("../src/commands/export_cmd.rs"),
     include_str!("../src/commands/sync_cmd.rs"),
     include_str!("../src/commands/update_cmd.rs"),
 ];
@@ -79,7 +80,12 @@ fn every_command_declares_snake_case() {
     // 无法进入 command_key_sweep（与 webdav_list_backups 同属已知限制）。
     // 103 → 104：密钥缺失统一处理（任务书 T05）增加 check_missing_keys
     // （启动时体检钥匙串，设置页据此显示「缺少密钥」徽标）。
-    assert_eq!(total, 104, "command count changed — re-audit the frontend call sites");
+    // 104 → 107：作品导出（任务书 T02）增加 3 个命令：
+    // choose_export_file（系统「另存为」对话框）、export_novel（执行导出）、
+    // cancel_export（置取消位）。三者均带 rename_all；
+    // 前两个首参为 AppHandle，在 MockRuntime 下无法进入 command_key_sweep
+    // （与 webdav_backup_now 同属已知限制），cancel_export 已加入 sweep。
+    assert_eq!(total, 107, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

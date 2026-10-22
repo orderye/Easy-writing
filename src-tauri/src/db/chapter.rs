@@ -82,10 +82,32 @@ pub fn list_all_chapter_headers_for_novel(conn: &Connection, novel_id: &str) -> 
         "SELECT c.id, c.novel_id, c.volume_id, c.title, c.summary, c.word_count, c.status, c.sort_order, c.updated_at
          FROM chapter c
          LEFT JOIN volume v ON c.volume_id = v.id
-         WHERE c.novel_id = ?1 AND c.deleted_at IS NULL 
+         WHERE c.novel_id = ?1 AND c.deleted_at IS NULL
          ORDER BY COALESCE(v.sort_order, 0) ASC, c.sort_order ASC, c.created_at ASC",
         params![novel_id],
         map_chapter_header,
+    )
+}
+
+/// 一次取出整部作品的章节**正文**，按卷序 → 章序排列。
+///
+/// 导出要用到正文（`content` / `content_plain`），而
+/// `list_all_chapter_headers_for_novel` 只取表头。300 章的书逐章
+/// `get_chapter` 就是 300 次往返，这里一次查询解决。
+///
+/// 排序与 `list_all_chapter_headers_for_novel` 保持一致，
+/// 保证「目录里的顺序」与「导出的顺序」是同一个。
+pub fn list_chapters_for_export(conn: &Connection, novel_id: &str) -> Result<Vec<Chapter>> {
+    query_list(
+        conn,
+        "SELECT c.id, c.novel_id, c.volume_id, c.title, c.summary, c.content, c.content_plain,
+                c.word_count, c.status, c.extracted_hash, c.sort_order, c.created_at, c.updated_at, c.deleted_at
+         FROM chapter c
+         LEFT JOIN volume v ON c.volume_id = v.id
+         WHERE c.novel_id = ?1 AND c.deleted_at IS NULL
+         ORDER BY COALESCE(v.sort_order, 0) ASC, c.sort_order ASC, c.created_at ASC",
+        params![novel_id],
+        map_chapter,
     )
 }
 

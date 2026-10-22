@@ -32,6 +32,9 @@ base64 = "0.22"
 regex = "1.10"
 shared-types = { path = "../shared-types" }
 zip = { version = "9.0.4", default-features = false, features = ["deflate-flate2"] }
+# 原生「另存为」对话框。导出路径必须由作者自己选，
+# 而 WebView 没有可靠的下载落盘能力。
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tauri = { version = "2.1", features = ["protocol-asset", "test"] }

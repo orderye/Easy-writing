@@ -868,3 +868,125 @@ pub struct RestoreReport {
     pub issues: Vec<RestoreIssue>,
     pub dangling_keys: Vec<DanglingKeyInfo>,
 }
+
+/// 导出格式（任务书 T02）。
+///
+/// 序列化用小写字符串（`"txt"` / `"docx"` / `"epub"`），
+/// 与前端下拉框取值、文件扩展名一致。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ExportFormat {
+    Txt,
+    Docx,
+    Epub,
+}
+
+impl Default for ExportFormat {
+    fn default() -> Self {
+        ExportFormat::Txt
+    }
+}
+
+impl ExportFormat {
+    /// 文件扩展名（不含点）。
+    pub fn extension(&self) -> &'static str {
+        match self {
+            ExportFormat::Txt => "txt",
+            ExportFormat::Docx => "docx",
+            ExportFormat::Epub => "epub",
+        }
+    }
+}
+
+/// 段落分隔方式。
+///
+/// - `indent`：段首缩进两字（全角空格），段间不空行；
+/// - `blank_line`：段首不缩进，段间空一行。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ParagraphSeparator {
+    Indent,
+    BlankLine,
+}
+
+impl Default for ParagraphSeparator {
+    fn default() -> Self {
+        ParagraphSeparator::Indent
+    }
+}
+
+/// 一次导出的全部选项（任务书 T02）。
+///
+/// 范围语义：`volume_ids` 与 `chapter_ids` **都为空**表示整书；
+/// 只给 `volume_ids` 表示导出这些卷下的全部章节；
+/// 给了 `chapter_ids` 则只导出这些章（`volume_ids` 仅用于分组显示）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExportOptions {
+    pub novel_id: String,
+    pub format: ExportFormat,
+    pub volume_ids: Vec<String>,
+    pub chapter_ids: Vec<String>,
+    /// 卷标题模板。占位符：`{novel}` `{volume_index}` `{volume_title}`。
+    pub volume_title_template: String,
+    /// 章标题模板。占位符：`{novel}` `{volume_index}` `{volume_title}`
+    /// `{chapter_index}` `{chapter_title}`。
+    pub chapter_title_template: String,
+    pub paragraph_separator: ParagraphSeparator,
+    /// 是否把正文里的图片一并导出（txt 不支持，恒为跳过）。
+    pub include_images: bool,
+    /// 建议文件名（不含扩展名）；最终路径由系统保存对话框决定。
+    pub file_name: String,
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            novel_id: String::new(),
+            format: ExportFormat::Txt,
+            volume_ids: Vec::new(),
+            chapter_ids: Vec::new(),
+            volume_title_template: "{volume_index} {volume_title}".to_string(),
+            chapter_title_template: "{chapter_index} {chapter_title}".to_string(),
+            paragraph_separator: ParagraphSeparator::Indent,
+            include_images: false,
+            file_name: String::new(),
+        }
+    }
+}
+
+/// 导出进度事件载荷（事件名 `novel-export://progress`）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExportProgress {
+    /// 已完成的章节数。
+    pub done: u32,
+    /// 参与导出的章节总数。
+    pub total: u32,
+    /// 正在处理的章节标题。
+    pub current_title: String,
+    /// 阶段：`preparing` / `writing` / `finalizing` / `done` / `cancelled`。
+    pub phase: String,
+}
+
+/// 一次导出的结果摘要。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExportSummary {
+    /// 最终落盘路径；被取消时为空。
+    pub path: String,
+    pub format: ExportFormat,
+    pub volume_count: u32,
+    pub chapter_count: u32,
+    /// 导出内容的字数，**口径与编辑器状态栏一致**
+    /// （文本字符数 + 叶节点数，图片计 1 字）。
+    pub word_count: i64,
+    /// 导出正文的实际字符数（含段落分隔），仅用于排查口径差异。
+    pub exported_text_chars: i64,
+    /// 成功写入的图片数。
+    pub included_images: u32,
+    /// 因格式不支持或素材缺失而跳过的图片数。
+    pub skipped_images: u32,
+    /// 正文不是 Tiptap JSON、只能按纯文本导出的章节标题。
+    pub degraded_chapters: Vec<String>,
+    /// 是否被用户取消。
+    pub cancelled: bool,
+    pub elapsed_ms: u64,
+}

@@ -107,12 +107,41 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：中。**关键设计决定**：护栏脚本才是防再次失真的持久机制 —— 建议 §五 的**内容**在全部迁移落地后做一次终版刷新，脚本 + CI 先行落地。
 
-#### T02 导出功能（txt / docx / epub）—— **不符合（全新）**
+#### T02 导出功能（txt / docx / epub）—— **不符合（全新）** → **已落地（PR-07，2026-10-22）**
 
-- 全仓库检索 `export_novel` / `exportNovel` / 导出 UI：**零命中**。99 个命令中无任何导出命令。
-- `src-tauri/src/import/` 有 `common.rs`/`db.rs`/`epub.rs`/`text.rs`（**导入**方向），无对称的导出模块。
-- **缺口**：整块全新（Rust 导出模块 + 三种格式 + 前端弹层 + 进度/取消）。
-- **工作量**：大。**新增依赖**：`docx`（docx-rs，MIT）、`epub-builder`（MIT）、`tauri-plugin-dialog`（MIT/Apache-2.0）。`zip` 已是现有依赖。
+> 落地说明：Rust 导出模块 `src-tauri/src/export/`（`mod.rs` 编排 / `doc.rs` 文档模型 /
+> `assets.rs` 图片解析 / `txt.rs` / `docx.rs` / `epub.rs`），
+> 命令层 `src-tauri/src/commands/export_cmd.rs`（3 个命令），
+> 前端弹层 `frontend/src/components/export/export_modal.rs`，
+> 集成测试 `src-tauri/tests/export_novel.rs`（12 例）+ `tests/frontend/export_modal.test.js`（6 例）。
+> **本任务未新增数据库迁移**（`BASELINE_VERSION` 保持 3）。
+> **依赖偏离**：映射表原计划引入 `docx`（docx-rs）与 `epub-builder`，
+> 实际**只新增 `tauri-plugin-dialog`** —— DOCX 与 EPUB 都用仓库已有的 `zip` 9 自拼。
+> 理由：这两份格式的「几件套」形状稳定，自拼能精确控制
+> 「图片只写一份、目录层级与卷结构一一对应、产物能被本仓库导入器读回」，
+> 而引入两套重型依赖会带来体积与版本风险。任务书原文允许「评估并说明」。
+
+| 任务书要求 | 实际 | 判定 |
+|---|---|---|
+| 新增命令 `export_novel` | `export_novel` / `choose_export_file` / `cancel_export` 三个命令（拆开是为了让「取消导出」与「关掉对话框」可区分） | **已符合** |
+| 范围可选整书/多卷/多章 | `ExportOptions.volume_ids` / `chapter_ids` 均支持，留空即整书 | **已符合** |
+| 卷章标题模板 | `volume_title_template` / `chapter_title_template`，占位符 `{novel}` `{volume_index}` `{volume_title}` `{chapter_index}` `{chapter_title}`，未知占位符原样保留 | **已符合** |
+| 段首缩进或空行 | `ParagraphSeparator::Indent` / `BlankLine`；txt 用全角空格，docx 用 `firstLineChars`，epub 用 CSS `text-indent` | **已符合** |
+| 是否含图片 | `include_images`；txt 恒跳过并计数，docx 写 `word/media/`，epub 写 `EPUB/images/` | **已符合** |
+| 文件名 | 由系统「另存为」对话框决定（`tauri-plugin-dialog`），应用不替作者选路径 | **已符合** |
+| Tiptap JSON 在 Rust 端转换 | `export/doc.rs` 把 ProseMirror JSON 解析成内部文档模型，三种写出器共用 | **已符合** |
+| docx / epub 依赖评估并说明 | 评估后**不引入** `docx-rs` / `epub-builder`，改用现有 `zip` 自拼（见上方落地说明） | **已符合（说明）** |
+| 流式写文件 | 逐章写；docx 的 `word/document.xml` 边写章边压 zip，epub 逐章写 xhtml | **已符合** |
+| 事件上报进度 | 事件 `novel-export://progress`，载荷 `ExportProgress`；前端 `frontend/src/bridge/events.rs` 订阅 | **已符合** |
+| 支持取消 | `cancel_export` 置取消位，导出循环在**章边界**检查，临时文件被删除 | **已符合** |
+| 不阻塞 UI | 命令体只做准备工作，重活在 `spawn_blocking` 里跑 | **已符合** |
+| 前端新增导出弹层 | `frontend/src/components/export/export_modal.rs`，入口在设置面板工具条「📤 导出」 | **已符合** |
+| 300 章/百万字样例可导出且界面不卡死 | `export_novel.rs::large_sample_export_completes_and_matches_stats`（300 章 × 3300 字） | **已符合** |
+| 导出字数与应用统计一致 | 导出时按 `doc::tiptap_char_count` **现算**（文本字符数 + 叶节点数），与状态栏 `CharacterCount.characters()` 同口径；不用库里可能过期的 `word_count` 列 | **已符合** |
+| docx 可被 Word 打开 | 结构合法（`[Content_Types].xml` / `_rels/.rels` / `word/document.xml` / `word/styles.xml`），测试断言条目齐备 | **已符合**（真机打开待人工确认） |
+| epub 可被主流阅读器打开 | `mimetype` 为首条目且不压缩、`container.xml` → OPF、NCX + nav 双目录；**并被本仓库的 `import/epub.rs` 读回**（2 卷 3 章全部还原） | **已符合**（真机打开待人工确认） |
+| 含图片和不含图片两种场景均有测试 | `export_with_images_embeds_media` / `export_without_images_skips_and_counts` | **已符合** |
+| 取消后不留半成品文件 | 先写 `<目标名>.ew-export-part`，成功才 rename；失败或取消一律删除临时文件 | **已符合** |
 
 #### T03 备份体积控制与保留策略 —— **部分符合** → **已落地（PR-04，2026-10-22）**
 
@@ -349,7 +378,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | **部分符合，缺口明确且有限** | T07、T08、T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
 | **部分符合，缺口较大** | T06、T09、T10 | 需新增 manifest/面板；需新增 FTS5 与整链替换；需新增看板与回收章节存储 |
-| **完全缺失，全新建设** | T02、T11 | 两块新功能 |
+| **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
 | **文档同步** | T01 | 护栏脚本 + §五 刷新 |
 
 **建议合并顺序**（依赖硬约束）：
@@ -361,7 +390,7 @@ PR-03 T12 Asset 协议与 CSP 审计（补测试）
 PR-04 T03 备份保留策略扩展            ← 已完成（2026-10-22，零迁移）
 PR-05 T04 设备标识与跨设备保护        ← 已完成（2026-10-22，零迁移）
 PR-06 T05 密钥缺失统一处理          ← 已完成（2026-10-22，零迁移）
-PR-07 T02 导出 txt/docx/epub
+PR-07 T02 导出 txt/docx/epub        ← 已完成（2026-10-22，零迁移）
 PR-08 T06 上下文装配透明度        ← 提供 pinned
 PR-09 T09 全书搜索与替换
 PR-10 T07 提炼成本与去重
@@ -387,7 +416,9 @@ PR-19 T18 README 截图位
 | V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` |
 | V009 | PR-13 | 新增 `daily_stat` 表；`chapter` 增 `pov_character_id` / `story_time` |
 
-**新增第三方依赖**（全部集中在 PR-07）：`docx`（docx-rs，MIT）、`epub-builder`（MIT）、`tauri-plugin-dialog`（MIT/Apache-2.0）。**T09 不需要任何新依赖。**
+**新增第三方依赖**（集中在 PR-07）：实际只引入 `tauri-plugin-dialog`（MIT/Apache-2.0）——
+原计划的 `docx`（docx-rs）与 `epub-builder` 经评估后**不引入**，DOCX 与 EPUB 改用仓库已有的
+`zip` 9 自拼（理由见 §二 T02 落地说明）。**T09 不需要任何新依赖。**
 
 > 🚨 **建议插队的一项**：`README.md:66` 宣称「全文搜索替换」，而该功能不存在（见 §2 T09）。T09 排在 PR-09，若按序推进，在此之前 README 会持续对外宣称一个不存在的功能。
 > **建议在 PR-02 之前或并入 PR-02，先把这行承诺删掉或改为「计划中」**，再在 PR-09 落地真功能。
