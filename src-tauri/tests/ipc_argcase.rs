@@ -72,7 +72,12 @@ fn every_command_declares_snake_case() {
     // 让作者先看「会删掉哪些」再决定。带 snake_case；首参为 State<DbPool>，
     // 但它需要 WebDAV 凭据才能列举远端目录，在 MockRuntime 下无法进入
     // command_key_sweep（与 webdav_list_backups 同属同类限制）。
-    assert_eq!(total, 100, "command count changed — re-audit the frontend call sites");
+    // 100 → 103：跨设备覆盖保护（任务书 T04）增加 3 个命令：
+    // webdav_backup_preflight（上传前的冲突预检）、sync_get_device_state
+    // （本机设备身份与待处理提示）、sync_clear_device_notice（作者处理完冲突后清除提示）。
+    // 三者均带 rename_all；前两个与第三个都需要 WebDAV 凭据 / AppHandle，
+    // 无法进入 command_key_sweep（与 webdav_list_backups 同属已知限制）。
+    assert_eq!(total, 103, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

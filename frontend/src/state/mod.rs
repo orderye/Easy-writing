@@ -1,5 +1,8 @@
 use leptos::prelude::*;
-use shared_types::{Chapter, ChapterHeader, ConflictInfo, ExtractionCandidate, Novel, Volume};
+use shared_types::{
+    Chapter, ChapterHeader, ConflictInfo, DeviceStateInfo, ExtractionCandidate, Novel, PendingNotice,
+    Volume,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct AppContext {
@@ -67,6 +70,18 @@ pub struct AppContext {
     pub available_update: RwSignal<Option<shared_types::AppUpdateInfo>>,
     pub has_update_badge: RwSignal<bool>,
     pub is_checking_update: RwSignal<bool>,
+
+    // 跨设备同步保护（任务书 T04）
+    /// 本机设备身份与上次同步时间。
+    pub device_state: RwSignal<Option<DeviceStateInfo>>,
+    /// 上次退出时因跨设备冲突而跳过的提示，等作者处理。
+    ///
+    /// 退出应用时**不能**弹阻塞窗口（那会让「关掉应用」变成
+    /// 「必须先处理冲突」），所以冲突被记在这里，下次启动再提示。
+    pub pending_sync_notice: RwSignal<Option<PendingNotice>>,
+    /// 设置弹窗当前标签页。提到全局是为了让「启动提示条」能跳到
+    /// 「WebDAV 整库同步」页处理冲突。
+    pub config_active_tab: RwSignal<String>,
 }
 
 impl AppContext {
@@ -119,6 +134,9 @@ impl AppContext {
             available_update: RwSignal::new(None),
             has_update_badge: RwSignal::new(false),
             is_checking_update: RwSignal::new(false),
+            device_state: RwSignal::new(None),
+            pending_sync_notice: RwSignal::new(None),
+            config_active_tab: RwSignal::new("llm".to_string()),
         }
     }
 }

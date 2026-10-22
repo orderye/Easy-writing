@@ -136,7 +136,12 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：中。**注意**：`plan_rotation` 的两条安全铁律（先验证后删、只碰 `backup_*`）**必须保留**，扩展策略时不得放宽。
 
-#### T04 多设备覆盖保护 —— **部分符合；「先审计」项结论：符合**
+#### T04 多设备覆盖保护 —— **部分符合** → **已落地（PR-05，2026-10-22）**
+
+> 落地说明：设备身份与同步状态在 `src-tauri/src/sync/device.rs`（存库外的
+> `sync_state.json`），来源身份 sidecar 为 `<backup>.db.gz.meta.json`，
+> 集成测试 `src-tauri/tests/device_guard.rs`（11 例）。
+> **本任务未新增数据库迁移**：身份与同步状态刻意存在数据库之外。
 
 **先审计项**（任务书要求先审计 `restore.rs` 替换数据库文件前是否已关闭 r2d2 连接池或要求重启）：
 
@@ -348,7 +353,7 @@ PR-01 现状映射表（本文件）
 PR-02 T01 文档 schema 护栏脚本 + CI
 PR-03 T12 Asset 协议与 CSP 审计（补测试）
 PR-04 T03 备份保留策略扩展            ← 已完成（2026-10-22，零迁移）
-PR-05 T04 设备标识与跨设备保护
+PR-05 T04 设备标识与跨设备保护      ← 已完成（2026-10-22，零迁移）
 PR-06 T05 密钥缺失统一处理
 PR-07 T02 导出 txt/docx/epub
 PR-08 T06 上下文装配透明度        ← 提供 pinned

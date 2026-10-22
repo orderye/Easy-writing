@@ -333,6 +333,11 @@ pub struct BackupReport {
     pub rotated_deleted: u32,
     /// 本次使用的远端保留策略。
     pub retention: RetentionPolicy,
+    /// 备份来源身份 sidecar（`.meta.json`）是否上传成功。
+    ///
+    /// 为 false 时这份备份**没有**跨设备保护所需的来源信息：
+    /// 备份本体依然可用，但别的设备无法据此判断「这份备份是谁写的」。
+    pub meta_uploaded: bool,
 }
 
 impl BackupReport {
@@ -656,6 +661,47 @@ pub struct DanglingKeyInfo {
     pub key_ref: String,
 }
 
+/// 跨设备冲突信息。
+///
+/// 远端存在「来自其他设备、且比本机上次同步更新」的备份时返回，
+/// 由作者决定「继续上传 / 先恢复 / 取消」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BackupConflictInfo {
+    pub local_device_id: String,
+    pub local_device_name: String,
+    pub remote_device_id: String,
+    pub remote_device_name: String,
+    pub remote_filename: String,
+    pub remote_created_at: String,
+    pub local_last_sync_at: Option<String>,
+}
+
+/// 退出自动同步时因冲突而跳过的提示。
+///
+/// 退出时**不能**弹阻塞窗口（那会把「关掉应用」变成「必须先处理冲突」），
+/// 因此冲突被记在这里，等下次启动时再提示作者。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingNotice {
+    /// 提示类型。目前只有 `backup_conflict`。
+    pub kind: String,
+    pub remote_filename: String,
+    pub remote_device_id: String,
+    pub remote_device_name: String,
+    pub remote_created_at: String,
+    pub detected_at: String,
+}
+
+/// 本机同步状态（供前端展示）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceStateInfo {
+    pub device_id: String,
+    pub device_name: String,
+    /// 本机内容与远端对齐的时间点（RFC3339 UTC）；从未同步过时为空。
+    pub last_sync_at: Option<String>,
+    /// 上次退出时因冲突而跳过的提示。
+    pub pending_notice: Option<PendingNotice>,
+}
+
 /// 备份清单的校验状态。
 ///
 /// 三态而不是 bool，是因为「没有清单」与「清单校验没过」必须能被区分：
@@ -717,6 +763,17 @@ pub struct RestorePreflight {
     pub asset_missing_locally: u64,
     /// 资产层面的可见问题（路径非法、重复、哈希格式错误、清单与库不一致等）。
     pub asset_problems: Vec<String>,
+    /// 这份备份的来源设备标识（来自 meta sidecar；历史备份没有 meta 时为空）。
+    pub source_device_id: Option<String>,
+    /// 这份备份的来源设备名。
+    pub source_device_name: Option<String>,
+    /// 这份备份是否来自**其他设备**。
+    ///
+    /// 恢复一份别的机器写的备份，是跨设备切换的正常动作；
+    /// 但作者必须看见这件事 —— 否则「我这台机器上的东西怎么变了」无从解释。
+    pub is_from_other_device: bool,
+    /// 预检过程中观察到的、不阻断恢复的提示。
+    pub notes: Vec<String>,
 }
 
 /// 恢复的最终结局。四态互斥，不允许把「数据库覆盖成功」当成「整体恢复成功」。

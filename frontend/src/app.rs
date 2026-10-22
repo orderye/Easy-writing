@@ -3,7 +3,7 @@ use crate::components::layout::app_shell::AppShell;
 use crate::state::AppContext;
 use crate::tauri_api::{invoke_cmd, invoke_no_args};
 use leptos::prelude::*;
-use shared_types::{Chapter, ChapterHeader, Novel, Volume};
+use shared_types::{Chapter, ChapterHeader, DeviceStateInfo, Novel, Volume};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -52,6 +52,16 @@ pub fn App() -> impl IntoView {
 
             if let Ok(dir) = invoke_no_args::<String>("get_app_data_dir").await {
                 crate::bridge::tiptap::set_app_data_dir(&dir);
+            }
+
+            // 跨设备同步状态：本机设备身份 + 上次退出时因冲突而跳过的提示。
+            //
+            // 退出应用时的静默同步遇到冲突会跳过而不是弹窗（弹窗会把
+            // 「关掉应用」变成「必须先处理冲突」），所以提示记在设备状态里，
+            // 这里在启动时取出来交给顶部的提示条。
+            if let Ok(state) = invoke_no_args::<DeviceStateInfo>("sync_get_device_state").await {
+                app_ctx.pending_sync_notice.set(state.pending_notice.clone());
+                app_ctx.device_state.set(Some(state));
             }
             set_editor_style(fs_val, &lh_val);
 

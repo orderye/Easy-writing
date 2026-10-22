@@ -41,7 +41,8 @@ fn gen_params_summary(params_json: &str) -> String {
 
 #[component]
 pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoView {
-    let active_tab = RwSignal::new("llm".to_string()); // "llm" | "agent" | "prompt" | "webdav" | "pref"
+    // 标签页状态提到 AppContext：跨设备冲突提示条需要跳到「WebDAV 整库同步」页。
+    let active_tab = app_ctx.config_active_tab; // "llm" | "agent" | "prompt" | "webdav" | "pref"
     let profiles = RwSignal::new(Vec::<LlmProfile>::new());
     let agents = RwSignal::new(Vec::<Agent>::new());
     let prompt_templates = RwSignal::new(Vec::<PromptTemplate>::new());
@@ -436,7 +437,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
 
                                     "prompt" => view! { <PromptTab prompt_templates=prompt_templates /> }.into_any(),
 
-                                    "webdav" => view! { <WebdavTab /> }.into_any(),
+                                    "webdav" => view! { <WebdavTab app_ctx=app_ctx /> }.into_any(),
                                     "pref" => view! { <PrefTab app_ctx=app_ctx /> }.into_any(),
 
                                     "update" => view! {

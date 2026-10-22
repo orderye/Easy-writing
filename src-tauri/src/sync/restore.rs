@@ -299,6 +299,52 @@ pub async fn run_restore_preflight(
         }
     };
 
+    // 8. 来源身份（meta sidecar，可选）。
+    //
+    //    它回答的是「这份备份是哪台设备写的」，供跨设备保护使用。
+    //    没有 meta 的历史备份照常可恢复（兼容路径），只是作者看不到来源。
+    let mut notes: Vec<String> = Vec::new();
+    let remote_meta_path = format!("{}.meta.json", remote_backup_path);
+    let mut source_meta: Option<crate::sync::device::BackupMeta> = None;
+    match client.download_file_optional(&remote_meta_path).await {
+        Ok(RemoteFetch::NotFound) => {}
+        Ok(RemoteFetch::Found(bytes)) => match serde_json::from_slice::<crate::sync::device::BackupMeta>(
+            &bytes,
+        ) {
+            Ok(m) => {
+                // meta 记录的哈希必须与实际下载到的包一致。
+                // 不一致说明这份来源信息不属于这个备份包 —— 可能是文件被替换，
+                // 也可能是 meta 被错配到了别的备份上。两种情况都必须拦下。
+                if !m.sha256.is_empty() && !m.sha256.eq_ignore_ascii_case(&token) {
+                    let _ = fs::remove_file(&cand_db);
+                    remove_candidate(&token);
+                    return Err(format!(
+                        "恢复中止：备份的来源信息（meta）记录的哈希与实际下载内容不符，\
+                         这份来源信息不属于该备份包。原数据未被改动。"
+                    ));
+                }
+                source_meta = Some(m);
+            }
+            Err(e) => {
+                // meta 解析失败不阻断恢复：清单的 sha256 才是完整性闸门。
+                // 但必须让作者知道「来源信息读不出来」。
+                notes.push(format!("备份的来源信息（meta）无法解析，已忽略：{e}"));
+            }
+        },
+        Err(e) => {
+            // 网络错误不是「文件不存在」，但同样不该阻断恢复。
+            notes.push(format!("无法读取备份的来源信息（meta），已忽略：{e}"));
+        }
+    }
+
+    let local_device_id = crate::sync::device::load(&app_data_dir).device_id;
+    let source_device_id = source_meta.as_ref().map(|m| m.device_id.clone());
+    let source_device_name = source_meta.as_ref().map(|m| m.device_name.clone());
+    let is_from_other_device = source_device_id
+        .as_ref()
+        .map(|id| *id != local_device_id)
+        .unwrap_or(false);
+
     let _ = fs::remove_file(&cand_db);
 
     Ok(RestorePreflight {
@@ -320,6 +366,10 @@ pub async fn run_restore_preflight(
         asset_present_locally: assets.present_locally,
         asset_missing_locally: assets.missing_locally,
         asset_problems,
+        source_device_id,
+        source_device_name,
+        is_from_other_device,
+        notes,
     })
 }
 
@@ -1069,6 +1119,28 @@ pub async fn run_consistency_restore(
 
     // 9. 钥匙串 key_ref 有效性体检
     let dangling_keys = collect_dangling_keys(&pool)?;
+
+    // 9.5 恢复成功 → 本机内容与远端在「这份备份的创建时刻」是对齐的。
+    //
+    //     记下这个时间点，别的设备才能判断「远端比本机新」到底是
+    //     「刚被别人更新了」还是「本机自己刚写了这��」。
+    //     用清单的 created_at（= 备份创建时间）而不是「现在」：
+    //     远端可能还有更新的备份，写「现在」会假装本机已经包含了它们。
+    {
+        let mut state = crate::sync::device::load(&app_data_dir);
+        if let Some(m) = &remote_manifest {
+            let should_update = match &state.last_sync_at {
+                Some(prev) => crate::sync::device::is_newer(&m.created_at, prev),
+                None => true,
+            };
+            if should_update {
+                state.last_sync_at = Some(m.created_at.clone());
+                if let Err(e) = crate::sync::device::save(&app_data_dir, &state) {
+                    eprintln!("[restore] 写入同步状态失败（不影响恢复结果）: {e}");
+                }
+            }
+        }
+    }
 
     // 10. 判定结局
     let outcome = if asset_failed == 0 && asset_restored == asset_total {
