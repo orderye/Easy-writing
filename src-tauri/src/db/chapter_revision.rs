@@ -142,6 +142,34 @@ pub fn revert_chapter_to_revision(
     })
 }
 
+/// 每章自动快照的默认上限。
+///
+/// 旧实现把 `30` 写死在清理语句里，作者无法调整。任务书 T03 ② 要求的默认值是
+/// `50`，这里按任务书取值，并把上限本身变成设置项。
+pub const DEFAULT_SNAPSHOT_LIMIT: usize = 50;
+
+/// 设置项键名（存 `app_setting` 表）。
+pub const SETTING_SNAPSHOT_LIMIT: &str = "revision_snapshot_limit";
+
+/// 读取每章自动快照上限。缺失或非法时回落到默认值。
+pub fn snapshot_limit(conn: &Connection) -> usize {
+    match crate::db::app_setting::get_setting(conn, SETTING_SNAPSHOT_LIMIT) {
+        Ok(Some(raw)) => raw.trim().parse::<usize>().unwrap_or(DEFAULT_SNAPSHOT_LIMIT),
+        _ => DEFAULT_SNAPSHOT_LIMIT,
+    }
+}
+
+/// 内容指纹：章节正文的 SHA-256。
+///
+/// 只用 `content_plain`（纯文本），不用 Tiptap JSON —— JSON 里含有
+/// ProseMirror 生成的稳定 id 与标记顺序，格式上的抖动不该被当成「内容变了」。
+fn content_fingerprint(content_plain: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(content_plain.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn maybe_auto_snapshot(
     conn: &Connection,
     chapter_id: &str,
@@ -160,6 +188,15 @@ pub fn maybe_auto_snapshot(
     let should_snapshot = match latest {
         None => true, // First snapshot
         Some(prev) => {
+            // 内容指纹相同 → 这一轮没有新内容，不值得为它再存一份快照。
+            //
+            // 少了这一条，「反复点保存」「切换章节又切回来」这类无内容变化的
+            // 操作会不断堆出体积完全相同的快照 —— 它们既不提供任何回退价值，
+            // 又让历史版本列表变成一串无法分辨的重复项。
+            if content_fingerprint(&prev.content_plain) == content_fingerprint(content_plain) {
+                return Ok(None);
+            }
+
             // Check diff in word count or time elapsed >= 5 mins
             let word_diff = (word_count - prev.word_count).abs();
             // SQLite datetime diff: check if at least 300 seconds passed
@@ -186,18 +223,22 @@ pub fn maybe_auto_snapshot(
             "自动保存快照",
         )?;
 
-        // Prune auto-snapshots: retain latest 30 auto snapshots for this chapter
+        // Prune auto-snapshots: retain the latest N auto snapshots for this chapter.
+        //
+        // 只清 `revision_type = 'auto'`：手动快照、修改前/后快照与回滚前快照
+        // 都是作者显式动作或安全网的一部分，绝不能被自动清理带走。
+        let limit = snapshot_limit(conn);
         let _ = conn.execute(
-            "DELETE FROM chapter_revision 
-             WHERE chapter_id = ?1 
-               AND revision_type = 'auto' 
+            "DELETE FROM chapter_revision
+             WHERE chapter_id = ?1
+               AND revision_type = 'auto'
                AND id NOT IN (
-                   SELECT id FROM chapter_revision 
-                   WHERE chapter_id = ?1 AND revision_type = 'auto' 
-                   ORDER BY created_at DESC, rowid DESC 
-                   LIMIT 30
+                   SELECT id FROM chapter_revision
+                   WHERE chapter_id = ?1 AND revision_type = 'auto'
+                   ORDER BY created_at DESC, rowid DESC
+                   LIMIT ?2
                )",
-            params![chapter_id],
+            params![chapter_id, limit as i64],
         );
 
         Ok(Some(rev))

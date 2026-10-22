@@ -114,7 +114,15 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 - **缺口**：整块全新（Rust 导出模块 + 三种格式 + 前端弹层 + 进度/取消）。
 - **工作量**：大。**新增依赖**：`docx`（docx-rs，MIT）、`epub-builder`（MIT）、`tauri-plugin-dialog`（MIT/Apache-2.0）。`zip` 已是现有依赖。
 
-#### T03 备份体积控制与保留策略 —— **部分符合**
+#### T03 备份体积控制与保留策略 —— **部分符合** → **已落地（PR-04，2026-10-22）**
+
+> 落地说明：保留策略引擎落在 `src-tauri/src/sync/retention.rs`，
+> 集成测试 `src-tauri/tests/backup_retention.rs`（14 例）。
+> **本任务未新增数据库迁移**：策略参数存 `app_setting`，快照去重用 Rust 侧
+> 计算 SHA-256，不加列。
+> 唯一一处与初版设计不同：「最近 N 份」按**文件名字典序**而非解析出的
+> 时间戳排序 —— 既有轮转测试用「非法月份」构造过备份名，名字排序对任何
+> 名字都成立，不会出现「时间戳解析失败就没有归属」的空洞。
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
@@ -339,7 +347,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 PR-01 现状映射表（本文件）
 PR-02 T01 文档 schema 护栏脚本 + CI
 PR-03 T12 Asset 协议与 CSP 审计（补测试）
-PR-04 T03 备份保留策略扩展
+PR-04 T03 备份保留策略扩展            ← 已完成（2026-10-22，零迁移）
 PR-05 T04 设备标识与跨设备保护
 PR-06 T05 密钥缺失统一处理
 PR-07 T02 导出 txt/docx/epub

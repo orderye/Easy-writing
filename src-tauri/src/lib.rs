@@ -135,6 +135,7 @@ pub fn run() {
             commands::sync_cmd::webdav_test_connection,
             commands::sync_cmd::webdav_backup_now,
             commands::sync_cmd::webdav_list_backups,
+            commands::sync_cmd::webdav_preview_retention,
             commands::sync_cmd::webdav_restore_preflight,
             commands::sync_cmd::webdav_restore_backup,
             // Import

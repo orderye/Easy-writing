@@ -151,6 +151,8 @@ pub async fn webdav_backup_now(
         manifest_uploaded: outcome.manifest_uploaded,
         image_upload_failures: outcome.image_upload_failures,
         missing_assets: outcome.missing_assets,
+        rotated_deleted: outcome.rotated_deleted,
+        retention: outcome.retention,
     })
 }
 
@@ -160,6 +162,31 @@ pub async fn webdav_list_backups(
 ) -> Result<Vec<BackupFileInfo>, String> {
     let (client, remote_dir) = get_webdav_client_and_remote_dir(pool.inner())?;
     crate::sync::restore::list_remote_backups(&client, &remote_dir).await
+}
+
+/// 保留策略 dry-run 预览。
+///
+/// **只读**：只列出「如果现在执行清理会删掉哪些」，不删除任何远端文件。
+/// 保留策略是本应用唯一会主动删除远端数据的机制，让作者先看后删。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn webdav_preview_retention(
+    pool: State<'_, DbPool>,
+) -> Result<shared_types::RetentionPreview, String> {
+    let (client, remote_dir) = get_webdav_client_and_remote_dir(pool.inner())?;
+    let policy = read_retention_policy(pool.inner());
+    crate::sync::backup::preview_retention(&client, &remote_dir, policy).await
+}
+
+/// 读取当前保留策略。读取失败时回落到默认值，绝不让「读设置失败」变成
+/// 「按空白策略清理远端」。
+fn read_retention_policy(pool: &DbPool) -> shared_types::RetentionPolicy {
+    match pool.get() {
+        Ok(conn) => crate::sync::retention::policy_from_settings(&conn),
+        Err(e) => {
+            eprintln!("[sync] 读取保留策略失败，改用默认策略: {e}");
+            shared_types::RetentionPolicy::default()
+        }
+    }
 }
 
 /// 恢复预检：下载并校验候选备份，返回覆盖数据库之前作者需要看到的全部事实。

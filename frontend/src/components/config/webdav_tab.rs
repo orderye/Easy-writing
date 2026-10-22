@@ -1,3 +1,4 @@
+use crate::components::config::retention_panel::RetentionPanel;
 use crate::tauri_api::{invoke_cmd, invoke_no_args};
 use leptos::prelude::*;
 use shared_types::{
@@ -156,6 +157,15 @@ pub fn WebdavTab() -> impl IntoView {
                     } else {
                         format!("✓ 备份成功！云端快照包: {}", report.filename)
                     });
+                    // 清理了多少旧备份同样要可见 —— 保留策略是本应用唯一会
+                    // 主动删除远端数据的机制，删了多少必须让作者知道。
+                    if report.rotated_deleted > 0 {
+                        webdav_status.set(format!(
+                            "{}（已按保留策略清理 {} 份旧备份）",
+                            webdav_status.get(),
+                            report.rotated_deleted
+                        ));
+                    }
                     backup_result.set(Some(report));
                     if let Ok(list) =
                         invoke_no_args::<Vec<BackupFileInfo>>("webdav_list_backups").await
@@ -343,6 +353,11 @@ pub fn WebdavTab() -> impl IntoView {
                             </div>
                         }.into_any()
                     }}
+
+                    // 保留策略：唯一会主动删除远端数据的机制，放在备份按钮旁边
+                    <div class="pt-2 border-t border-slate-200 dark:border-slate-700">
+                        <RetentionPanel />
+                    </div>
                 </div>
 
                 // Cloud Backups List
