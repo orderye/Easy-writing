@@ -1,9 +1,9 @@
 # Easy-writing · 中长篇小说工作台 — 实施计划（终版）
 
-> ⚠️ **[ARCHIVED BASELINE]**  
+> ⚠️ **[ARCHIVED BASELINE]**
 > 本文档为立项初期的工程实施规划基线归档，记录初始架构设想。后续版本演进的实际工程结构（如前端独立 crate `frontend/`、跨平台统一模型 crate `shared-types/`、工作区 `Cargo.toml`）及最新特性变更请以代码库实际目录与 [CHANGELOG.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/CHANGELOG.md) 为准。
 
-> 基于 [框架方案与 PRD](file:///Users/roy/Downloads/%E7%9F%AD%E7%AF%87%E5%B0%8F%E8%AF%B4%E5%B7%A5%E4%BD%9C%E5%8F%B0%20%C2%B7%20%E6%A1%86%E6%9E%B6%E6%96%B9%E6%A1%88%E4%B8%8E%20PRD.md) 设计 · 已通过工程架构审核并完成 6 项细节修正  
+> 基于 [框架方案与 PRD](file:///Users/roy/Downloads/%E7%9F%AD%E7%AF%87%E5%B0%8F%E8%AF%B4%E5%B7%A5%E4%BD%9C%E5%8F%B0%20%C2%B7%20%E6%A1%86%E6%9E%B6%E6%96%B9%E6%A1%88%E4%B8%8E%20PRD.md) 设计 · 已通过工程架构审核并完成 6 项细节修正
 > 日期：2026-10-14 · 作者：Roy & AI Pair Programming
 
 ---
@@ -115,13 +115,13 @@ flowchart TB
 为解决 Trunk 无法直接打包 npm 模块的断层，采用 **`esbuild + Trunk hooks`** 两段式构建流：
 
 ```
-[js/src/*.js + npm packages] 
+[js/src/*.js + npm packages]
        │ (esbuild bundle)
        ▼
-[dist/tiptap-bridge.bundle.js] 
+[dist/tiptap-bridge.bundle.js]
        │ (Trunk 静态注入)
        ▼
-[index.html 运行时引用 window.TiptapBridge] 
+[index.html 运行时引用 window.TiptapBridge]
        │ (wasm-bindgen 外部符号绑定)
        ▼
 [src/bridge/tiptap.rs (Rust)]
@@ -258,15 +258,18 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 
 ---
 
-## 五、数据库 Schema（初始 V001 DDL 基线）
+## 五、数据库 Schema（当前 V001–V003 基线）
 
-> ⚠️ **DDL 版本与演进说明**：以下记录为立项时 V001 的初始 DDL 基线。随着版本演进，工程已通过后续阶梯迁移全面补齐：
-> - `V002`：`chapter_revision`（章节历史版本快照）、`character_relation`（角色关系拓扑网）、`novel_lexicon`（专有词库与补全）、`chat_session` / `chat_message`（多轮对话记录）及设定回滚审计字段；
-> - `V003`：`idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 性能索引。
-> 最新完整建表脚本请参阅 `src-tauri/migrations/`。
+> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V003 全部阶梯迁移的结果。
+> - `V001__init.sql`：18 张基础表（`llm_profile` / `novel` / `volume` / `chapter` / `chapter_revision` / `asset` / `worldview_entry` / `character` / `plot_item` / `agent` / `chat_session` / `chat_message` / `extraction_candidate` / `setting_change` / `prompt_template` / `webdav_config` / `app_setting` / `character_relation`）。
+> - `V002__legacy_safe_migrations.sql`：新增 `novel_lexicon`（专有词库）；为 `setting_change` 增 `target_title` / `is_reverted`，为 `chat_session` 增 `title`，为 `asset` 增 `deleted_at`，为 `extraction_candidate` 增 `title`。
+> - `V003__indices_and_cleanup.sql`：性能索引 `idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 等。
+>
+> ⚠️ 本节与 `src-tauri/migrations/` 的**一致性由 CI 强制**：`scripts/check-docs-schema.mjs` 双向比对本节表清单与迁移实际建表，缺一即失败。改表结构必须同步改这里，也必须同步改迁移文件。
+> 完整建表脚本请参阅 `src-tauri/migrations/`。
 
 > [!IMPORTANT]
-> **连接池强制参数**：每个 SQLite 连接建立时，通过 `r2d2` 回调（`PragmaCustomizer`）统一执行：  
+> **连接池强制参数**：每个 SQLite 连接建立时，通过 `r2d2` 回调（`PragmaCustomizer`）统一执行：
 > `PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA busy_timeout = 5000;`
 
 ```sql
@@ -339,7 +342,9 @@ CREATE TABLE asset (
     rel_path    TEXT NOT NULL,   -- 相对数据文件夹路径
     size        INTEGER NOT NULL DEFAULT 0,
     hash        TEXT NOT NULL,   -- 内容 SHA-256，用于 WebDAV 增量去重
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    -- 软删除时间；NULL 表示在库。与作品/卷/章一致：移除可恢复。
+    deleted_at  TEXT
 );
 
 -- 6. 世界观设定
@@ -416,6 +421,7 @@ CREATE TABLE chat_session (
     id          TEXT PRIMARY KEY,
     novel_id    TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
     chapter_id  TEXT REFERENCES chapter(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL DEFAULT '对话',   -- V002 新增
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -444,6 +450,7 @@ CREATE TABLE extraction_candidate (
     dedup_key           TEXT NOT NULL,   -- 去重指纹: hash(kind + norm(title))
     status              TEXT NOT NULL DEFAULT 'pending'
                         CHECK(status IN ('pending', 'accepted', 'ignored')),
+    title               TEXT NOT NULL DEFAULT '',   -- V002 新增：候选条目标题
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_extraction_novel ON extraction_candidate(novel_id, status);
@@ -461,6 +468,8 @@ CREATE TABLE setting_change (
     before_content  TEXT NOT NULL DEFAULT '',
     after_content   TEXT NOT NULL DEFAULT '',
     reason          TEXT NOT NULL DEFAULT '',
+    target_title    TEXT NOT NULL DEFAULT '',   -- V002 新增：被改设定的标题快照
+    is_reverted     INTEGER NOT NULL DEFAULT 0, -- V002 新增：是否已回滚
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -491,6 +500,49 @@ CREATE TABLE app_setting (
     value       TEXT NOT NULL DEFAULT ''
 );
 
+-- 16. 章节历史版本快照（V001）
+CREATE TABLE chapter_revision (
+    id              TEXT PRIMARY KEY,
+    chapter_id      TEXT NOT NULL REFERENCES chapter(id) ON DELETE CASCADE,
+    novel_id        TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+    title           TEXT NOT NULL,
+    content         TEXT NOT NULL DEFAULT '{}',
+    content_plain   TEXT NOT NULL DEFAULT '',
+    word_count      INTEGER NOT NULL DEFAULT 0,
+    revision_type   TEXT NOT NULL DEFAULT 'auto' CHECK(revision_type IN ('auto', 'manual', 'ai_before', 'ai_after', 'rollback_before')),
+    note            TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_revision_chapter ON chapter_revision(chapter_id, created_at DESC);
+CREATE INDEX idx_revision_novel   ON chapter_revision(novel_id);
+
+-- 17. 角色关系拓扑网（V001 建表，V002 幂等补建）
+CREATE TABLE character_relation (
+    id              TEXT PRIMARY KEY,
+    novel_id        TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+    from_char_id    TEXT NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    to_char_id      TEXT NOT NULL REFERENCES character(id) ON DELETE CASCADE,
+    relation_name   TEXT NOT NULL DEFAULT '',
+    description     TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_relation_novel ON character_relation(novel_id);
+
+-- 18. 专有词库（V002）
+CREATE TABLE novel_lexicon (
+    id          TEXT PRIMARY KEY,
+    novel_id    TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+    term        TEXT NOT NULL,
+    category    TEXT NOT NULL DEFAULT 'custom',
+    frequency   INTEGER NOT NULL DEFAULT 1,
+    source_id   TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_lexicon_novel_term ON novel_lexicon(novel_id, term);
+CREATE INDEX idx_lexicon_novel ON novel_lexicon(novel_id);
+
 -- 初始化系统偏好
 INSERT INTO app_setting (key, value) VALUES
     ('auto_save_interval', '30'),
@@ -503,17 +555,17 @@ INSERT INTO app_setting (key, value) VALUES
 
 -- 初始化 6 大预设 Agent
 INSERT INTO agent (id, key, name, system_prompt) VALUES
-    ('agent-worldview', 'worldview', '世界观 Agent', 
+    ('agent-worldview', 'worldview', '世界观 Agent',
      '你是一个专业的小说世界观架构师。你的职责是补全设定细节、规范专用术语，并严格保证与已有世界规则不存在矛盾。'),
-    ('agent-character', 'character', '角色 Agent', 
+    ('agent-character', 'character', '角色 Agent',
      '你是一个小说角色刻画专家。负责分析人物外貌、动机、性格弧光与关系网，使人物形象鲜活且前后言行一致。'),
-    ('agent-plot', 'plot', '剧情 Agent', 
+    ('agent-plot', 'plot', '剧情 Agent',
      '你是一个剧情编剧助手。擅长梳理主支线推进逻辑、分析戏剧冲突，并严密追踪伏笔的设置与回收状态。'),
-    ('agent-outline', 'outline', '大纲 Agent', 
+    ('agent-outline', 'outline', '大纲 Agent',
      '你是一个宏观大纲顾问。负责把控篇章节奏、起承转合，提炼并维护全篇梗概与分卷大纲。'),
-    ('agent-volchap', 'volume_chapter', '卷章 Agent', 
+    ('agent-volchap', 'volume_chapter', '卷章 Agent',
      '你是一个卷章管理助手。负责协助作者提炼单卷主题简介与精炼的单章核心摘要。'),
-    ('agent-writer', 'writing_assistant', '写作助手', 
+    ('agent-writer', 'writing_assistant', '写作助手',
      '你是一个贴身小说写作助理。你必须无条件严格遵循作者设定的世界观、角色特质与大纲规划进行扩写、润色与创作。若指令与既有设定冲突，须主动提示并中止写入。');
 ```
 
@@ -676,7 +728,7 @@ sequenceDiagram
     Chat->>Tauri: invoke("ai_chat_request", { prompt, chapter_id })
     Tauri->>Ctx: 组装上下文（设定索引 + 相关条目 + 前情摘要）
     Ctx->>Judge: 前置检查（指令是否与硬性大纲冲突）
-    
+
     alt 前置已检测到严重冲突
         Judge-->>Chat: 直接返回冲突预警
         Chat->>User: 弹出 ConflictCard（提示导师存活至终卷，不可击杀）
@@ -685,7 +737,7 @@ sequenceDiagram
         Gate->>LLM: SSE 流式请求
         LLM-->>Gate: 逐 token 返回
         Gate-->>Chat: 40ms 缓冲后推送文本更新
-        
+
         Gate->>Judge: 后置全文一致性复核
         alt 确认无冲突
             Chat->>User: 显示预览与操作条
@@ -717,7 +769,7 @@ sequenceDiagram
     User->>Nav: 点击「提炼本章」
     Nav->>Tauri: invoke("trigger_chapter_extract", { chapter_id })
     Tauri->>Extractor: 提取本章正文 + 已知设定精简索引
-    
+
     par 4 Agent 受限并行
         Extractor->>Semaphore: 申请许可
         Semaphore->>Agents: 世界观 Agent: 提炼术语/地理/法则
@@ -733,7 +785,7 @@ sequenceDiagram
     Extractor->>Extractor: 计算条目指纹 dedup_key
     Extractor->>Extractor: 对比已有设定库与已忽略列表（剔除重复项）
     Extractor-->>Panel: 推送清洗后的候选列表 (Candidate List)
-    
+
     User->>Panel: 逐条审核（采纳 / 编辑后采纳 / 忽略）
     Panel->>Tauri: invoke("resolve_candidate", { id, action })
     Tauri->>Tauri: 采纳项正式转为 Worldview/Character/Plot 正式条目
@@ -766,3 +818,6 @@ MVP 发布后规划的 P1 进阶特性已全部实现并合并入 `main`：
 本实施计划所规划的 MVP 核心框架及后续 P1 进阶特性已全部实现并闭环交付（包括编辑器生命周期管理、本地图片协议、数据库完整约束、并发限流与去重指纹）。
 
 为保持工程文档的敏捷与真实性，本文档作为**初始架构规划基线**予以封存。自 v0.2.0 起的历次迭代细节、架构重构（如去繁化简、模块化导入、AI 自愈引擎）以及最新缺陷修复，请统一查阅 [CHANGELOG.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/CHANGELOG.md) 及 [《Docs 目录索引与全景导航》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/README.md)。
+
+<!-- kimi-badge -->
+[![powered by KimiCode](../.github/assets/kimi-badge.svg)](https://www.kimi.com/code)

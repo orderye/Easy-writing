@@ -23,6 +23,34 @@ jobs:
       - name: Check version fields agree across manifest / Cargo / tauri.conf
         run: node scripts/check-version.mjs
 
+  # 文档 Schema 护栏：校验《实施计划》§五 的表清单与 src-tauri/migrations/ 实际建表一致。
+  # 《实施计划》§五 长期停在 V001 基线，而工程早已演进到 V003 ——
+  # 迁移里加了表、文档没跟上时没有任何报错，直到有人照着文档写代码才踩坑。
+  # 顺带把 scripts/ 下的测试纳入 CI：此前 CI 只跑 test:frontend，
+  # test:scripts（版本门禁、发布门禁的测试）从未在 CI 上执行过。
+  schema-docs:
+    name: 文档 Schema 护栏
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check 实施计划 §五 与 migrations 表清单一致
+        run: node scripts/check-docs-schema.mjs
+
+      - name: Script tests（含版本门禁、发布门禁、文档护栏）
+        run: pnpm test:scripts
+
   frontend:
     name: 前端（依赖护栏 + 桥接测试）
     runs-on: ubuntu-latest
