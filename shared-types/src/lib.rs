@@ -656,8 +656,33 @@ pub struct RestoreIssue {
 /// 跨设备恢复后钥匙串中缺失的 API Key 引用。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DanglingKeyInfo {
+    /// 对应配置项 id（模型接口 id 或 `default_webdav`）。
     pub profile_id: String,
+    /// 面向作者的名称。
     pub profile_name: String,
+    /// 钥匙串引用键名（**不是**密钥内容）。
+    pub key_ref: String,
+    /// 密钥作用域：`llm_profile` 或 `webdav`。
+    ///
+    /// 带默认值是为了兼容旧结构：历史数据里没有这个字段时按模型接口处理。
+    #[serde(default = "default_key_scope")]
+    pub scope: String,
+}
+
+fn default_key_scope() -> String {
+    "llm_profile".to_string()
+}
+
+/// 密钥体检结果中的一条缺失密钥。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MissingKeyInfo {
+    /// 密钥作用域：`llm_profile` 或 `webdav`。
+    pub scope: String,
+    /// 对应配置项 id。
+    pub id: String,
+    /// 面向作者的名称。
+    pub name: String,
+    /// 钥匙串引用键名（**不是**密钥内容）。
     pub key_ref: String,
 }
 

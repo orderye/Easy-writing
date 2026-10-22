@@ -163,7 +163,12 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：中。**关键设计决定**：`device_id` 与 `last_sync_at` **必须存在库外**（如 `app_data_dir/sync_state.json`），不能存进 `app_setting` 或业务表 —— 恢复流程会整体覆盖 `.db`（`restore.rs:747`），库里存的身份会被**来源设备**的 id 覆盖，跨设备保护随即失效。
 
-#### T05 换设备后的密钥缺失处理 —— **部分符合**
+#### T05 换设备后的密钥缺失处理 —— **部分符合** → **已落地（PR-06，2026-10-22）**
+
+> 落地说明：统一错误码与体检在 `src-tauri/src/keys.rs`，
+> 钥匙串访问被抽象成 `KeyringStore` trait（`src-tauri/src/keyring.rs`），
+> 集成测试 `src-tauri/tests/key_missing.rs`（9 例）。
+> **本任务未新增数据库迁移**：密钥状态在系统钥匙串里，体检结果不落库。
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
@@ -354,7 +359,7 @@ PR-02 T01 文档 schema 护栏脚本 + CI
 PR-03 T12 Asset 协议与 CSP 审计（补测试）
 PR-04 T03 备份保留策略扩展            ← 已完成（2026-10-22，零迁移）
 PR-05 T04 设备标识与跨设备保护      ← 已完成（2026-10-22，零迁移）
-PR-06 T05 密钥缺失统一处理
+PR-06 T05 密钥缺失统一处理        ← 已完成（2026-10-22，零迁移）
 PR-07 T02 导出 txt/docx/epub
 PR-08 T06 上下文装配透明度        ← 提供 pinned
 PR-09 T09 全书搜索与替换

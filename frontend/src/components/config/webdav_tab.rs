@@ -303,6 +303,23 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
                 <div class="space-y-3">
                     <h4 class="font-bold text-xs text-slate-800 dark:text-slate-100">"WebDAV 服务器凭据"</h4>
                     {move || {
+                        let missing: Vec<String> = app_ctx
+                            .missing_keys
+                            .get()
+                            .iter()
+                            .filter(|k| k.scope == "webdav")
+                            .map(|k| k.name.clone())
+                            .collect();
+                        if missing.is_empty() {
+                            return view! { <div></div> }.into_any();
+                        }
+                        view! {
+                            <div class="p-2 rounded border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200">
+                                "本机钥匙串里没有 WebDAV 密码（换设备后常见）。请在下方重新填写并保存，备份与恢复才能使用。"
+                            </div>
+                        }.into_any()
+                    }}
+                    {move || {
                         let Some(st) = app_ctx.device_state.get() else {
                             return view! { <div></div> }.into_any();
                         };
@@ -481,7 +498,18 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
                 let outcome = r.outcome.clone();
                 let box_cls = outcome_classes(&outcome);
                 let text_cls = outcome_text_classes(&outcome);
-                let dangling: Vec<String> = r.dangling_keys.iter().map(|k| k.profile_name.clone()).collect();
+                let dangling_llm: Vec<String> = r
+                    .dangling_keys
+                    .iter()
+                    .filter(|k| k.scope == "llm_profile")
+                    .map(|k| k.profile_name.clone())
+                    .collect();
+                let dangling_webdav: Vec<String> = r
+                    .dangling_keys
+                    .iter()
+                    .filter(|k| k.scope == "webdav")
+                    .map(|k| k.profile_name.clone())
+                    .collect();
                 let issues = r.issues.clone();
 
                 view! {
@@ -532,11 +560,19 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
                                 }.into_any()
                             } else { view! { <div></div> }.into_any() }}
 
-                            {move || if !dangling.is_empty() {
+                            {move || if !dangling_llm.is_empty() {
                                 view! {
                                     <div class="text-amber-800 dark:text-amber-200">
-                                        "⚠ 以下模型配置在本机缺少钥匙串密钥，请到「模型接口」重新填入："
-                                        {dangling.join("、")}
+                                        "⚠ 以下模型配置在本机缺少钥匙串密钥，请到「大模型 API 接口」重新填入："
+                                        {dangling_llm.join("、")}
+                                    </div>
+                                }.into_any()
+                            } else { view! { <div></div> }.into_any() }}
+
+                            {move || if !dangling_webdav.is_empty() {
+                                view! {
+                                    <div class="text-amber-800 dark:text-amber-200">
+                                        "⚠ 本机缺少 WebDAV 密码凭据，请到「WebDAV 整库同步」重新填入。"
                                     </div>
                                 }.into_any()
                             } else { view! { <div></div> }.into_any() }}

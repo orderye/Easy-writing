@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use shared_types::{
-    Chapter, ChapterHeader, ConflictInfo, DeviceStateInfo, ExtractionCandidate, Novel, PendingNotice,
-    Volume,
+    Chapter, ChapterHeader, ConflictInfo, DeviceStateInfo, ExtractionCandidate, MissingKeyInfo,
+    Novel, PendingNotice, Volume,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +82,10 @@ pub struct AppContext {
     /// 设置弹窗当前标签页。提到全局是为了让「启动提示条」能跳到
     /// 「WebDAV 整库同步」页处理冲突。
     pub config_active_tab: RwSignal<String>,
+    /// 本机钥匙串里缺失的密钥（模型接口 / WebDAV 密码）。
+    ///
+    /// 启动时体检一次，设置页据此显示「缺少密钥」徽标。
+    pub missing_keys: RwSignal<Vec<MissingKeyInfo>>,
 }
 
 impl AppContext {
@@ -137,6 +141,7 @@ impl AppContext {
             device_state: RwSignal::new(None),
             pending_sync_notice: RwSignal::new(None),
             config_active_tab: RwSignal::new("llm".to_string()),
+            missing_keys: RwSignal::new(Vec::new()),
         }
     }
 }

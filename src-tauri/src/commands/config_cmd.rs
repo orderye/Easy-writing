@@ -153,17 +153,15 @@ pub async fn fetch_remote_models(
             }
             .ok_or_else(|| "尚无已保存的接口配置，请先填写 API Key 后再拉取模型列表".to_string())?;
 
-            if profile.key_ref.is_empty() {
-                return Err(
-                    "当前接口未检测到有效的 API Key 密钥，请先输入密钥后再拉取模型列表".to_string(),
-                );
-            }
-            crate::keyring::get_secret(&profile.key_ref).unwrap_or_default()
+            crate::keys::require_llm_key(crate::keyring::system(), &profile.key_ref)?
         }
     };
 
     if key.trim().is_empty() {
-        return Err("当前接口未检测到有效的 API Key 密钥，请先输入密钥后再拉取模型列表".to_string());
+        return Err(crate::keys::key_missing(
+            crate::keys::SCOPE_LLM_PROFILE,
+            "尚未填写 API Key，请先输入密钥后再拉取模型列表。",
+        ));
     }
 
     if base_url.trim().is_empty() {
@@ -203,18 +201,30 @@ pub async fn test_llm_connection(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "Profile not found".to_string())?;
 
-    let api_key = if !profile.key_ref.is_empty() {
-        crate::keyring::get_secret(&profile.key_ref).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    if api_key.trim().is_empty() {
-        return Err("当前接口未检测到有效的 API Key 密钥，已在连接前拦截。请删除此配置后重新输入有效密钥保存。".to_string());
-    }
+    let api_key =
+        crate::keys::require_llm_key(crate::keyring::system(), &profile.key_ref)?;
 
     let gateway = AiGateway::new();
     gateway.test_connection(&profile, &api_key).await
+}
+
+/// 密钥体检：列出本机钥匙串里缺失的密钥。
+///
+/// 启动时调用一次，设置页据此显示「缺少密钥」徽标；
+/// 恢复完成后也用它汇总「需要补填的项」。
+#[tauri::command(rename_all = "snake_case")]
+pub fn check_missing_keys(pool: State<'_, DbPool>) -> Result<Vec<shared_types::MissingKeyInfo>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let missing = crate::keys::scan_missing_keys(&conn, crate::keyring::system());
+    Ok(missing
+        .into_iter()
+        .map(|m| shared_types::MissingKeyInfo {
+            scope: m.scope,
+            id: m.id,
+            name: m.name,
+            key_ref: m.key_ref,
+        })
+        .collect())
 }
 
 #[tauri::command(rename_all = "snake_case")]

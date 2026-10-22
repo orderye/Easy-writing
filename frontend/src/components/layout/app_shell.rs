@@ -126,6 +126,53 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
 
     view! {
         <div class="h-full w-full flex flex-col bg-slate-100 dark:bg-slate-900">
+            // 密钥缺失提示条。
+            //
+            // 换设备后本机钥匙串里通常没有那些密钥。若不提示，作者会以为
+            // 是网络或服务端的问题，去查代理、查账号 —— 而真正的原因是
+            // 「这台机器上没有那条密钥」。
+            {move || {
+                let missing = app_ctx.missing_keys.get();
+                if missing.is_empty() {
+                    return view! { <div></div> }.into_any();
+                }
+                let llm: Vec<String> = missing
+                    .iter()
+                    .filter(|k| k.scope == "llm_profile")
+                    .map(|k| k.name.clone())
+                    .collect();
+                let webdav: Vec<String> = missing
+                    .iter()
+                    .filter(|k| k.scope == "webdav")
+                    .map(|k| k.name.clone())
+                    .collect();
+                let target_tab = if !llm.is_empty() { "llm" } else { "webdav" };
+                let mut parts: Vec<String> = Vec::new();
+                if !llm.is_empty() {
+                    parts.push(format!("模型接口：{}", llm.join("、")));
+                }
+                if !webdav.is_empty() {
+                    parts.push(format!("WebDAV 密码：{}", webdav.join("、")));
+                }
+                view! {
+                    <div class="flex items-center justify-between gap-3 px-4 py-2 bg-red-50 dark:bg-red-950/50 border-b border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-200">
+                        <span>
+                            "本机钥匙串里缺少密钥（换设备后常见），相关功能会被拦截："
+                            {parts.join("；")}
+                        </span>
+                        <button
+                            class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white rounded font-medium cursor-pointer shrink-0"
+                            on:click=move |_| {
+                                app_ctx.config_active_tab.set(target_tab.to_string());
+                                app_ctx.is_config_open.set(true);
+                            }
+                        >
+                            "去填写密钥"
+                        </button>
+                    </div>
+                }.into_any()
+            }}
+
             // 跨设备冲突提示条。
             //
             // 退出应用时的静默同步遇到冲突会**跳过**而不是弹窗（弹窗会把

@@ -158,10 +158,14 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                             last.content = reply;
                         }
                         Err(err) => {
-                            last.content = format!(
-                                "创作生成失败: {}\n请检查系统设置中的模型接口配置与 API Key。",
-                                err
-                            );
+                            // 「缺少密钥」要引导去补密钥，而不是让作者去查网络。
+                            last.content = match crate::keymsg::explain_key_missing(&err) {
+                                Some(msg) => msg,
+                                None => format!(
+                                    "创作生成失败: {}\n请检查系统设置中的模型接口配置与 API Key。",
+                                    err
+                                ),
+                            };
                         }
                     }
                 }

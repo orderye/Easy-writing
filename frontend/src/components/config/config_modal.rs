@@ -388,10 +388,15 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                             // Tab navigation
                             <div class="flex border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/60 text-xs font-semibold text-slate-600 dark:text-slate-400 px-6">
                                 <button
-                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "llm" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 {}", if tab == "llm" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("llm".to_string())
                                 >
-                                    "大模型 API 接口"
+                                    <span>"大模型 API 接口"</span>
+                                    {move || if app_ctx.missing_keys.get().iter().any(|k| k.scope == "llm_profile") {
+                                        view! { <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-red-500 text-white font-bold leading-none">"缺密钥"</span> }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }}
                                 </button>
                                 <button
                                     class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "agent" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
@@ -406,10 +411,15 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                     "修饰提示词模板"
                                 </button>
                                 <button
-                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "webdav" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
+                                    class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer flex items-center gap-1.5 {}", if tab == "webdav" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
                                     on:click=move |_| active_tab.set("webdav".to_string())
                                 >
-                                    "WebDAV 整库同步"
+                                    <span>"WebDAV 整库同步"</span>
+                                    {move || if app_ctx.missing_keys.get().iter().any(|k| k.scope == "webdav") {
+                                        view! { <span class="px-1.5 py-0.2 rounded-full text-[9px] bg-red-500 text-white font-bold leading-none">"缺密钥"</span> }.into_any()
+                                    } else {
+                                        view! { <div></div> }.into_any()
+                                    }}
                                 </button>
                                 <button
                                     class=format!("py-3 px-4 border-b-2 transition-colors cursor-pointer {}", if tab == "pref" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-800" } else { "border-transparent hover:text-slate-900 dark:hover:text-slate-200" })
@@ -628,6 +638,32 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                             // Profile list
                                             <div class="space-y-2">
                                                 <h4 class="font-bold text-xs text-slate-700">"已配置的模型接口："</h4>
+                                                // 钥匙串缺失提示：换设备后本机通常没有那些密钥，
+                                                // 作者看到的应该是「缺少密钥」而不是网络错误。
+                                                {move || {
+                                                    let missing: Vec<String> = app_ctx
+                                                        .missing_keys
+                                                        .get()
+                                                        .iter()
+                                                        .filter(|k| k.scope == "llm_profile")
+                                                        .map(|k| k.name.clone())
+                                                        .collect();
+                                                    if missing.is_empty() {
+                                                        return view! { <div></div> }.into_any();
+                                                    }
+                                                    view! {
+                                                        <div class="p-2.5 rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/40 text-red-800 dark:text-red-200">
+                                                            <div class="font-bold">"缺少密钥"</div>
+                                                            <div>
+                                                                "以下配置在本机钥匙串里找不到 API Key（换设备后常见）："
+                                                                {missing.join("、")}
+                                                            </div>
+                                                            <div class="mt-1">
+                                                                "请删除对应配置后重新添加并填入密钥，否则 AI 调用会以「缺少密钥」被拦下。"
+                                                            </div>
+                                                        </div>
+                                                    }.into_any()
+                                                }}
                                                 <For
                                                     each=move || profiles.get()
                                                     key=|p| p.id.clone()

@@ -77,7 +77,9 @@ fn every_command_declares_snake_case() {
     // （本机设备身份与待处理提示）、sync_clear_device_notice（作者处理完冲突后清除提示）。
     // 三者均带 rename_all；前两个与第三个都需要 WebDAV 凭据 / AppHandle，
     // 无法进入 command_key_sweep（与 webdav_list_backups 同属已知限制）。
-    assert_eq!(total, 103, "command count changed — re-audit the frontend call sites");
+    // 103 → 104：密钥缺失统一处理（任务书 T05）增加 check_missing_keys
+    // （启动时体检钥匙串，设置页据此显示「缺少密钥」徽标）。
+    assert_eq!(total, 104, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
