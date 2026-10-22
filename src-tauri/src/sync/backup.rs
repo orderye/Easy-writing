@@ -122,6 +122,24 @@ pub fn snapshot_with(active: &rusqlite::Connection, target: &Path) -> Result<(),
     })
 }
 
+/// 在**快照副本**上执行 `VACUUM`，回收空闲页。
+///
+/// 为什么要做：作者删掉几章之后，库里会留下大量不再使用的页，
+/// 直接压缩上传会把这些空洞一起带走 —— 备份越存越大，却不代表内容变多。
+///
+/// 三条约束：
+/// - 只作用于**副本**（由 [`snapshot_to_file`] 生成），用户真实库绝不被 VACUUM；
+/// - 失败只返回错误由调用方决定如何处理（备份流程里只记警告），
+///   因为 VACUUM 是体积优化而不是正确性前提；
+/// - 调用点必须把它放在**自检之前** —— VACUUM 万一损坏数据，
+///   自检会当场拦下，不会把坏包传上远端。
+pub fn vacuum_snapshot(path: &Path) -> Result<(), String> {
+    let conn = rusqlite::Connection::open(path)
+        .map_err(|e| format!("打开快照副本失败: {e}"))?;
+    conn.execute_batch("VACUUM")
+        .map_err(|e| format!("执行 VACUUM 失败: {e}"))
+}
+
 // ---------------------------------------------------------------------------
 // 恢复前预检
 // ---------------------------------------------------------------------------
@@ -233,27 +251,21 @@ fn count(conn: &rusqlite::Connection, table: &str) -> Result<i64, String> {
 ///    其它 `.db.gz` 不属于本应用的备份策略范围，不能被顺手删掉。
 ///
 /// `names` 应当是远端目录下全部 `.db.gz` 文件名，顺序不限。
+///
+/// 本函数是「只保留最近 N 份」这一维度的对外入口，完整策略
+/// （最近 N 份 + 每日 1 份 + 每周 1 份）见 [`crate::sync::retention`]。
+/// 这里保留它而不是删掉，是为了让「最近 N 份」这条语义有一个
+/// 独立、可单独验证的名字。
 pub fn plan_rotation(names: &[String], new_backup_verified: bool, keep: usize) -> Vec<String> {
-    if !new_backup_verified {
-        return Vec::new();
-    }
-    let mut managed: Vec<&String> = names
-        .iter()
-        .filter(|n| {
-            let base = n.strip_suffix(".json").unwrap_or(n);
-            base.starts_with("backup_") && base.ends_with(".db.gz")
-        })
-        .collect();
-
-    // 按文件名排序即按时间戳排序（备份名内嵌 UTC 时间戳）。
-    managed.sort();
-    if managed.len() <= keep {
-        return Vec::new();
-    }
-    managed[..managed.len() - keep]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
+    crate::sync::retention::plan_retention(
+        names,
+        new_backup_verified,
+        shared_types::RetentionPolicy {
+            recent: keep,
+            daily: 0,
+            weekly: 0,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +287,10 @@ pub struct BackupOutcome {
     /// 这些是「文件本来就不在」。清单会把它们记进 `missing_assets`，
     /// 恢复时必须能明确告诉作者哪些素材从一开始就没进备份。
     pub missing_assets: Vec<String>,
+    /// 本次轮转实际删除的旧备份数量。
+    pub rotated_deleted: u32,
+    /// 本次使用的远端保留策略。
+    pub retention: shared_types::RetentionPolicy,
 }
 
 /// 生成快照 → 校验 → 上传 → 落清单 → 才轮转。
@@ -342,6 +358,19 @@ pub async fn run_incremental_backup_detailed(
         uuid::Uuid::new_v4()
     ));
     snapshot_to_file(&pool, &temp_db_path)?;
+
+    // 3.5 在**备份副本**上做 VACUUM，回收空闲页。
+    //
+    // 这一步必须发生在副本上、且必须发生在自检之前：
+    // 副本是刚由 Backup API 生成的一致快照，对它做 VACUUM 不影响用户真实库；
+    // 放在自检之前，则 VACUUM 万一损坏数据会被自检当场拦下，
+    // 不会把一个坏掉的包传上远端。
+    //
+    // 失败只记警告：VACUUM 是体积优化，不是正确性前提，
+    // 为了几 MB 空间让整次备份失败是本末倒置。
+    if let Err(e) = vacuum_snapshot(&temp_db_path) {
+        eprintln!("[backup] 快照 VACUUM 失败（不影响备份可用性）: {e}");
+    }
 
     // 4. **先自检，再上传。** 这一步是旧实现完全缺失的：
     // 旧代码把快照压缩后直接上传，从不确认这份快照本身是不是可用的库。
@@ -457,7 +486,17 @@ pub async fn run_incremental_backup_detailed(
     //    verified 的含义是「这份备份我已经确认是完整可用的」。
     let verified = size_verified && preflight.is_valid;
 
-    prune_remote_backups(client, &clean_dir, verified).await?;
+    // 保留策略从设置读取。读取失败不应让备份失败 ——
+    // 策略只影响「清多少旧备份」，不影响「这次备份是否可用」。
+    let policy = match pool.get() {
+        Ok(conn) => crate::sync::retention::policy_from_settings(&conn),
+        Err(e) => {
+            eprintln!("[backup] 读取保留策略失败，改用默认策略: {e}");
+            shared_types::RetentionPolicy::default()
+        }
+    };
+
+    let rotated_deleted = prune_remote_backups(client, &clean_dir, verified, policy).await?;
 
     Ok(BackupOutcome {
         filename: backup_filename,
@@ -465,6 +504,8 @@ pub async fn run_incremental_backup_detailed(
         manifest_uploaded,
         image_upload_failures,
         missing_assets,
+        rotated_deleted: rotated_deleted as u32,
+        retention: policy,
     })
 }
 
@@ -472,16 +513,19 @@ pub async fn run_incremental_backup_detailed(
 ///
 /// 删除失败会向上冒泡（不再 `let _ =` 吞掉），让调用方知道
 /// 「远端正在无限增长」这件事必须有人处理。
-async fn prune_remote_backups(
+///
+/// 公开的原因：轮转是**唯一会删除远端数据**的动作，它必须有端到端测试
+/// 证明「按策略删的、且清单 sidecar 一起删、且删失败不影响已上传的新备份」，
+/// 而这些断言只能在真实 HTTP 往返之后成立。
+pub async fn prune_remote_backups(
     client: &WebDavClient,
     clean_dir: &str,
     new_backup_verified: bool,
+    policy: shared_types::RetentionPolicy,
 ) -> Result<usize, String> {
-    const KEEP: usize = 20;
-
     let backups = client.list_files(clean_dir).await?;
     let names: Vec<String> = backups.into_iter().map(|b| b.filename).collect();
-    let to_delete = plan_rotation(&names, new_backup_verified, KEEP);
+    let to_delete = crate::sync::retention::plan_retention(&names, new_backup_verified, policy);
     if to_delete.is_empty() {
         return Ok(0);
     }
@@ -516,6 +560,30 @@ async fn prune_remote_backups(
         ));
     }
     Ok(deleted)
+}
+
+/// 预览保留策略的执行结果（dry-run）。
+///
+/// **只读**：列出远端文件、算出「如果现在执行清理会删掉哪些」，不删除任何东西。
+///
+/// 作者在改策略之前应当先看这个结果 —— 保留策略是唯一会主动删除远端数据的
+/// 机制，让它在「先看后删」的节奏下运行，比让作者事后从目录里考古要好。
+pub async fn preview_retention(
+    client: &WebDavClient,
+    remote_dir: &str,
+    policy: shared_types::RetentionPolicy,
+) -> Result<shared_types::RetentionPreview, String> {
+    let all = client.list_all_files(remote_dir).await?;
+    let names: Vec<String> = all.into_iter().map(|f| f.filename).collect();
+    let plan = crate::sync::retention::build_plan(&names, policy);
+    Ok(shared_types::RetentionPreview {
+        policy,
+        managed_count: plan.keep.len() + plan.delete.len(),
+        keep_count: plan.keep.len(),
+        to_delete: plan.delete,
+        kept: plan.keep,
+        protected_foreign: plan.protected_foreign,
+    })
 }
 
 #[cfg(test)]

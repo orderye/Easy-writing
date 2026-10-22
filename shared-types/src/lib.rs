@@ -326,6 +326,13 @@ pub struct BackupReport {
     pub image_upload_failures: Vec<String>,
     /// 数据库有记录、但备份时本地文件已缺失的素材 `rel_path`。
     pub missing_assets: Vec<String>,
+    /// 本次轮转实际删除的旧备份数量。
+    ///
+    /// 保留这个数字是为了让作者看见「远端目录确实在被回收」——
+    /// 清理是静默的，缺了这个数字就只剩一个看不出变化的备份列表。
+    pub rotated_deleted: u32,
+    /// 本次使用的远端保留策略。
+    pub retention: RetentionPolicy,
 }
 
 impl BackupReport {
@@ -336,6 +343,55 @@ impl BackupReport {
             || !self.image_upload_failures.is_empty()
             || !self.missing_assets.is_empty()
     }
+}
+
+/// 远端备份保留策略。
+///
+/// 三个维度是**并集**关系：一份备份只要命中任意一维就会保留。
+///
+/// - `recent`：最近 N 份（按备份内嵌的 UTC 时间戳）
+/// - `daily`：最近 N 个「有备份的自然日」中，每天的最新一份
+/// - `weekly`：最近 N 个「有备份的 ISO 周」中，每周的最新一份
+///
+/// 三个维度同时为 0 是非法配置（等于「把所有备份都删掉」），
+/// 后端在读取设置时会把它回落成默认值，前端也不允许提交全 0。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetentionPolicy {
+    pub recent: usize,
+    pub daily: usize,
+    pub weekly: usize,
+}
+
+impl Default for RetentionPolicy {
+    fn default() -> Self {
+        Self {
+            recent: 20,
+            daily: 7,
+            weekly: 4,
+        }
+    }
+}
+
+/// 保留策略的 dry-run 预览结果。
+///
+/// 预览**不删除任何东西**，只回答「如果现在执行清理，会删掉哪些」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RetentionPreview {
+    /// 本次预览使用的策略。
+    pub policy: RetentionPolicy,
+    /// 受本应用保留策略管理的备份总数。
+    pub managed_count: usize,
+    /// 策略执行后保留的备份数。
+    pub keep_count: usize,
+    /// 将被删除的备份文件名。
+    pub to_delete: Vec<String>,
+    /// 将被保留的备份文件名。
+    pub kept: Vec<String>,
+    /// 远端目录中不属于本应用备份命名范围的文件数。
+    ///
+    /// 它们的数量只用于让作者知道「策略管不到这些文件」，
+    /// 本策略永远不会删除它们。
+    pub protected_foreign: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

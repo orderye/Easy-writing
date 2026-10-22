@@ -67,7 +67,12 @@ fn every_command_declares_snake_case() {
     // webdav_backup_now 的返回类型由 String 改为 BackupReport（完整性缺口不再被边界吞掉）。
     // 新命令首参为 AppHandle，与 webdav_restore_backup 同属 MockRuntime 已知限制，
     // 不进入 command_key_sweep；两者的前端调用点均已核对（webdav_tab.rs）。
-    assert_eq!(total, 99, "command count changed — re-audit the frontend call sites");
+    // 99 → 100：备份保留策略（任务书 T03）增加 webdav_preview_retention。
+    // 保留策略是本应用唯一会主动删除远端数据的机制，因此提供 dry-run 预览命令，
+    // 让作者先看「会删掉哪些」再决定。带 snake_case；首参为 State<DbPool>，
+    // 但它需要 WebDAV 凭据才能列举远端目录，在 MockRuntime 下无法进入
+    // command_key_sweep（与 webdav_list_backups 同属同类限制）。
+    assert_eq!(total, 100, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

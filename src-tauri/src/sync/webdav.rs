@@ -239,7 +239,12 @@ impl WebDavClient {
         Ok(RemoteFetch::Found(bytes.to_vec()))
     }
 
-    pub async fn list_files(&self, remote_dir: &str) -> Result<Vec<BackupFileInfo>, String> {
+    /// 列出远端目录下的**全部**文件（含清单 sidecar、meta sidecar 等）。
+    ///
+    /// 与 [`WebDavClient::list_files`] 的区别：后者只返回 `.db.gz` 备份本体，
+    /// 而跨设备保护需要看到备份旁边的 `.meta.json`（这份备份是谁写的），
+    /// 保留策略预览需要知道目录里还有多少「不属于本应用策略范围」的文件。
+    pub async fn list_all_files(&self, remote_dir: &str) -> Result<Vec<BackupFileInfo>, String> {
         let url = self.build_url(remote_dir);
         let propfind_method = Method::from_bytes(b"PROPFIND").map_err(|e| e.to_string())?;
 
@@ -271,6 +276,16 @@ impl WebDavClient {
         let xml_text = res.text().await.unwrap_or_default();
         let items = parse_webdav_multistatus(&xml_text);
         Ok(items)
+    }
+
+    /// 列出远端目录下的备份本体（`.db.gz`），按文件名倒序（最新在前）。
+    pub async fn list_files(&self, remote_dir: &str) -> Result<Vec<BackupFileInfo>, String> {
+        Ok(self
+            .list_all_files(remote_dir)
+            .await?
+            .into_iter()
+            .filter(|b| b.filename.ends_with(".db.gz"))
+            .collect())
     }
 
     pub async fn get_file_size(&self, remote_path: &str) -> Result<u64, String> {
@@ -382,7 +397,7 @@ fn parse_webdav_multistatus(xml: &str) -> Vec<BackupFileInfo> {
             .unwrap_or_default()
             .to_string();
 
-        if filename.is_empty() || !filename.ends_with(".db.gz") {
+        if filename.is_empty() {
             continue;
         }
 
