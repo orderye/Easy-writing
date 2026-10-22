@@ -1123,7 +1123,7 @@ pub async fn run_consistency_restore(
     // 9.5 恢复成功 → 本机内容与远端在「这份备份的创建时刻」是对齐的。
     //
     //     记下这个时间点，别的设备才能判断「远端比本机新」到底是
-    //     「刚被别人更新了」还是「本机自己刚写了这��」。
+    //     「刚被别人更新了」还是「本机自己刚写了这份」。
     //     用清单的 created_at（= 备份创建时间）而不是「现在」：
     //     远端可能还有更新的备份，写「现在」会假装本机已经包含了它们。
     {
@@ -1190,30 +1190,23 @@ pub async fn run_consistency_restore(
     })
 }
 
+/// 恢复后体检钥匙串：列出本机缺失的密钥。
+///
+/// 覆盖面比旧实现宽：旧实现只扫 `llm_profile.key_ref`，
+/// 换设备后同样会丢的 WebDAV 密码（`webdav_config.pwd_ref`）被漏掉了。
+/// 现在两者都扫，并带上 `scope`，让前端能分别引导到对应设置项。
 fn collect_dangling_keys(pool: &DbPool) -> Result<Vec<DanglingKeyInfo>, String> {
-    let profiles: Vec<(String, String, String)> = {
-        let conn = pool.get().map_err(|e| e.to_string())?;
-        let mut stmt = conn
-            .prepare("SELECT id, name, key_ref FROM llm_profile")
-            .map_err(|e| e.to_string())?;
-        let rows: Result<Vec<_>, _> = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-            .map_err(|e| e.to_string())?
-            .collect();
-        rows.map_err(|e| e.to_string())?
-    };
-
-    let mut dangling = Vec::new();
-    for (profile_id, profile_name, key_ref) in profiles {
-        if !key_ref.is_empty() && crate::keyring::get_secret(&key_ref).is_err() {
-            dangling.push(DanglingKeyInfo {
-                profile_id,
-                profile_name,
-                key_ref,
-            });
-        }
-    }
-    Ok(dangling)
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let missing = crate::keys::scan_missing_keys(&conn, crate::keyring::system());
+    Ok(missing
+        .into_iter()
+        .map(|m| DanglingKeyInfo {
+            profile_id: m.id,
+            profile_name: m.name,
+            key_ref: m.key_ref,
+            scope: m.scope,
+        })
+        .collect())
 }
 
 fn short_hash(hash: &str) -> String {

@@ -3,7 +3,7 @@ use crate::components::layout::app_shell::AppShell;
 use crate::state::AppContext;
 use crate::tauri_api::{invoke_cmd, invoke_no_args};
 use leptos::prelude::*;
-use shared_types::{Chapter, ChapterHeader, DeviceStateInfo, Novel, Volume};
+use shared_types::{Chapter, ChapterHeader, DeviceStateInfo, MissingKeyInfo, Novel, Volume};
 
 #[component]
 pub fn App() -> impl IntoView {
@@ -52,6 +52,15 @@ pub fn App() -> impl IntoView {
 
             if let Ok(dir) = invoke_no_args::<String>("get_app_data_dir").await {
                 crate::bridge::tiptap::set_app_data_dir(&dir);
+            }
+
+            // 钥匙串体检：换设备后本机钥匙串里往往没有那些密钥。
+            // 结果交给设置页显示「缺少密钥」徽标，而不是让作者在
+            // 「网络错误」里查错方向。
+            if let Ok(missing) =
+                invoke_no_args::<Vec<MissingKeyInfo>>("check_missing_keys").await
+            {
+                app_ctx.missing_keys.set(missing);
             }
 
             // 跨设备同步状态：本机设备身份 + 上次退出时因冲突而跳过的提示。

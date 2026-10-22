@@ -24,8 +24,7 @@ fn get_webdav_client_and_remote_dir(
         })
         .map_err(|_| "未找到 WebDAV 配置，请先在系统设置中完成配置".to_string())?;
 
-    let password = crate::keyring::get_secret(&row.pwd_ref)
-        .map_err(|_| "未在系统钥匙串中找到 WebDAV 密码凭据".to_string())?;
+    let password = crate::keys::require_webdav_password(crate::keyring::system(), &row.pwd_ref)?;
 
     let client = WebDavClient::new(&row.url, &row.username, &password);
     Ok((client, row.remote_dir))

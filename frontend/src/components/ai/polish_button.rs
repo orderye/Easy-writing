@@ -35,10 +35,16 @@ pub fn PolishButton(
                     polished_draft.set(result_text);
                 }
                 Err(err) => {
-                    polished_draft.set(format!(
-                        "修饰请求失败: {}\n请检查系统设置中的模型接口配置与 API Key。",
-                        err
-                    ));
+                    // 「缺少密钥」要引导去补密钥，而不是让作者去查网络。
+                    polished_draft.set(
+                        match crate::keymsg::explain_key_missing(&err) {
+                            Some(msg) => msg,
+                            None => format!(
+                                "修饰请求失败: {}\n请检查系统设置中的模型接口配置与 API Key。",
+                                err
+                            ),
+                        },
+                    );
                 }
             }
             is_loading.set(false);

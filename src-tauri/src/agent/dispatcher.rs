@@ -32,15 +32,10 @@ pub fn resolve_agent_and_profile(
         }
     };
 
-    let api_key = if !profile.key_ref.is_empty() {
-        crate::keyring::get_secret(&profile.key_ref).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    if api_key.trim().is_empty() {
-        return Err("当前绑定的模型接口未检测到有效的 API Key 密钥，已在调用前拦截。请在系统设置中重新配置。".to_string());
-    }
+    // 密钥缺失必须返回机器可判定的 `KEY_MISSING` 错误：
+    // 「这台机器上没有那条密钥」与「网络失败」是两回事，
+    // 作者查错方向会浪费掉整个下午。
+    let api_key = crate::keys::require_llm_key(crate::keyring::system(), &profile.key_ref)?;
 
     Ok((agent, profile, api_key))
 }

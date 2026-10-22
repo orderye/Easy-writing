@@ -5,6 +5,7 @@ pub mod commands;
 pub mod db;
 pub mod import;
 pub mod keyring;
+pub mod keys;
 pub mod sync;
 
 use tauri::Manager;
@@ -119,6 +120,7 @@ pub fn run() {
             commands::config_cmd::delete_llm_profile,
             commands::config_cmd::test_llm_connection,
             commands::config_cmd::fetch_remote_models,
+            commands::config_cmd::check_missing_keys,
             commands::config_cmd::list_agents,
             commands::config_cmd::update_agent,
             // App settings
