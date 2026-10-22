@@ -58,10 +58,3 @@ where
     LISTENERS.with(|listeners| listeners.borrow_mut().push(closure));
     tauri_event_listen_raw(event_name, &function);
 }
-
-/// 订阅一个 Tauri 事件。
-///
-/// 回调收到的是事件载荷（后端 `emit` 时传的对象）。
-pub fn listen(event_name: &str, callback: &js_sys::Function) {
-    tauri_event_listen_raw(event_name, callback);
-}
