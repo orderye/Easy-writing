@@ -258,12 +258,13 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 
 ---
 
-## 五、数据库 Schema（当前 V001–V003 基线）
+## 五、数据库 Schema（当前 V001–V004 基线）
 
-> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V003 全部阶梯迁移的结果。
+> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V004 全部阶梯迁移的结果。
 > - `V001__init.sql`：18 张基础表（`llm_profile` / `novel` / `volume` / `chapter` / `chapter_revision` / `asset` / `worldview_entry` / `character` / `plot_item` / `agent` / `chat_session` / `chat_message` / `extraction_candidate` / `setting_change` / `prompt_template` / `webdav_config` / `app_setting` / `character_relation`）。
 > - `V002__legacy_safe_migrations.sql`：新增 `novel_lexicon`（专有词库）；为 `setting_change` 增 `target_title` / `is_reverted`，为 `chat_session` 增 `title`，为 `asset` 增 `deleted_at`，为 `extraction_candidate` 增 `title`。
 > - `V003__indices_and_cleanup.sql`：性能索引 `idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 等。
+> - `V004__entry_pinned.sql`：**仅加列** —— `worldview_entry` / `character` / `plot_item` 各增 `pinned INTEGER NOT NULL DEFAULT 0`（「恒入上下文」标记）。
 >
 > ⚠️ 本节与 `src-tauri/migrations/` 的**一致性由 CI 强制**：`scripts/check-docs-schema.mjs` 双向比对本节表清单与迁移实际建表，缺一即失败。改表结构必须同步改这里，也必须同步改迁移文件。
 > 完整建表脚本请参阅 `src-tauri/migrations/`。
@@ -360,6 +361,7 @@ CREATE TABLE worldview_entry (
     sort_order          INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    pinned              INTEGER NOT NULL DEFAULT 0,   -- V004：恒入上下文
     deleted_at          TEXT
 );
 CREATE INDEX idx_worldview_novel ON worldview_entry(novel_id, sort_order);
@@ -377,6 +379,7 @@ CREATE TABLE character (
     sort_order          INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    pinned              INTEGER NOT NULL DEFAULT 0,   -- V004：恒入上下文
     deleted_at          TEXT
 );
 CREATE INDEX idx_character_novel ON character(novel_id, sort_order);
@@ -397,6 +400,7 @@ CREATE TABLE plot_item (
     sort_order          INTEGER NOT NULL DEFAULT 0,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    pinned              INTEGER NOT NULL DEFAULT 0,   -- V004：恒入上下文
     deleted_at          TEXT
 );
 CREATE INDEX idx_plot_novel ON plot_item(novel_id, sort_order);

@@ -122,6 +122,8 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::ai_cmd::append_chat_message,
             easy_writing_lib::commands::ai_cmd::clear_chat_session,
             easy_writing_lib::commands::ai_cmd::delete_chat_session,
+            easy_writing_lib::commands::ai_cmd::get_context_manifest,
+            easy_writing_lib::commands::ai_cmd::set_entry_pinned,
             easy_writing_lib::commands::export_cmd::cancel_export,
         ])
         .build(mock_context(noop_assets()))
@@ -181,7 +183,7 @@ fn all_command_keys_resolve() {
         ("trigger_chapter_extract", r#"{"novel_id": "@@NOVEL@@", "chapter_id": "v"}"#),
         ("list_extraction_candidates", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("resolve_candidate", r#"{"candidate_id": "v", "action": "ignore"}"#),
-        ("create_llm_profile", r#"{"name": "v", "protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "model": "v", "api_key": "sk-test", "is_default": true}"#),
+        ("create_llm_profile", r#"{"name": "v", "protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "model": "v", "api_key": "sk-test", "is_default": true, "context_window": null}"#),
         ("list_llm_profiles", r#"{}"#),
         ("delete_llm_profile", r#"{"id": "@@CHAPTER@@"}"#),
         ("test_llm_connection", r#"{"profile_id": "v"}"#),
@@ -213,7 +215,7 @@ fn all_command_keys_resolve() {
         ("sync_lexicon_from_novel", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("import_lexicon_terms", r#"{"novel_id": "@@NOVEL@@", "terms": ["术语甲"], "category": "custom"}"#),
         // 生成参数：只校验参数键可解析，不关心网络结果
-        ("update_llm_profile", r#"{"id": "@@PROFILE@@", "name": "v", "protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "model": "v", "is_default": true, "temperature": 0.7, "max_tokens": 2048, "stream": false}"#),
+        ("update_llm_profile", r#"{"id": "@@PROFILE@@", "name": "v", "protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "model": "v", "is_default": true, "temperature": 0.7, "max_tokens": 2048, "stream": false, "context_window": null}"#),
         // 指向必失败的地址：只要不是「参数缺失」被拒即算通过
         ("fetch_remote_models", r#"{"protocol": "openai", "base_url": "http://127.0.0.1:1/v1", "api_key": "sk-test", "profile_id": null}"#),
         // 对话记录（PRD §4.1 P1）
@@ -223,6 +225,9 @@ fn all_command_keys_resolve() {
         ("append_chat_message", r#"{"session_id": "@@SESSION@@", "role": "user", "content": "v"}"#),
         ("clear_chat_session", r#"{"session_id": "@@SESSION@@"}"#),
         ("delete_chat_session", r#"{"session_id": "@@SESSION@@"}"#),
+        // 上下文装配透明度（任务书 T06）
+        ("get_context_manifest", r#"{"novel_id": "@@NOVEL@@", "chapter_id": "@@CHAPTER@@", "prompt": null}"#),
+        ("set_entry_pinned", r#"{"entity_type": "worldview", "entry_id": "v", "pinned": true}"#),
         // 导出（任务书 T02）：只校验参数键可解析，不真的导出。
         ("cancel_export", r#"{}"#),
     ];

@@ -1,4 +1,5 @@
 use crate::bridge::tiptap;
+use crate::components::ai::context_panel::ContextPanel;
 use crate::state::AppContext;
 use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
@@ -29,6 +30,9 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
     // 当前对话会话（随作品 + 章节保存，PRD §4.1 P1）
     let session = RwSignal::new(Option::<ChatSession>::None);
     let history_loaded = RwSignal::new(false);
+    // 本次上下文透明面板（T06）：取消勾选的条目为请求级，发送成功后清空
+    let excluded_entries = RwSignal::new(Vec::<String>::new());
+    let manifest_refresh = RwSignal::new(0u64);
 
     // 章节切换 / 作品切换时，重新载入该章节的对话记录
     Effect::new(move |_| {
@@ -143,11 +147,13 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
 
             leptos::task::spawn_local(async move {
                 // ai_chat_stream 会在后端把用户消息与助手回复一并落库（PRD §4.1 P1）
+                // excluded_entry_ids（T06）：本次要排除的条目，随请求发送
                 let res = invoke_cmd("ai_chat_stream")
                     .arg("novel_id", novel_id)
                     .opt("chapter_id", chapter_id)
                     .arg("prompt", text)
                     .arg("event_name", "chat-reply".to_string())
+                    .opt("excluded_entry_ids", Some(excluded_entries.get()))
                     .send::<String>()
                     .await;
 
@@ -171,6 +177,9 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                 }
                 messages.set(current_msgs);
                 is_generating.set(false);
+                // 请求级排除清单：发送完成即清空，并刷新上下文清单（T06）
+                excluded_entries.set(Vec::new());
+                manifest_refresh.set(manifest_refresh.get() + 1);
             });
         }
     };
@@ -260,6 +269,8 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                 if is_open.get() {
                     view! {
                         <div class="h-64 flex flex-col bg-slate-50/50">
+                            // 本次上下文透明面板（T06）
+                            <ContextPanel app_ctx=app_ctx excluded=excluded_entries refresh_tick=manifest_refresh />
                             <div class="flex-1 overflow-y-auto p-4 space-y-3">
                                 <For
                                     each=move || messages.get()

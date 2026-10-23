@@ -143,6 +143,7 @@ fn generation_params_roundtrip_and_empty_defaults() {
         temperature: Some(0.7),
         max_tokens: Some(2048),
         stream: Some(false),
+        context_window: None,
     };
     assert!(!p.is_empty());
 

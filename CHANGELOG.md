@@ -7,6 +7,32 @@
 
 ## [Unreleased]
 
+### 上下文装配透明度：预算可视与 pinned（PR-08 / 任务书 T06）
+
+> AI 对话前，应用把哪些材料喂给模型？超预算时又裁掉了什么？
+> 此前装配在暗处进行，作者只能看到最终回答。
+> 本轮把装配过程变成一份**看得见的清单**，并让重要设定可以被「钉住」。
+
+- **装配清单命令 `get_context_manifest`**：逐条报告入选材料的
+  类型（作品 / 章节 / 角色 / 伏笔 / 词库 / 世界观）、标题、
+  入选原因（core / recent_summary / pinned / presence / alias /
+  active_plot / lexicon / worldview / listed）、估算 token 与
+  是否入选；超预算被裁掉的条目单独列在 `trimmed` 里。
+- **预算来自接口配置**：`llm_profile.params` 新增 `context_window`
+  （token 数，缺省 8000），字符预算按 1.5 字符/token 换算；
+  接口配置弹层可直接填写。`ai_chat_stream` 与清单命令用同一条
+  解析链，口径一致。
+- **pinned 强制加入**：迁移 V004 为 `worldview_entry` / `character` /
+  `plot_item` 三表加 `pinned` 列；新命令 `set_entry_pinned` 切换，
+  前端「本次上下文」面板逐条可勾选。pinned 条目排在段内最前、
+  免于预算裁剪。
+- **前端「本次上下文」面板**：挂在 AI 对话侧栏，清单实时渲染，
+  勾选即 pin / 取消 pin。
+- **可测**：命令级集成测试 6 例（预算解析链、reason 全集、
+  pinned 持久化与切换、紧缩预算裁剪、无配置报错、无章节降级）；
+  装配器单元测试覆盖优先级 / 命中 / 裁剪；前端契约测试 7 条。
+
+
 ### 作品导出：txt / docx / epub（PR-07 / 任务书 T02）
 
 > 作者要拿作品去投稿或发布，此前应用只能把内容留在库里。
