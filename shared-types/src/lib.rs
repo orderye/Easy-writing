@@ -307,6 +307,54 @@ pub struct AffectedChapter {
     pub snippet: String,
 }
 
+/// 全书搜索的一条命中（T09）。
+///
+/// 与 `AffectedChapter` 的区别：后者是「改某条设定后哪些章节受影响」的影响面扫描
+/// （限定作品、按命中数排序）；这里是面向作者的通用全文搜索，带卷归属与多片段。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChapterSearchHit {
+    pub chapter_id: String,
+    pub volume_id: String,
+    pub title: String,
+    /// 标题 + 正文的命中总次数。
+    pub hits: i64,
+    /// 最多 3 条命中片段，供结果列表预览。
+    pub snippets: Vec<String>,
+    /// 该章是否有正文（空章只可能命中标题，前端据此提示）。
+    pub has_body: bool,
+}
+
+/// 批量替换的逐章预览（T09）：不写库，只报告「会改哪章、改几处」。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplacePreviewItem {
+    pub chapter_id: String,
+    pub title: String,
+    pub hits: i64,
+    pub snippets: Vec<String>,
+    /// 正文不是合法 Tiptap doc（无法在文本节点上安全替换），前端应置灰该章。
+    pub unsupported: bool,
+}
+
+/// 批量替换的执行结果（T09）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplaceReport {
+    /// 本批次标识：整批撤销的钥匙，同时写入每章快照的 `batch_id`。
+    pub batch_id: String,
+    pub chapters_changed: u32,
+    pub total_replacements: u32,
+    /// 正文格式不受支持、被跳过的章节标题。
+    pub skipped_chapters: Vec<String>,
+}
+
+/// 整批撤销的结果（T09）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UndoReplaceReport {
+    pub batch_id: String,
+    pub chapters_restored: u32,
+    /// 快照缺失或还原失败的章节 id —— 如实上报，不假装成功。
+    pub missing_chapters: Vec<String>,
+}
+
 /// 冲突检测的三种结果。
 ///
 /// 存在的理由：以前只有 Option<ConflictInfo>，"没检测出来"和"没检测成功"

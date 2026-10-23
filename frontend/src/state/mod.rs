@@ -98,6 +98,10 @@ pub struct AppContext {
     pub export_summary: RwSignal<Option<ExportSummary>>,
     /// 导出过程中的错误文案。
     pub export_error: RwSignal<Option<String>>,
+
+    // 全书搜索与替换（任务书 T09）
+    /// 搜索/替换弹层是否打开（Cmd/Ctrl+F 切换）。
+    pub is_search_open: RwSignal<bool>,
 }
 
 impl AppContext {
@@ -159,6 +163,7 @@ impl AppContext {
             export_progress: RwSignal::new(None),
             export_summary: RwSignal::new(None),
             export_error: RwSignal::new(None),
+            is_search_open: RwSignal::new(false),
         }
     }
 }

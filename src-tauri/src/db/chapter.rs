@@ -196,6 +196,15 @@ fn snippet_around(text: &str, term: &str, radius: usize) -> String {
     let Some(byte_pos) = text.find(term) else {
         return String::new();
     };
+    snippet_around_at(text, byte_pos, term, radius)
+}
+
+/// 截取**指定字节位置**命中处的上下文。
+///
+/// 全书搜索要在同一章里返回多处片段，不能只取第一次命中，
+/// 因此把「按位置切片」单独提出来供 `db::search` 复用 ——
+/// 两处各写一份的话，中文边界处理迟早会分叉。
+pub fn snippet_around_at(text: &str, byte_pos: usize, term: &str, radius: usize) -> String {
     let start_chars = text[..byte_pos].chars().count();
     let chars: Vec<char> = text.chars().collect();
     let from = start_chars.saturating_sub(radius);

@@ -257,6 +257,24 @@ fn perf_fulltext_search_baseline() {
     Bench::new("全书搜索（零命中）", ds.clone()).measure(|| {
         db::chapter::find_chapters_mentioning(&conn, &nid, "龘").unwrap()
     });
+
+    // ---- T09 起：面向作者的通用全文搜索（FTS5 trigram）----------------------
+    //
+    // 与上面的影响面扫描并列保留：后者仍是活代码（改设定后扫受影响章节），
+    // 两者的成本模型完全不同，混成一行会掩盖退化。
+    //
+    // 3 字词走 trigram 索引；1 字词走 LIKE 回退 —— 两条路径都要有基线。
+    for term in ["一二三", "四五六", "七八九"] {
+        Bench::new(&format!("FTS 全文搜索「{term}」（索引路径）"), ds.clone()).measure(|| {
+            db::search::search_chapters(&conn, &nid, term, 50).unwrap()
+        });
+    }
+    Bench::new("FTS 全文搜索 1 字（LIKE 回退）", ds.clone()).measure(|| {
+        db::search::search_chapters(&conn, &nid, "人", 50).unwrap()
+    });
+    Bench::new("FTS 全文搜索（零命中）", ds.clone()).measure(|| {
+        db::search::search_chapters(&conn, &nid, "龘龘龘", 50).unwrap()
+    });
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ use crate::components::export::export_modal::ExportModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::novel::import_modal::ImportModal;
 use crate::components::novel::novel_manager::NovelManagerModal;
+use crate::components::search::search_modal::SearchModal;
 use crate::components::settings_panel::setting_changes_modal::SettingChangesModal;
 use crate::components::settings_panel::trash_modal::TrashModal;
 use crate::components::settings_panel::SettingsPanel;
@@ -25,7 +26,10 @@ use wasm_bindgen::JsCast;
 
 #[component]
 pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
-    // Register global keyboard shortcut (Cmd+S / Ctrl+S)
+    // Register global keyboard shortcut (Cmd+S / Ctrl+S / Cmd+F / Ctrl+F / Esc)
+    //
+    // 一个监听器处理全部全局快捷键：多个监听器各自 prevent_default 时，
+    // 谁先谁后取决于注册顺序，容易互相抵消。集中在一处，优先级一目了然。
     Effect::new(move |_| {
         let ctx = app_ctx;
         let window = web_sys::window().expect("global window does not exist");
@@ -35,6 +39,18 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             if (event.meta_key() || event.ctrl_key()) && event.key() == "s" {
                 event.prevent_default();
                 perform_save(ctx);
+                return;
+            }
+            // 全书搜索（任务书 T09）。Ctrl/Cmd+F 与浏览器/WebView 自带的
+            // 页内查找冲突，必须 prevent_default，否则会弹出 WebView 的查找框。
+            if (event.meta_key() || event.ctrl_key()) && event.key().eq_ignore_ascii_case("f") {
+                event.prevent_default();
+                ctx.is_search_open.set(true);
+                return;
+            }
+            if event.key() == "Escape" && ctx.is_search_open.get_untracked() {
+                event.prevent_default();
+                ctx.is_search_open.set(false);
             }
         }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
 
@@ -242,6 +258,8 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <ImportModal is_open=app_ctx.is_import_modal_open app_ctx=app_ctx />
 
             <ExportModal app_ctx=app_ctx />
+
+            <SearchModal app_ctx=app_ctx />
 
             <ExtractionModal
                 app_ctx=app_ctx

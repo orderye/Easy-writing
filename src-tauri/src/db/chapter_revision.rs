@@ -44,12 +44,42 @@ pub fn create_revision(
     revision_type: &str,
     note: &str,
 ) -> Result<ChapterRevision> {
+    create_revision_with_batch(
+        conn,
+        chapter_id,
+        novel_id,
+        title,
+        content,
+        content_plain,
+        word_count,
+        revision_type,
+        note,
+        None,
+    )
+}
+
+/// 带批次标识的快照。
+///
+/// `batch_id` 由批量替换（T09）写入：同一轮替换为每章写的快照共享一个 id，
+/// 「整批撤销」靠它一次找回全部。普通快照传 `None`。
+pub fn create_revision_with_batch(
+    conn: &Connection,
+    chapter_id: &str,
+    novel_id: &str,
+    title: &str,
+    content: &str,
+    content_plain: &str,
+    word_count: i32,
+    revision_type: &str,
+    note: &str,
+    batch_id: Option<&str>,
+) -> Result<ChapterRevision> {
     let id = Uuid::new_v4().to_string();
 
     conn.execute(
-        "INSERT INTO chapter_revision (id, chapter_id, novel_id, title, content, content_plain, word_count, revision_type, note, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
-        params![id, chapter_id, novel_id, title, content, content_plain, word_count, revision_type, note],
+        "INSERT INTO chapter_revision (id, chapter_id, novel_id, title, content, content_plain, word_count, revision_type, note, batch_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))",
+        params![id, chapter_id, novel_id, title, content, content_plain, word_count, revision_type, note, batch_id],
     )?;
 
     get_revision(conn, &id).and_then(|opt| {

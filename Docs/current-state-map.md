@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 **V004**：仅加列（`worldview_entry` / `character` / `plot_item` 各增 `pinned INTEGER NOT NULL DEFAULT 0`）
 **运行时**（+1）：`schema_version`（`version INTEGER PRIMARY KEY, applied_at TEXT`）
 
-**全仓库无 FTS 虚拟表、无触发器**（`grep 'CREATE VIRTUAL TABLE|CREATE TRIGGER'` 零命中）——这是 T09 的干净起点。
+**全文索引已落地（V005）**：FTS5 trigram 虚拟表 `chapter_fts` + 三条同步触发器（`chapter` 的 INSERT/UPDATE/DELETE），存量一次性回填。这是全仓库唯一的虚拟表与触发器集合，见 `src-tauri/migrations/V005__chapter_fts.sql`。
 
 ---
 
@@ -254,21 +254,21 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：中。**依赖**：需要 T06 的 `pinned`（检查范围「仅硬性设定/全部」）。
 
-#### T09 全书搜索与替换 —— **部分符合**
+#### T09 全书搜索与替换 —— **已落地（PR-09，迁移 V005）**
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
-| 先确认 rusqlite 特性支持 trigram（≥3.34） | **已确认支持**：bundled SQLite **3.46.0**，`-DSQLITE_ENABLE_FTS5` 已启用，trigram 分词器已注册（`sqlite3.c:255381`）。**无需新增依赖或改 Cargo 特性** | **已符合** |
-| 新增迁移创建 FTS5 虚拟表（trigram），覆盖章节标题与 `content_plain`，触发器同步并回填存量 | **不存在**（全仓库无虚拟表、无触发器、无 `MATCH`） | **缺（全新）** |
-| 查询不足 3 字符时回退 LIKE | — | **缺** |
-| 命令 `search_chapters` 返回命中片段与章节定位 | **无该命令**。但已有 `db/chapter.rs:138 find_chapters_mentioning`（LIKE 粗筛 + Rust 侧计次 + `snippet_around` 截取片段），对外命令名 `find_affected_chapters`。**定位**：它是「改动某条设定后哪些章节受影响」的影响面工具（限定 `novel_id`、按命中次数排序），**不是面向作者的通用全文搜索** | **部分**（可复用其片段逻辑） |
-| 替换在 Tiptap JSON 的文本节点上进行，不破坏样式标记与图片节点 | **无** | **缺** |
-| 执行前为受影响章节自动创建版本快照，支持整批撤销 | `db/chapter_revision.rs` 有 `create_revision` / `revision_type='manual'` 可用；但**无批次 id**，无法「整批撤销」 | **部分** |
+| 先确认 rusqlite 特性支持 trigram（≥3.34） | bundled SQLite **3.46.0**，`-DSQLITE_ENABLE_FTS5` 已启用，trigram 分词器可用。**未新增依赖、未改 Cargo 特性** | **已符合** |
+| 新增迁移创建 FTS5 虚拟表（trigram），覆盖章节标题与 `content_plain`，触发器同步并回填存量 | `V005__chapter_fts.sql`：`chapter_fts`（`chapter_id`/`novel_id` UNINDEXED + `title` + `content_plain`，`tokenize='trigram'`）+ 三条触发器（`chapter_fts_ai`/`au`/`ad`，软删出索引）+ 存量回填 | **已符合** |
+| 查询不足 3 字符时回退 LIKE | `db/search.rs` 的 `MIN_FTS_CHARS = 3`：≥3 字符走 `MATCH`（按 `rank`），<3 字符走 `content_plain LIKE`，两条路径返回同构结果；面板对作者明示该限制 | **已符合** |
+| 命令 `search_chapters` 返回命中片段与章节定位 | 新命令 `search_chapters(novel_id, query, limit?)` → `ChapterSearchHit{chapter_id, volume_id, title, hits, snippets, has_body}`，最多 3 条片段；MATCH 串按短语转义，`AND`/`"`/`*` 不炸 | **已符合** |
+| 替换在 Tiptap JSON 的文本节点上进行，不破坏样式标记与图片节点 | `replace.rs` 在**拼接后的文本流**上匹配再映射回节点区间：跨节点命中也能命中；只改 `{"type":"text"}` 的 `text`；marks 与 image 节点原样保留；删空的 text 节点整条移除 | **已符合** |
+| 执行前为受影响章节自动创建版本快照，支持整批撤销 | `apply_replace` 在**同一事务**内逐章「先写 `manual` 快照（含 `batch_id`）→ 再改写」，任一章失败整体回滚；`undo_replace_batch` 按 `batch_id` 整批还原，撤销后与替换前逐字一致 | **已符合** |
+| 百万字样例搜索响应可接受 | `perf_benchmark.rs::perf_fulltext_search_baseline` 覆盖 600 章合成作品；索引体积与耗时见 PR 描述实测 | **已符合（基准已接 FTS）** |
 
-> ⚠️ **附带发现（README 过度承诺）**：`README.md:66` 在「专业富文本编辑与版本时间轴」下宣称「**全文搜索替换**：支持全局快速定位与批量替换（⌘F / Ctrl+F）」—— **该功能在代码中不存在**。现有前端只有**章节标题**过滤（`structure_panel/mod.rs:84-92`）与设定条目/词库过滤，**没有全文搜索，也没有替换**。
-> 现状是 README 把待建功能写成了已交付。这条**必须随 T09 一并修正**（或先行单独修正，见 §四 后续建议）。
+**验收**：`src-tauri/tests/chapter_search.rs`（8 例：FTS 命中、两字回退 LIKE、FTS 语法字符、软删与索引同步、正文更新后索引跟随、作品隔离、limit 语义、空查询）；`replace_engine.rs`（11 例：marks/图片保留、**跨节点命中**、空 text 节点移除、字数与 `content_plain` 口径、大小写、全量替换、非法 JSON 拒绝）；`apply_replace.rs`（5 例：批次快照共享 `batch_id`、逐字还原、批次隔离、`manual` 类型不被自动清理、无命中不留快照）；`tests/frontend/search_modal.test.js`（9 条前端契约）。
 
-**工作量**：大。**设计提示**：替换建议放在 **JS bridge**（`js/src/tiptap-bridge.js`）用 ProseMirror 事务执行 —— ProseMirror 文本模型天然跨节点匹配且保留 marks，天然满足「不破坏样式与图片」；Rust 侧负责命中定位、落库、快照与批次撤销。
+**README 承诺已修正**：`README.md:66` 由「尚未交付」改为真实描述（含 3 字符限制）。
 
 #### T10 伏笔看板 —— **部分符合**
 
@@ -370,7 +370,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | T17 | 「当前分别写 ~18MB 与 ~15MB」 | 真实 ~7.4MB / ~7.1MB / ~5.8MB | 两处都要改成实测值，**不是只统一** |
 | T05 | 「有测试（可对 keyring 做 trait 抽象后 mock）」 | `keyring.rs` 只有自由函数、无 trait | 需**先做 trait 抽象**才有测试 |
 | §2 T01 | 「新增『当前 Schema』章节」 | §五 标题为「初始 V001 DDL 基线」 | 改为「当前 Schema（V001–V00N）」 |
-| 全文 | （任务书未提） | **`README.md:66` 宣称「全文搜索替换：支持全局快速定位与批量替换（⌘F / Ctrl+F）」，但该功能在代码中不存在** | 随 T09 修正；若 T09 延后，须**先单独删掉这行承诺**，不能让 README 继续宣称未交付的能力 |
+| 全文 | （任务书未提） | `README.md:66` 原宣称「全文搜索替换」但功能不存在，**已随 PR-09 落地并改写为真实描述** | 已闭环 |
 
 ---
 
@@ -381,8 +381,8 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | **已符合，仅需补测试/结论** | T12 | 补越界路径与 CSP 回归测试 |
 | **部分符合，缺口明确且有限** | T07、T08、T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
-| **部分符合 → 已落地** | T02、T06 | PR-07（导出，零迁移，2026-10-22）/ PR-08（迁移 V004：pinned，2026-10-23） |
-| **部分符合，缺口较大** | T09、T10 | 需新增 FTS5 与整链替换；需新增看板与回收章节存储 |
+| **部分符合 → 已落地** | T02、T06、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（迁移 V004：pinned，2026-10-23）/ PR-09（迁移 V005：FTS5，2026-10-23） |
+| **部分符合，缺口较大** | T10 | 需新增看板与回收章节存储 |
 | **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
 | **文档同步** | T01 | 护栏脚本 + §五 刷新 |
 
@@ -397,7 +397,7 @@ PR-05 T04 设备标识与跨设备保护        ← 已完成（2026-10-22，零
 PR-06 T05 密钥缺失统一处理          ← 已完成（2026-10-22，零迁移）
 PR-07 T02 导出 txt/docx/epub        ← 已完成（2026-10-22，零迁移）
 PR-08 T06 上下文装配透明度        ← 已完成（2026-10-23，迁移 V004）
-PR-09 T09 全书搜索与替换
+PR-09 T09 全书搜索与替换        ← 已完成（2026-10-23，迁移 V005）
 PR-10 T07 提炼成本与去重
 PR-11 T08 冲突检测结构化          ← 依赖 T06 的 pinned
 PR-12 T10 伏笔看板                ← 复用 T06 匹配逻辑
@@ -415,7 +415,7 @@ PR-19 T18 README 截图位
 | 迁移 | PR | 内容 |
 |---|---|---|
 | V004 | PR-08 | `worldview_entry` / `character` / `plot_item` 增 `pinned` —— **已落地** |
-| V005 | PR-09 | `chapter_fts` FTS5(trigram) 虚拟表 + 触发器 + 回填 |
+| V005 | PR-09 | `chapter_fts` FTS5(trigram) 虚拟表 + 触发器 + 回填；`chapter_revision` 增 `batch_id` —— **已落地** |
 | V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` |
 | V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 |
 | V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` |
@@ -425,8 +425,7 @@ PR-19 T18 README 截图位
 原计划的 `docx`（docx-rs）与 `epub-builder` 经评估后**不引入**，DOCX 与 EPUB 改用仓库已有的
 `zip` 9 自拼（理由见 §二 T02 落地说明）。**T09 不需要任何新依赖。**
 
-> 🚨 **建议插队的一项**：`README.md:66` 宣称「全文搜索替换」，而该功能不存在（见 §2 T09）。T09 排在 PR-09，若按序推进，在此之前 README 会持续对外宣称一个不存在的功能。
-> **建议在 PR-02 之前或并入 PR-02，先把这行承诺删掉或改为「计划中」**，再在 PR-09 落地真功能。
+> ✅ **已闭环**：`README.md:66` 的「全文搜索替换」承诺曾先于实现存在；PR-09 落地后已改写为真实描述（含 3 字符回退限制）。
 
 ---
 
@@ -460,7 +459,7 @@ PR-19 T18 README 截图位
 
 - `Docs/Easy-writing · 实施计划.md` 中「导入 MVP 不含…」等过时描述的逐条位置，PR-02 落笔时核对。
 - `plot_item.kind` 的三个 CHECK 值（`mainline`/`conflict`/`foreshadow`）与 T10「伏笔」口径的映射关系，PR-12 落笔时确认。
-- `chapter_revision` 是否需要新增「批次 id」列以支撑 T09 的整批撤销，PR-09 落笔时在 V005 或 V004 中一并决定。
+- ~~`chapter_revision` 是否需要新增「批次 id」列以支撑 T09 的整批撤销~~ —— **需要，已在 V005 落定**（`batch_id TEXT` + `idx_revision_batch`）。
 - `restore.rs` 预检已读出 `schema_version` 但未见「高于当前应用即拒绝」的比较，PR-05 落笔时补齐并补测试。
 
 <!-- kimi-badge -->
