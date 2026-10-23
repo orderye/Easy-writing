@@ -187,10 +187,12 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
     let on_insert_to_editor = move |content: String| {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
+            let chapter_id = app_ctx.current_chapter.get().map(|c| c.id);
             let text_to_insert = content.clone();
             leptos::task::spawn_local(async move {
                 let conflict_check = invoke_cmd("ai_check_conflict")
                     .arg("novel_id", novel_id)
+                    .arg("chapter_id", chapter_id)
                     .arg("text", text_to_insert.clone())
                     .send::<ConsistencyOutcome>()
                     .await;
@@ -209,6 +211,24 @@ pub fn ChatBox(app_ctx: AppContext) -> impl IntoView {
                         app_ctx.is_conflict_modal_open.set(true);
                     }
                     Ok(ConsistencyOutcome::Clean) => {
+                        insert_into_editor();
+                    }
+                    Ok(ConsistencyOutcome::Suppressed { info, threshold }) => {
+                        // 判定为冲突，但模型自评置信度低于作者设定的阈值：
+                        // 按设计不弹窗、不打断写作，只在控制台留一条可追溯的记录。
+                        web_sys::console::info_2(
+                            &format!(
+                                "[冲突检测·低于阈值已抑制] 置信度 {:?} < {:.2}",
+                                info.confidence, threshold
+                            )
+                            .into(),
+                            &info.conflict_point.clone().into(),
+                        );
+                        insert_into_editor();
+                    }
+                    Ok(ConsistencyOutcome::Disabled) => {
+                        // 作者主动关闭了前置检查：这是配置选择，不是异常，
+                        // 既不该提示，也不该当成「检查通过」留痕。
                         insert_into_editor();
                     }
                     Ok(ConsistencyOutcome::NotChecked { reason }) => {

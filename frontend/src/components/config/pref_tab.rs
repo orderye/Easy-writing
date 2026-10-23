@@ -18,6 +18,10 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
     // 提炼成本与去重（T07）：parallel_4（默认）/ single_call；超长章节分块阈值
     let extraction_mode = RwSignal::new("parallel_4".to_string());
     let chunk_threshold = RwSignal::new("12000".to_string());
+    // 冲突检测（T08）：前置检查开关、检查范围、置信度阈值
+    let conflict_check_enabled = RwSignal::new(true);
+    let conflict_scope = RwSignal::new("all".to_string());
+    let conflict_threshold = RwSignal::new("0.6".to_string());
     let pref_status = RwSignal::new(String::new());
 
     // 组件挂载时加载该标签页自己的偏好；原先由父组件 load_data 统一读取
@@ -45,6 +49,15 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
             if let Ok(Some(val)) = read_setting("extraction_chunk_threshold").await {
                 chunk_threshold.set(val);
             }
+            if let Ok(Some(val)) = read_setting("conflict_check_enabled").await {
+                conflict_check_enabled.set(val == "true" || val == "1");
+            }
+            if let Ok(Some(val)) = read_setting("conflict_check_scope").await {
+                conflict_scope.set(val);
+            }
+            if let Ok(Some(val)) = read_setting("conflict_confidence_threshold").await {
+                conflict_threshold.set(val);
+            }
         });
     });
 
@@ -58,6 +71,9 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
         let current_auto_extract = auto_extract.get();
         let current_mode = extraction_mode.get();
         let current_threshold = chunk_threshold.get();
+        let current_conflict_enabled = conflict_check_enabled.get();
+        let current_conflict_scope = conflict_scope.get();
+        let current_conflict_threshold = conflict_threshold.get();
 
         leptos::task::spawn_local(async move {
             let _ = write_setting("theme", current_theme.clone()).await;
@@ -75,6 +91,27 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
             .await;
             let _ = write_setting("extraction_mode", current_mode).await;
             let _ = write_setting("extraction_chunk_threshold", current_threshold).await;
+            // 阈值在保存时夹到 [0,1]：写进 1.5 会让所有提示都被抑制，
+            // 而作者以为自己只是「稍微严格一点」。
+            let threshold_value = current_conflict_threshold
+                .parse::<f32>()
+                .unwrap_or(0.6)
+                .clamp(0.0, 1.0);
+            let _ = write_setting(
+                "conflict_check_enabled",
+                if current_conflict_enabled {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                },
+            )
+            .await;
+            let _ = write_setting("conflict_check_scope", current_conflict_scope).await;
+            let _ = write_setting(
+                "conflict_confidence_threshold",
+                format!("{:.2}", threshold_value),
+            )
+            .await;
 
             // Apply live
             app_ctx.theme.set(current_theme.clone());
@@ -190,6 +227,53 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
                     prop:checked=move || auto_extract.get()
                     on:change=move |ev| auto_extract.set(event_target_checked(&ev))
                 />
+            </div>
+            <div class="space-y-2 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <label class="font-semibold block text-slate-800 dark:text-slate-200">"插入正文前检查设定冲突"</label>
+                        <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                            "开启后，AI 生成的文字写入正文前会先对照设定检查；关闭后不再发起这类请求，文字直接插入。"</span>
+                    </div>
+                    <input
+                        type="checkbox"
+                        class="w-4 h-4 mt-0.5 text-blue-600 rounded cursor-pointer shrink-0"
+                        prop:checked=move || conflict_check_enabled.get()
+                        on:change=move |ev| conflict_check_enabled.set(event_target_checked(&ev))
+                    />
+                </div>
+                <div class="grid grid-cols-2 gap-4 pt-1">
+                    <div>
+                        <label class="font-semibold block mb-1 text-slate-800 dark:text-slate-200">"检查范围"</label>
+                        <select
+                            class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
+                            on:change=move |ev| conflict_scope.set(event_target_value(&ev))
+                        >
+                            <option value="all" selected=move || conflict_scope.get() == "all">
+                                "全部设定（默认）"
+                            </option>
+                            <option value="pinned" selected=move || conflict_scope.get() == "pinned">
+                                "仅硬性设定（已标记「恒入」的条目）"
+                            </option>
+                        </select>
+                        <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                            "「仅硬性设定」只看在设定面板标记为恒入的条目；没有标记时不会凭空发起检测。"</span>
+                    </div>
+                    <div>
+                        <label class="font-semibold block mb-1 text-slate-800 dark:text-slate-200">"置信度阈值 (0–1)"</label>
+                        <input
+                            type="number"
+                            min="0"
+                            max="1"
+                            step="0.05"
+                            class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
+                            prop:value=move || conflict_threshold.get()
+                            on:input=move |ev| conflict_threshold.set(event_target_value(&ev))
+                        />
+                        <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                            "低于此值的结果不弹窗（默认 0.6）。模型未给出置信度时不按低置信处理。"</span>
+                    </div>
+                </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
                 <div>

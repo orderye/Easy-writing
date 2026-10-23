@@ -271,6 +271,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <ConflictModal
                 is_open=app_ctx.is_conflict_modal_open
                 conflict_info=app_ctx.current_conflict
+                chapter=app_ctx.current_chapter
                 on_update_setting_and_continue=move |new_setting: String| {
                     if let (Some(novel), Some(conflict)) = (app_ctx.current_novel.get(), app_ctx.current_conflict.get()) {
                         let nid = novel.id;
@@ -313,6 +314,45 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                         app_ctx.word_count.set(crate::bridge::tiptap::get_word_count());
                         app_ctx.pending_conflict_text.set(None);
                     }
+                }
+                // 「本章忽略此类提示」：先把忽略签名落库，成功后才插入正文。
+                // 失败时不写入，否则作者会以为「已经忽略」，下次同章又弹一次。
+                on_ignore_this_kind=move || {
+                    let Some(novel) = app_ctx.current_novel.get() else { return };
+                    let Some(conflict) = app_ctx.current_conflict.get() else { return };
+                    let Some(chapter) = app_ctx.current_chapter.get() else { return };
+                    let signature = conflict.ignore_signature.clone();
+                    let label = conflict.ignore_label.clone();
+                    if signature.is_empty() {
+                        return;
+                    }
+                    leptos::task::spawn_local(async move {
+                        let res = invoke_cmd("ignore_chapter_conflict")
+                            .arg("novel_id", novel.id)
+                            .arg("chapter_id", chapter.id)
+                            .arg("signature", signature)
+                            .arg("label", label)
+                            .send_unit()
+                            .await;
+                        match res {
+                            Ok(()) => {
+                                if let Some(text) = app_ctx.pending_conflict_text.get() {
+                                    crate::bridge::tiptap::insert_at_cursor(&text);
+                                    app_ctx.save_status.set("dirty".to_string());
+                                    app_ctx.word_count.set(crate::bridge::tiptap::get_word_count());
+                                    app_ctx.pending_conflict_text.set(None);
+                                }
+                            }
+                            Err(e) => {
+                                web_sys::console::error_1(
+                                    &format!("[冲突忽略] 记录失败：{e}").into(),
+                                );
+                                app_ctx.save_alert.set(Some(
+                                    "未能记录「本章忽略此类提示」，正文未写入，请重试".to_string(),
+                                ));
+                            }
+                        }
+                    });
                 }
             />
 

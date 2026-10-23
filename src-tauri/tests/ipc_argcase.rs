@@ -97,7 +97,9 @@ fn every_command_declares_snake_case() {
     // 113 → 114：提炼去重（任务书 T07）增加 merge_character_candidate：
     // 把一条「疑似同人」的角色候选合并进既有角色（写别名 + 并入角色卡）。
     // 带 snake_case 并已加入 command_key_sweep。
-    assert_eq!(total, 114, "command count changed — re-audit the frontend call sites");
+    // 114 → 115：冲突检测结构化（任务书 T08）增加 ignore_chapter_conflict：
+    // 记录「本章忽略此类提示」。带 snake_case 并已加入 command_key_sweep。
+    assert_eq!(total, 115, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

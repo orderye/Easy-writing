@@ -108,6 +108,7 @@ pub fn run() {
             commands::ai_cmd::ai_polish,
             commands::ai_cmd::ai_chat_stream,
             commands::ai_cmd::ai_check_conflict,
+            commands::ai_cmd::ignore_chapter_conflict,
             commands::ai_cmd::trigger_chapter_extract,
             commands::ai_cmd::list_extraction_candidates,
             commands::ai_cmd::resolve_candidate,

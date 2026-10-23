@@ -291,6 +291,15 @@ pub struct AppSetting {
     pub value: String,
 }
 
+/// 冲突涉及的某条具体设定（T08：关联设定要能定位到库内条目）。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConflictSettingRef {
+    /// `worldview` / `character` / `plot` —— 与上下文清单的 entity_type 同一口径。
+    pub entity_type: String,
+    pub id: String,
+    pub title: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConflictInfo {
     pub conflict_point: String,
@@ -298,6 +307,21 @@ pub struct ConflictInfo {
     pub setting_title: String,
     pub reason: String,
     pub proposed_change: Option<String>,
+    /// 模型指出、并经库内校验的关联设定（最多 3 条；伪造的 id 会被丢弃）。
+    #[serde(default)]
+    pub related_settings: Vec<ConflictSettingRef>,
+    /// 判定依据：设定或正文中的原句。
+    #[serde(default)]
+    pub evidence: String,
+    /// 模型自评置信度 0–1。模型没给就是 `None` —— 不编一个数字来假装确定。
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    /// 「本章忽略此类提示」的稳定签名：`<entity_type>:<id>` 或 `module:<类型>`。
+    #[serde(default)]
+    pub ignore_signature: String,
+    /// 忽略按钮的展示文案（如「角色·沈砚」）。
+    #[serde(default)]
+    pub ignore_label: String,
 }
 
 /// 可能受某条设定改动影响的章节（确定性匹配的结果，不涉及模型判断）。
@@ -359,11 +383,15 @@ pub struct UndoReplaceReport {
     pub missing_chapters: Vec<String>,
 }
 
-/// 冲突检测的三种结果。
+/// 冲突检测的结果。
 ///
 /// 存在的理由：以前只有 Option<ConflictInfo>，"没检测出来"和"没检测成功"
 /// 都表现为 None —— 模型返回了无法解析的 JSON 时，上层收到的是"无冲突"，
 /// 于是正文被当作干净的直接插入。这是**静默放行**，必须区分开。
+///
+/// T08 又拆出两种「不该弹窗」的情况，它们与「干净」语义不同，不能合并：
+///   * `Suppressed` —— 确实判出冲突，但置信度低于作者设定的阈值；
+///   * `Disabled`   —— 作者主动关掉了前置检查，这一轮根本没检测。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum ConsistencyOutcome {
@@ -371,12 +399,17 @@ pub enum ConsistencyOutcome {
     Clean,
     /// 检测完成，发现矛盾。
     Conflict { info: ConflictInfo },
+    /// 检测完成且发现矛盾，但置信度低于阈值：不打断写作，仅留痕。
+    Suppressed { info: ConflictInfo, threshold: f32 },
+    /// 作者关闭了前置检查：本次没有发起检测，也没有产生额外调用。
+    Disabled,
     /// 检测**没有完成**（模型返回不可解析 / 调用失败 / 内容过短被跳过）。
     /// 调用方必须把它显示成"未完成检测"，而不是"未发现矛盾"。
     NotChecked { reason: String },
 }
 
 impl ConsistencyOutcome {
+    /// 需要弹窗裁决的冲突。`Suppressed` 不算 —— 它按设计就不打扰作者。
     pub fn as_conflict(&self) -> Option<&ConflictInfo> {
         match self {
             ConsistencyOutcome::Conflict { info } => Some(info),
@@ -386,6 +419,14 @@ impl ConsistencyOutcome {
 
     pub fn is_not_checked(&self) -> bool {
         matches!(self, ConsistencyOutcome::NotChecked { .. })
+    }
+
+    pub fn is_suppressed(&self) -> bool {
+        matches!(self, ConsistencyOutcome::Suppressed { .. })
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        matches!(self, ConsistencyOutcome::Disabled)
     }
 }
 

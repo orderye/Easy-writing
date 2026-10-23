@@ -323,37 +323,119 @@ pub fn delete_chat_session(
     crate::db::chat::delete_session(&conn, &session_id).map_err(|e| e.to_string())
 }
 
+/// 插入正文前的设定冲突检测（T08）。
+///
+/// 顺序在结构上保证「关闭前置检查后不再产生额外调用」：
+/// 设置读取与 `enabled` 判断发生在任何凭据解析、模型请求之前。
+///
+/// 检查范围与阈值同样在这里读取，前端不需要各存一份 ——
+/// 设置页改动立刻对下一次检测生效。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn ai_check_conflict(
     pool: State<'_, DbPool>,
     novel_id: String,
+    chapter_id: Option<String>,
     text: String,
 ) -> Result<shared_types::ConsistencyOutcome, String> {
-    let (profile, api_key, context_text) = {
+    use crate::ai::consistency::{self, CheckScope, ConflictCheckInput, ConflictCheckSettings};
+    use shared_types::ConsistencyOutcome;
+
+    // 1. 只读设置。关闭即返回：不碰作品、不碰钥匙串、不发请求。
+    let settings = {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        ConflictCheckSettings::from_conn(&conn)
+    };
+    if !settings.enabled {
+        return Ok(ConsistencyOutcome::Disabled);
+    }
+
+    let (profile, api_key, context_text, candidates, ignored) = {
         let conn = pool.get().map_err(|e| e.to_string())?;
 
-        let novel = crate::db::novel::get_novel(&conn, &novel_id)
+        crate::db::novel::get_novel(&conn, &novel_id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "Novel not found".to_string())?;
 
         let (_agent, profile, api_key) =
             crate::agent::dispatcher::resolve_agent_and_profile(&conn, "writing_assistant")?;
 
-        let assembled = crate::ai::context::assemble_writing_context(&conn, &novel, None, "")
-            .map_err(|e| e.to_string())?;
+        let (budget_chars, _) = context_budget_tokens_of(&profile);
+        let (context_text, candidates) = consistency::build_conflict_context(
+            &conn,
+            &novel_id,
+            settings.scope,
+            budget_chars,
+        )
+        .map_err(|e| e.to_string())?;
 
-        (profile, api_key, assembled.context_text)
+        let ignored = match chapter_id.as_deref() {
+            Some(cid) => crate::db::conflict_ignore::list_signatures(&conn, cid)
+                .map_err(|e| e.to_string())?,
+            None => Default::default(),
+        };
+
+        (profile, api_key, context_text, candidates, ignored)
     };
 
+    // 「仅硬性设定」却一条都没有：如实说没得比，而不是拿空上下文问模型。
+    if settings.scope == CheckScope::PinnedOnly && candidates.is_empty() {
+        return Ok(ConsistencyOutcome::NotChecked {
+            reason: "检查范围为「仅硬性设定」，但本作品还没有标记任何硬性设定".to_string(),
+        });
+    }
+
     let gateway = AiGateway::new();
-    Ok(crate::ai::consistency::check_consistency(
+    Ok(consistency::check_consistency(
         &gateway,
-        &context_text,
+        ConflictCheckInput {
+            context_text: &context_text,
+            generated_text: &text,
+            candidates: &candidates,
+            threshold: settings.threshold,
+            ignored: &ignored,
+        },
         &profile,
         &api_key,
-        &text,
     )
     .await)
+}
+
+/// 记录「本章忽略此类提示」（T08 / V007）。
+///
+/// `signature` 必须使用 `ai_check_conflict` 返回的那个值：签名由后端按
+/// 「关联设定 id / 模块」统一计算，前端重新拼一个会导致下次判定对不上。
+#[tauri::command(rename_all = "snake_case")]
+pub fn ignore_chapter_conflict(
+    pool: State<'_, DbPool>,
+    novel_id: String,
+    chapter_id: String,
+    signature: String,
+    label: String,
+) -> Result<(), String> {
+    let signature = signature.trim();
+    if signature.is_empty() {
+        return Err("忽略签名不能为空".to_string());
+    }
+    if signature.chars().count() > 128 {
+        return Err("忽略签名过长（上限 128 字符）".to_string());
+    }
+
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let chapter = crate::db::chapter::get_chapter(&conn, &chapter_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Chapter not found".to_string())?;
+    if chapter.novel_id != novel_id {
+        return Err("章节不属于该作品，拒绝写入忽略记录".to_string());
+    }
+
+    crate::db::conflict_ignore::ignore(
+        &conn,
+        &novel_id,
+        &chapter_id,
+        signature,
+        label.trim(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

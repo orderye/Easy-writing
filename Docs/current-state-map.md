@@ -244,17 +244,20 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：已落地。
 
-#### T08 冲突检测结构化与可配置 —— **部分符合**
+#### T08 冲突检测结构化与可配置 —— **已落地（PR-11，迁移 V007）**
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
-| 检测输出固定为结构化 JSON：冲突点、关联设定（类型+id）、证据、置信度 | `ai/consistency.rs:80-90` 的 prompt **已是固定 JSON**：`has_conflict`/`conflict_point`/`setting_module`/`setting_title`/`reason`/`proposed_change`；`consistency.rs:26 interpret_response` 有解析与「非 JSON 判为未检测」的分支（`:141`） | **部分**：缺「关联设定的 **id**」「证据」「置信度」三个字段 |
-| 设置项：前置检查开关、检查范围、置信度阈值 | 三项**全无**（`app_setting` 可承载，无需迁移） | **缺** |
-| `ConflictCard` 展示依据 | 现有 `frontend/src/components/ai/conflict_modal.rs` 展示 `reason`/`proposed_change` | **部分** |
-| 提供「本章忽略此类提示」 | **无** | **缺**（需表） |
-| 保持 `setting_change` 留档与撤销不变 | `db/settings.rs:333 record_setting_change` / `:389 revert_setting_change` 已在 | **已符合**（勿动） |
+| 检测输出固定为结构化 JSON：冲突点、关联设定（类型+id）、证据、置信度 | `ai/consistency.rs` 的 prompt 扩展为 `has_conflict` / `conflict_point` / `related_settings[{entity_type,id,title}]` / `evidence` / `confidence` / `setting_module` / `setting_title` / `reason` / `proposed_change`；`interpret_response` 仍是纯函数，非 JSON 判 `NotChecked` | **已符合** |
+| 设置项：前置检查开关、检查范围、置信度阈值 | `app_setting` 三键：`conflict_check_enabled`（默认开）/ `conflict_check_scope`（`all` 默认 / `pinned` 仅硬性）/ `conflict_confidence_threshold`（默认 0.6）。后端在 `ai_check_conflict` 入口先读设置再解析凭据 —— 关闭即零调用 | **已符合** |
+| `ConflictCard` 展示依据 | `conflict_modal.rs` 展示冲突点、关联设定 chips（类型 + 标题 + 后端签名）、证据原句、置信度条、原因、建议改动 | **已符合** |
+| 提供「本章忽略此类提示」 | 迁移 V007 建 `chapter_conflict_ignore`（`novel_id + chapter_id + signature` 唯一）；`ignore_chapter_conflict` 命令；弹窗按钮只在当前有章节且有签名时出现 | **已符合** |
+| 低于阈值的结果不弹窗 | 后端 `apply_gate` 把低于阈值的冲突降级为 `ConsistencyOutcome::Suppressed`，前端插入正文、控制台留痕 | **已符合** |
+| 保持 `setting_change` 留档与撤销不变 | `db/settings.rs:333 record_setting_change` / `:389 revert_setting_change` / `apply_conflict_setting_update` 全程未动 | **已符合**（勿动） |
 
-**工作量**：中。**依赖**：需要 T06 的 `pinned`（检查范围「仅硬性设定/全部」）。
+**工作量**：已完成。**依赖**：T06 的 `pinned`（检查范围「仅硬性设定/全部」）—— 本轮第一次真正使用它。
+
+> 设计取舍：模型没给置信度时记 `None`，不编一个数字来假装确定；阈值闸门只对「模型自评过低」生效，避免把「没给数字」一律当成低置信而误杀所有提示。忽略签名由后端按「关联设定 id」优先、否则按 `setting_module` 归类计算，前端只回传，避免两端各算一套。忽略记录**不进备份清单计数表**（`sync/manifest.rs`）：新增计数表会让旧客户端把新清单判为「不认识的实体表」而拒绝恢复，而它随整库备份天然完整，不值当。
 
 #### T09 全书搜索与替换 —— **已落地（PR-09，迁移 V005）**
 
@@ -381,9 +384,9 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | 分级 | 任务 | 说明 |
 |---|---|---|
 | **已符合，仅需补测试/结论** | T12 | 补越界路径与 CSP 回归测试 |
-| **部分符合，缺口明确且有限** | T08、T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
+| **部分符合，缺口明确且有限** | T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
-| **部分符合 → 已落地** | T02、T06、T07、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（V004：pinned，2026-10-23）/ PR-09（V005：FTS5，2026-10-23）/ PR-10（V006：疑似同人锚点，2026-10-23） |
+| **部分符合 → 已落地** | T02、T06、T07、T08、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（V004：pinned，2026-10-23）/ PR-09（V005：FTS5，2026-10-23）/ PR-10（V006：疑似同人锚点，2026-10-23）/ PR-11（V007：本章忽略记录表，2026-10-23） |
 | **部分符合，缺口较大** | T10 | 需新增看板与回收章节存储 |
 | **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
 | **文档同步** | T01 | 护栏脚本 + §五 刷新 |
@@ -401,7 +404,7 @@ PR-07 T02 导出 txt/docx/epub        ← 已完成（2026-10-22，零迁移）
 PR-08 T06 上下文装配透明度        ← 已完成（2026-10-23，迁移 V004）
 PR-09 T09 全书搜索与替换        ← 已完成（2026-10-23，迁移 V005）
 PR-10 T07 提炼成本与去重        ← 已完成（2026-10-23，迁移 V006）
-PR-11 T08 冲突检测结构化          ← 依赖 T06 的 pinned
+PR-11 T08 冲突检测结构化        ← 已完成（2026-10-23，迁移 V007）
 PR-12 T10 伏笔看板                ← 复用 T06 匹配逻辑
 PR-13 T11 写作辅助
 PR-14 T13 校验和与更新提示
@@ -419,7 +422,7 @@ PR-19 T18 README 截图位
 | V004 | PR-08 | `worldview_entry` / `character` / `plot_item` 增 `pinned` —— **已落地** |
 | V005 | PR-09 | `chapter_fts` FTS5(trigram) 虚拟表 + 触发器 + 回填；`chapter_revision` 增 `batch_id` —— **已落地** |
 | V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` —— **已落地** |
-| V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 |
+| V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 —— **已落地** |
 | V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` |
 | V009 | PR-13 | 新增 `daily_stat` 表；`chapter` 增 `pov_character_id` / `story_time` |
 

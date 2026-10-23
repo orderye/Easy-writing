@@ -7,6 +7,35 @@
 
 ## [Unreleased]
 
+### 冲突检测结构化与可配置：关联设定、证据、置信度与「本章忽略」（PR-11 / 任务书 T08）
+
+> 以前弹窗只说「角色·沈砚冲突了」，作者既不知道是哪条设定、也不知道模型有多确定，
+> 更没有「这种情况本章别再问了」的出口。本轮把判定变成可定位、可配置、可安静的产物。
+
+- **结构化判定**：检测输出固定为
+  `has_conflict / conflict_point / related_settings[{entity_type,id,title}] / evidence / confidence / setting_module / setting_title / reason / proposed_change`。
+  提示词里每条设定都带 `[类型#id]`，模型只能引用真实条目；后端再按库内条目校验 id、
+  回填权威标题、丢弃伪造引用，**最多保留 3 条**。
+- **三个设置项（写作偏好）**：前置检查开关（默认开）、检查范围（`all` 全部设定 /
+  `pinned` 仅硬性设定）、置信度阈值（默认 0.6）。关闭开关时命令**在解析凭据与发请求之前**
+  就返回 `Disabled` —— 结构上保证零调用。
+- **低于阈值不弹窗**：`apply_gate` 把低于阈值的冲突降级为 `Suppressed`，前端照常插入正文，
+  只在控制台留痕。模型没给置信度时记 `None`，不按低置信处理（避免误杀所有提示）。
+- **「本章忽略此类提示」（迁移 V007）**：新表 `chapter_conflict_ignore`，签名
+  `novel_id + chapter_id + signature` 唯一。签名由后端计算 —— 能定位到具体设定就用
+  `<entity_type>:<id>`，否则退到 `module:<类型>`；前端只回传，两端不会各算一套。
+  忽略记录按章持久，重开同章仍生效。
+- **设置改动与阈值读取**：`ConflictCheckSettings::from_conn` 读 `app_setting` 三键，
+  非法值回落默认；阈值保存时夹到 `[0,1]`。
+- **未引入备份清单计数**：`chapter_conflict_ignore` 不进 `sync/manifest.rs` 的 `COUNTED_TABLES`。
+  新增计数表会让旧客户端把新清单判为「不认识的实体表」而拒绝恢复，而它随整库备份天然完整。
+- **未动 `setting_change`**：留档与撤销链路（`record_setting_change` /
+  `revert_setting_change` / `apply_conflict_setting_update`）全程保持原样。
+- **可测**：`conflict_detection.rs` 16 例（结构化样例、非 JSON、缺置信度、阈值边界、
+  忽略签名、上下文范围与预算、关联设定校验、关闭即零调用、忽略命令越权）、
+  模块内单测 14 例（含百分数归一与设置默认值）、前端契约 6 条；
+  `migration_ladder` 扩至 v7（15 例）；命令计数 114→115。
+
 ### 提炼成本与去重：单次调用模式、超长章节分块、疑似同人合并（PR-10 / 任务书 T07）
 
 > 一次提炼要打四次请求，长章节还常常超出模型能一次读完的篇幅；
