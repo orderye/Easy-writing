@@ -254,6 +254,10 @@ pub struct ExtractionCandidate {
     pub evidence: String,
     pub dedup_key: String,
     pub status: String, // "pending" | "accepted" | "ignored"
+    /// 疑似重复的锚点（T07）：既有角色 id 或另一条候选 id。
+    /// `None` 表示未发现疑似同人。
+    #[serde(default)]
+    pub possible_duplicate_of: Option<String>,
     pub created_at: String,
 }
 

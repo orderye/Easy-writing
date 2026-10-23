@@ -230,17 +230,19 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：已落地。**依赖**：`T08` 可复用本任务的 `pinned`；`T10` 可复用本任务的匹配逻辑。
 
-#### T07 提炼成本与去重 —— **部分符合**
+#### T07 提炼成本与去重 —— **已落地（PR-10，迁移 V006）**
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
-| 新增设置 `extraction_mode`：`parallel_4`（现状）与 `single_call` | 设置**不存在**；现状是硬编码并行 4 个 agent kind（`agent/extraction.rs:566,608-617`，kinds = `["worldview","character","plot","chapter_summary"]`），内部并发上限 `Semaphore::new(2)`（`:605`） | **缺**（`parallel_4` 的「4」指 4 个并行 agent 提炼，**任务书表述正确**；并发上限 2 是另一个维度） |
-| 去重增强：归一化名称、别名匹配已有角色与候选池 | **已有相当基础**：`agent/extraction.rs:399 normalize_title`、`:472 build_existing_index`、`:526 compute_dedup_key`、`:419 resolve_candidate_action`；`db/extraction.rs:84 is_candidate_ignored_or_accepted` | **部分** |
-| 命中则标记 `possible_duplicate_of`（新增列） | 列**不存在**。但 `extraction_candidate` 已有 `target_id`（`V001:179`）可作锚点，`dedup_key`（`V001:183`）已存在 | **缺（需迁移）** |
-| 提取面板提示「疑似同一人物，是否合并」，合并把新名称写入 `aliases` | **无**（`character.aliases` 列存在且是 JSON 数组，机制齐备） | **缺** |
-| 超长章节按段落分块提炼后合并（阈值可配） | **无** | **缺** |
+| 新增设置 `extraction_mode`：`parallel_4`（默认，现状）与 `single_call` | 设置键 `extraction_mode` 存 `app_setting`，缺省 `parallel_4`；`single_call` 用一次调用返回四类候选。设置页「写作偏好」可切换。并行模式仍为四类 Agent 受限并行（`Semaphore::new(2)`） | **已符合** |
+| 去重增强：归一化名称、别名匹配已有角色与候选池 | `detect_possible_duplicate` 在**入库前**判定：先查既有角色（别名精确命中、名称/别名的包含关系、2–4 字短名共享至少一半字符），再查待审候选池；命中写入 `possible_duplicate_of`。规则**只用于提示，不自动合并** | **已符合** |
+| 命中则标记 `possible_duplicate_of`（新增列） | V006 为 `extraction_candidate` 加 `possible_duplicate_of TEXT` + `idx_extraction_duplicate`；候选结构体与待审列表均已带该字段 | **已符合** |
+| 提取面板提示「疑似同一人物，是否合并」，合并把新名称写入 `aliases` | 面板显示「疑似与已有角色「林舟」是同一人」+「合并到「林舟」」；`merge_character_candidate` 把候选标题写入 `aliases`（归一化去重）、描述并入角色卡 `raw_notes`、同步词库，并把候选标记 `accepted`。候选池锚点只提示「与本批候选疑似同人」 | **已符合** |
+| 超长章节按段落分块提炼后合并（阈值可配） | `split_into_chunks` 按行切块（单行超阈值时按字符硬切），阈值 `extraction_chunk_threshold`（默认 12000 字符，低于 500 按默认）；分块产生多条章纲时合并为一条（「；」连接） | **已符合** |
 
-**工作量**：中。
+**验收**：`src-tauri/tests/extraction_dedup.rs`（10 例：小名疑似、别名命中、无关名不提示、批内命中、锚点落库回读、合并写别名/并角色卡/标记采纳/不新建重复角色、别名幂等、非角色拒绝合并、设置默认值与解析）；`src/agent/extraction.rs` 单元测试 9 例（分块边界、超长行硬切、single_call 两种输出形态同构、相似度规则、锚点优先级、章纲合并）；`tests/frontend/extraction_dedup.test.js`（6 条跨端契约）。
+
+**工作量**：已落地。
 
 #### T08 冲突检测结构化与可配置 —— **部分符合**
 
@@ -366,7 +368,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 |---|---|---|---|
 | §0 全局规则 3 | 「只能新增迁移文件（**refinery**，下一个可用版本号）」 | **无 refinery**；是手写阶梯 `db/mod.rs:117-169` | 规则**意图**（只加新文件、不改已发布迁移）保留；**执行步骤**改为四步（见 §1.1） |
 | T04 | 「**先审计**：restore.rs 替换数据库文件前是否已关闭 r2d2 连接池或要求重启」 | 恢复走 Online Backup API，**不替换文件** | 审计结论「符合」，该问题在本仓库**不成立** |
-| T07 | 「`parallel_4`（现状）」 | 4 个并行 agent kind 提炼 —— **表述正确**；并发上限另有 2 | 保留，仅补一句说明两个维度 |
+| T07 | 「`parallel_4`（现状）」 | 4 个并行 agent kind 提炼 —— **表述正确**；并发上限另有 2 | **已澄清**：两个维度（4 类 Agent / 并发 2）在 PR-10 中写明 |
 | T17 | 「当前分别写 ~18MB 与 ~15MB」 | 真实 ~7.4MB / ~7.1MB / ~5.8MB | 两处都要改成实测值，**不是只统一** |
 | T05 | 「有测试（可对 keyring 做 trait 抽象后 mock）」 | `keyring.rs` 只有自由函数、无 trait | 需**先做 trait 抽象**才有测试 |
 | §2 T01 | 「新增『当前 Schema』章节」 | §五 标题为「初始 V001 DDL 基线」 | 改为「当前 Schema（V001–V00N）」 |
@@ -379,9 +381,9 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | 分级 | 任务 | 说明 |
 |---|---|---|
 | **已符合，仅需补测试/结论** | T12 | 补越界路径与 CSP 回归测试 |
-| **部分符合，缺口明确且有限** | T07、T08、T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
+| **部分符合，缺口明确且有限** | T08、T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
-| **部分符合 → 已落地** | T02、T06、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（迁移 V004：pinned，2026-10-23）/ PR-09（迁移 V005：FTS5，2026-10-23） |
+| **部分符合 → 已落地** | T02、T06、T07、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（V004：pinned，2026-10-23）/ PR-09（V005：FTS5，2026-10-23）/ PR-10（V006：疑似同人锚点，2026-10-23） |
 | **部分符合，缺口较大** | T10 | 需新增看板与回收章节存储 |
 | **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
 | **文档同步** | T01 | 护栏脚本 + §五 刷新 |
@@ -398,7 +400,7 @@ PR-06 T05 密钥缺失统一处理          ← 已完成（2026-10-22，零迁�
 PR-07 T02 导出 txt/docx/epub        ← 已完成（2026-10-22，零迁移）
 PR-08 T06 上下文装配透明度        ← 已完成（2026-10-23，迁移 V004）
 PR-09 T09 全书搜索与替换        ← 已完成（2026-10-23，迁移 V005）
-PR-10 T07 提炼成本与去重
+PR-10 T07 提炼成本与去重        ← 已完成（2026-10-23，迁移 V006）
 PR-11 T08 冲突检测结构化          ← 依赖 T06 的 pinned
 PR-12 T10 伏笔看板                ← 复用 T06 匹配逻辑
 PR-13 T11 写作辅助
@@ -416,7 +418,7 @@ PR-19 T18 README 截图位
 |---|---|---|
 | V004 | PR-08 | `worldview_entry` / `character` / `plot_item` 增 `pinned` —— **已落地** |
 | V005 | PR-09 | `chapter_fts` FTS5(trigram) 虚拟表 + 触发器 + 回填；`chapter_revision` 增 `batch_id` —— **已落地** |
-| V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` |
+| V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` —— **已落地** |
 | V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 |
 | V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` |
 | V009 | PR-13 | 新增 `daily_stat` 表；`chapter` 增 `pov_character_id` / `story_time` |

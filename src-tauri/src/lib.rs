@@ -111,6 +111,7 @@ pub fn run() {
             commands::ai_cmd::trigger_chapter_extract,
             commands::ai_cmd::list_extraction_candidates,
             commands::ai_cmd::resolve_candidate,
+            commands::ai_cmd::merge_character_candidate,
             // Context Transparency (T06)
             commands::ai_cmd::get_context_manifest,
             commands::ai_cmd::set_entry_pinned,

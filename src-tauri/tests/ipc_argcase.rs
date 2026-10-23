@@ -94,7 +94,10 @@ fn every_command_declares_snake_case() {
     // apply_replace（执行替换，先快照后改写、同一事务）、
     // undo_replace_batch（按 batch_id 整批撤销）。
     // 四者均带 snake_case 并已加入 command_key_sweep。
-    assert_eq!(total, 113, "command count changed — re-audit the frontend call sites");
+    // 113 → 114：提炼去重（任务书 T07）增加 merge_character_candidate：
+    // 把一条「疑似同人」的角色候选合并进既有角色（写别名 + 并入角色卡）。
+    // 带 snake_case 并已加入 command_key_sweep。
+    assert_eq!(total, 114, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
