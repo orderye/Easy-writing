@@ -258,9 +258,9 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 
 ---
 
-## 五、数据库 Schema（当前 V001–V005 基线）
+## 五、数据库 Schema（当前 V001–V006 基线）
 
-> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V005 全部阶梯迁移的结果。
+> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V006 全部阶梯迁移的结果。
 > - `V001__init.sql`：18 张基础表（`llm_profile` / `novel` / `volume` / `chapter` / `chapter_revision` / `asset` / `worldview_entry` / `character` / `plot_item` / `agent` / `chat_session` / `chat_message` / `extraction_candidate` / `setting_change` / `prompt_template` / `webdav_config` / `app_setting` / `character_relation`）。
 > - `V002__legacy_safe_migrations.sql`：新增 `novel_lexicon`（专有词库）；为 `setting_change` 增 `target_title` / `is_reverted`，为 `chat_session` 增 `title`，为 `asset` 增 `deleted_at`，为 `extraction_candidate` 增 `title`。
 > - `V003__indices_and_cleanup.sql`：性能索引 `idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 等。
@@ -268,6 +268,8 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 > - `V005__chapter_fts.sql`：**全文索引** —— `chapter_revision` 增 `batch_id`（整批撤销钥匙）+ `idx_revision_batch`；新增 FTS5 虚拟表 `chapter_fts`（trigram 分词，覆盖标题与 `content_plain`）+ 三条同步触发器 + 存量回填。
 >
 > ⚠️ `chapter_fts` 是 **FTS5 虚拟表**（`CREATE VIRTUAL TABLE`），不在下方建表清单里；它的结构见 `src-tauri/migrations/V005__chapter_fts.sql`。
+>
+> - `V006__extraction_duplicate.sql`：**仅加列** —— `extraction_candidate` 增 `possible_duplicate_of`（疑似同人锚点：既有角色 id 或另一条候选 id）+ `idx_extraction_duplicate`。
 >
 > ⚠️ 本节与 `src-tauri/migrations/` 的**一致性由 CI 强制**：`scripts/check-docs-schema.mjs` 双向比对本节表清单与迁移实际建表，缺一即失败。改表结构必须同步改这里，也必须同步改迁移文件。
 > 完整建表脚本请参阅 `src-tauri/migrations/`。
@@ -458,10 +460,12 @@ CREATE TABLE extraction_candidate (
     status              TEXT NOT NULL DEFAULT 'pending'
                         CHECK(status IN ('pending', 'accepted', 'ignored')),
     title               TEXT NOT NULL DEFAULT '',   -- V002 新增：候选条目标题
+    possible_duplicate_of TEXT,                     -- V006：疑似同人锚点（角色 id 或候选 id）
     created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX idx_extraction_novel ON extraction_candidate(novel_id, status);
 CREATE INDEX idx_extraction_dedup ON extraction_candidate(novel_id, dedup_key);
+CREATE INDEX idx_extraction_duplicate ON extraction_candidate(novel_id, possible_duplicate_of);   -- V006
 
 -- 12. 设定冲突改动留档
 CREATE TABLE setting_change (

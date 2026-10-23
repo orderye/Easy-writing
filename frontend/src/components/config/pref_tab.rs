@@ -15,6 +15,9 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
     let auto_save_interval = RwSignal::new("30".to_string());
     // 保存章节后自动提炼（PRD §4.2 P1，默认关闭）
     let auto_extract = RwSignal::new(false);
+    // 提炼成本与去重（T07）：parallel_4（默认）/ single_call；超长章节分块阈值
+    let extraction_mode = RwSignal::new("parallel_4".to_string());
+    let chunk_threshold = RwSignal::new("12000".to_string());
     let pref_status = RwSignal::new(String::new());
 
     // 组件挂载时加载该标签页自己的偏好；原先由父组件 load_data 统一读取
@@ -36,6 +39,12 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
             if let Ok(Some(val)) = read_setting("auto_extract").await {
                 auto_extract.set(val == "true" || val == "1");
             }
+            if let Ok(Some(val)) = read_setting("extraction_mode").await {
+                extraction_mode.set(val);
+            }
+            if let Ok(Some(val)) = read_setting("extraction_chunk_threshold").await {
+                chunk_threshold.set(val);
+            }
         });
     });
 
@@ -47,6 +56,8 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
         let current_lh = line_height.get();
         let current_intv = auto_save_interval.get();
         let current_auto_extract = auto_extract.get();
+        let current_mode = extraction_mode.get();
+        let current_threshold = chunk_threshold.get();
 
         leptos::task::spawn_local(async move {
             let _ = write_setting("theme", current_theme.clone()).await;
@@ -62,6 +73,8 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
                 },
             )
             .await;
+            let _ = write_setting("extraction_mode", current_mode).await;
+            let _ = write_setting("extraction_chunk_threshold", current_threshold).await;
 
             // Apply live
             app_ctx.theme.set(current_theme.clone());
@@ -177,6 +190,36 @@ pub fn PrefTab(app_ctx: AppContext) -> impl IntoView {
                     prop:checked=move || auto_extract.get()
                     on:change=move |ev| auto_extract.set(event_target_checked(&ev))
                 />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="font-semibold block mb-1 text-slate-800 dark:text-slate-200">"提炼模式"</label>
+                    <select
+                        class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
+                        on:change=move |ev| extraction_mode.set(event_target_value(&ev))
+                    >
+                        <option value="parallel_4" selected=move || extraction_mode.get() == "parallel_4">
+                            "并行四 Agent（默认，质量更稳）"
+                        </option>
+                        <option value="single_call" selected=move || extraction_mode.get() == "single_call">
+                            "单次调用（省请求，长章节易截断）"
+                        </option>
+                    </select>
+                    <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                        "并行四 Agent 分别提炼世界观 / 角色 / 剧情 / 章摘要；单次调用一次返回四类，省 3 次请求。"</span>
+                </div>
+                <div>
+                    <label class="font-semibold block mb-1 text-slate-800 dark:text-slate-200">"章节分块阈值 (字符)"</label>
+                    <input
+                        type="number"
+                        min="500"
+                        class="w-full p-2 border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-blue-500"
+                        prop:value=move || chunk_threshold.get()
+                        on:input=move |ev| chunk_threshold.set(event_target_value(&ev))
+                    />
+                    <span class="text-[11px] text-slate-400 dark:text-slate-500">
+                        "超过此长度的章节会按段落分块提炼后合并；默认 12000，低于 500 按默认处理。"</span>
+                </div>
             </div>
             <button
                 class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer"

@@ -403,6 +403,17 @@ pub fn list_extraction_candidates(
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn merge_character_candidate(
+    pool: State<'_, DbPool>,
+    candidate_id: String,
+    target_character_id: String,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::extraction::merge_character_candidate(&conn, &candidate_id, &target_character_id)?;
+    Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn resolve_candidate(
     pool: State<'_, DbPool>,
     candidate_id: String,

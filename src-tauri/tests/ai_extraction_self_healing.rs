@@ -209,6 +209,7 @@ fn test_end_to_end_cross_domain_acceptance_and_self_healing() {
         "淮南重镇，古战场，地势险要控扼南北交通",
         "官家北望八公山草木皆兵",
         "dedup-bagongshan",
+        None,
     )
     .unwrap();
     assert_eq!(cand_wv.title, "八公山");
@@ -422,6 +423,7 @@ fn test_extraction_failure_protection_coverage() {
             "剑魔独孤求败生平未尝一败",
             "重剑无锋，大巧不工",
             &cand_dedup,
+            None,
         );
         assert!(insert_res2.is_ok(), "重试时数据库插入成功");
         if insert_res2.is_err() {

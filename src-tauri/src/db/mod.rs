@@ -37,7 +37,7 @@ const LEGACY_SAFE_MIGRATIONS: &str =
     include_str!("../../migrations/V002__legacy_safe_migrations.sql");
 
 /// 基线版本：老库在没有任何 schema_version 记录时，视为已经跑到这里。
-pub const BASELINE_VERSION: i64 = 5;
+pub const BASELINE_VERSION: i64 = 6;
 
 /// 只有「列已存在」是预期内的错误；磁盘只读、库被锁、语法错误都必须冒泡。
 fn is_duplicate_column(e: &rusqlite::Error) -> bool {
@@ -179,6 +179,14 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
         conn.execute_batch(include_str!("../../migrations/V005__chapter_fts.sql"))?;
         conn.execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (5)",
+            [],
+        )?;
+    }
+
+    if applied < 6 {
+        conn.execute_batch(include_str!("../../migrations/V006__extraction_duplicate.sql"))?;
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (6)",
             [],
         )?;
     }
