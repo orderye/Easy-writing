@@ -125,6 +125,10 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::ai_cmd::get_context_manifest,
             easy_writing_lib::commands::ai_cmd::set_entry_pinned,
             easy_writing_lib::commands::export_cmd::cancel_export,
+            easy_writing_lib::commands::search_cmd::search_chapters,
+            easy_writing_lib::commands::search_cmd::preview_replace,
+            easy_writing_lib::commands::search_cmd::apply_replace,
+            easy_writing_lib::commands::search_cmd::undo_replace_batch,
         ])
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -176,6 +180,13 @@ fn all_command_keys_resolve() {
         ("delete_plot", r#"{"id": "@@CHAPTER@@"}"#),
         ("list_setting_changes", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("find_affected_chapters", r#"{"novel_id": "@@NOVEL@@", "term": "剑"}"#),
+        // 全书搜索与替换（任务书 T09）：四者首参均为 State<DbPool>，可进 sweep。
+        // 搜索/预览是纯读；apply_replace 会真的改库（本 sweep 的库是临时库，无副作用）；
+        // undo_replace_batch 查不到批次时返回中文 Err，sweep 对「非参数缺失」放行。
+        ("search_chapters", r#"{"novel_id": "@@NOVEL@@", "query": "剑", "limit": 50}"#),
+        ("preview_replace", r#"{"novel_id": "@@NOVEL@@", "query": "剑", "case_sensitive": false}"#),
+        ("apply_replace", r#"{"novel_id": "@@NOVEL@@", "query": "剑", "replacement": "刀", "chapter_ids": null, "case_sensitive": false}"#),
+        ("undo_replace_batch", r#"{"batch_id": "no-such-batch"}"#),
         ("revert_setting_change", r#"{"change_id": "v"}"#),
         ("apply_conflict_setting_update", r#"{"novel_id": "@@NOVEL@@", "chapter_id": null, "setting_module": "worldview", "setting_title": "v", "new_content": "v", "reason": "v"}"#),
         ("ai_polish", r#"{"module_key": "v", "current_content": "v"}"#),

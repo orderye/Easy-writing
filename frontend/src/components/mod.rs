@@ -4,5 +4,6 @@ pub mod editor;
 pub mod export;
 pub mod layout;
 pub mod novel;
+pub mod search;
 pub mod settings_panel;
 pub mod structure_panel;

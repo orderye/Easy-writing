@@ -7,6 +7,7 @@ pub mod export;
 pub mod import;
 pub mod keyring;
 pub mod keys;
+pub mod replace;
 pub mod sync;
 
 use tauri::Manager;
@@ -158,6 +159,11 @@ pub fn run() {
             commands::export_cmd::choose_export_file,
             commands::export_cmd::export_novel,
             commands::export_cmd::cancel_export,
+            // 全书搜索与替换（任务书 T09）
+            commands::search_cmd::search_chapters,
+            commands::search_cmd::preview_replace,
+            commands::search_cmd::apply_replace,
+            commands::search_cmd::undo_replace_batch,
             // Character Relations
             commands::list_character_relations,
             commands::save_character_relation,

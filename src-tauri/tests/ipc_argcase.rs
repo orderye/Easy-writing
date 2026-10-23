@@ -23,6 +23,7 @@ const COMMAND_SOURCES: &[&str] = &[
     include_str!("../src/commands/ai_cmd.rs"),
     include_str!("../src/commands/config_cmd.rs"),
     include_str!("../src/commands/export_cmd.rs"),
+    include_str!("../src/commands/search_cmd.rs"),
     include_str!("../src/commands/sync_cmd.rs"),
     include_str!("../src/commands/update_cmd.rs"),
 ];
@@ -88,7 +89,12 @@ fn every_command_declares_snake_case() {
     // 107 → 109：上下文装配透明度（任务书 T06）增加 2 个命令：
     // get_context_manifest（「本次上下文」面板的数据源）、set_entry_pinned
     // （切换条目「恒入」标记）。二者均带 snake_case 并已加入 command_key_sweep。
-    assert_eq!(total, 109, "command count changed — re-audit the frontend call sites");
+    // 109 → 113：全书搜索与替换（任务书 T09）增加 4 个命令：
+    // search_chapters（全文搜索，纯读）、preview_replace（替换预览，纯读）、
+    // apply_replace（执行替换，先快照后改写、同一事务）、
+    // undo_replace_batch（按 batch_id 整批撤销）。
+    // 四者均带 snake_case 并已加入 command_key_sweep。
+    assert_eq!(total, 113, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
