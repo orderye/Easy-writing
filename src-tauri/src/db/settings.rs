@@ -5,7 +5,7 @@ use uuid::Uuid;
 // --- Worldview ---
 pub fn list_worldview(conn: &Connection, novel_id: &str) -> Result<Vec<WorldviewEntry>> {
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, group_name, title, content, origin, source_chapter_id, sort_order, created_at, updated_at, deleted_at
+        "SELECT id, novel_id, group_name, title, content, origin, source_chapter_id, sort_order, created_at, updated_at, pinned, deleted_at
          FROM worldview_entry
          WHERE novel_id = ?1 AND deleted_at IS NULL
          ORDER BY sort_order ASC, created_at ASC",
@@ -23,7 +23,8 @@ pub fn list_worldview(conn: &Connection, novel_id: &str) -> Result<Vec<Worldview
             sort_order: row.get(7)?,
             created_at: row.get(8)?,
             updated_at: row.get(9)?,
-            deleted_at: row.get(10)?,
+            pinned: row.get::<_, i32>(10)? != 0,
+            deleted_at: row.get(11)?,
         })
     })?;
 
@@ -81,7 +82,7 @@ pub fn save_worldview(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, group_name, title, content, origin, source_chapter_id, sort_order, created_at, updated_at, deleted_at
+        "SELECT id, novel_id, group_name, title, content, origin, source_chapter_id, sort_order, created_at, updated_at, pinned, deleted_at
          FROM worldview_entry WHERE id = ?1",
     )?;
     stmt.query_row(params![entry_id], |row| {
@@ -96,7 +97,8 @@ pub fn save_worldview(
             sort_order: row.get(7)?,
             created_at: row.get(8)?,
             updated_at: row.get(9)?,
-            deleted_at: row.get(10)?,
+            pinned: row.get::<_, i32>(10)? != 0,
+            deleted_at: row.get(11)?,
         })
     })
 }
@@ -112,7 +114,7 @@ pub fn delete_worldview(conn: &Connection, id: &str) -> Result<()> {
 // --- Character ---
 pub fn list_characters(conn: &Connection, novel_id: &str) -> Result<Vec<Character>> {
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, name, aliases, profile, origin, source_chapter_id, sort_order, created_at, updated_at, deleted_at
+        "SELECT id, novel_id, name, aliases, profile, origin, source_chapter_id, sort_order, created_at, updated_at, pinned, deleted_at
          FROM character
          WHERE novel_id = ?1 AND deleted_at IS NULL
          ORDER BY sort_order ASC, created_at ASC",
@@ -130,7 +132,8 @@ pub fn list_characters(conn: &Connection, novel_id: &str) -> Result<Vec<Characte
             sort_order: row.get(7)?,
             created_at: row.get(8)?,
             updated_at: row.get(9)?,
-            deleted_at: row.get(10)?,
+            pinned: row.get::<_, i32>(10)? != 0,
+            deleted_at: row.get(11)?,
         })
     })?;
 
@@ -188,7 +191,7 @@ pub fn save_character(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, name, aliases, profile, origin, source_chapter_id, sort_order, created_at, updated_at, deleted_at
+        "SELECT id, novel_id, name, aliases, profile, origin, source_chapter_id, sort_order, created_at, updated_at, pinned, deleted_at
          FROM character WHERE id = ?1",
     )?;
     stmt.query_row(params![char_id], |row| {
@@ -203,7 +206,8 @@ pub fn save_character(
             sort_order: row.get(7)?,
             created_at: row.get(8)?,
             updated_at: row.get(9)?,
-            deleted_at: row.get(10)?,
+            pinned: row.get::<_, i32>(10)? != 0,
+            deleted_at: row.get(11)?,
         })
     })
 }
@@ -219,7 +223,7 @@ pub fn delete_character(conn: &Connection, id: &str) -> Result<()> {
 // --- Plot ---
 pub fn list_plots(conn: &Connection, novel_id: &str) -> Result<Vec<PlotItem>> {
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, content, kind, status, chapter_id, origin, sort_order, created_at, updated_at, deleted_at
+        "SELECT id, novel_id, title, content, kind, status, chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
          FROM plot_item
          WHERE novel_id = ?1 AND deleted_at IS NULL
          ORDER BY sort_order ASC, created_at ASC",
@@ -238,7 +242,8 @@ pub fn list_plots(conn: &Connection, novel_id: &str) -> Result<Vec<PlotItem>> {
             sort_order: row.get(8)?,
             created_at: row.get(9)?,
             updated_at: row.get(10)?,
-            deleted_at: row.get(11)?,
+            pinned: row.get::<_, i32>(11)? != 0,
+            deleted_at: row.get(12)?,
         })
     })?;
 
@@ -300,7 +305,7 @@ pub fn save_plot(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, content, kind, status, chapter_id, origin, sort_order, created_at, updated_at, deleted_at
+        "SELECT id, novel_id, title, content, kind, status, chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
          FROM plot_item WHERE id = ?1",
     )?;
     stmt.query_row(params![plot_id], |row| {
@@ -316,7 +321,8 @@ pub fn save_plot(
             sort_order: row.get(8)?,
             created_at: row.get(9)?,
             updated_at: row.get(10)?,
-            deleted_at: row.get(11)?,
+            pinned: row.get::<_, i32>(11)? != 0,
+            deleted_at: row.get(12)?,
         })
     })
 }

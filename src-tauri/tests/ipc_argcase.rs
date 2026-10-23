@@ -85,7 +85,10 @@ fn every_command_declares_snake_case() {
     // cancel_export（置取消位）。三者均带 rename_all；
     // 前两个首参为 AppHandle，在 MockRuntime 下无法进入 command_key_sweep
     // （与 webdav_backup_now 同属已知限制），cancel_export 已加入 sweep。
-    assert_eq!(total, 107, "command count changed — re-audit the frontend call sites");
+    // 107 → 109：上下文装配透明度（任务书 T06）增加 2 个命令：
+    // get_context_manifest（「本次上下文」面板的数据源）、set_entry_pinned
+    // （切换条目「恒入」标记）。二者均带 snake_case 并已加入 command_key_sweep。
+    assert_eq!(total, 109, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

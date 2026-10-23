@@ -8,6 +8,7 @@ fn normalize_params(
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     stream: Option<bool>,
+    context_window: Option<u32>,
 ) -> Result<String, String> {
     if let Some(t) = temperature {
         if !(0.0..=2.0).contains(&t) {
@@ -19,11 +20,17 @@ fn normalize_params(
             return Err("最大输出长度需在 1 ~ 200000 之间".to_string());
         }
     }
+    if let Some(c) = context_window {
+        if c == 0 || c > 2_000_000 {
+            return Err("上下文窗口需在 1 ~ 2000000 之间".to_string());
+        }
+    }
 
     let params = GenerationParams {
         temperature,
         max_tokens,
         stream,
+        context_window,
     };
     Ok(if params.is_empty() {
         "{}".to_string()
@@ -45,13 +52,14 @@ pub fn create_llm_profile(
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     stream: Option<bool>,
+    context_window: Option<u32>,
 ) -> Result<LlmProfile, String> {
     let trimmed_key = api_key.trim();
     if trimmed_key.is_empty() {
         return Err("API Key 密钥不能为空，请输入有效密钥。".to_string());
     }
 
-    let params_json = normalize_params(temperature, max_tokens, stream)?;
+    let params_json = normalize_params(temperature, max_tokens, stream, context_window)?;
 
     let conn = pool.get().map_err(|e| e.to_string())?;
     let key_ref = format!("llm-key-{}", uuid::Uuid::new_v4());
@@ -90,8 +98,9 @@ pub fn update_llm_profile(
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     stream: Option<bool>,
+    context_window: Option<u32>,
 ) -> Result<LlmProfile, String> {
-    let params_json = normalize_params(temperature, max_tokens, stream)?;
+    let params_json = normalize_params(temperature, max_tokens, stream, context_window)?;
     let conn = pool.get().map_err(|e| e.to_string())?;
 
     let existing = crate::db::llm_profile::get_profile(&conn, &id)

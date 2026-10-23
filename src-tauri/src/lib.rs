@@ -110,6 +110,9 @@ pub fn run() {
             commands::ai_cmd::trigger_chapter_extract,
             commands::ai_cmd::list_extraction_candidates,
             commands::ai_cmd::resolve_candidate,
+            // Context Transparency (T06)
+            commands::ai_cmd::get_context_manifest,
+            commands::ai_cmd::set_entry_pinned,
             // Chat History (PRD §4.1 P1)
             commands::ai_cmd::get_or_create_chat_session,
             commands::ai_cmd::list_chat_sessions,

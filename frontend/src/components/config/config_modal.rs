@@ -14,7 +14,7 @@ use shared_types::{
 fn gen_params_summary(params_json: &str) -> String {
     let params = GenerationParams::parse_from_str(params_json);
     if params.is_empty() {
-        return "生成参数：接口默认（temperature / 最大输出长度 / 流式均未覆盖）".to_string();
+        return "生成参数：接口默认（temperature / 最大输出长度 / 上下文窗口 / 流式均未覆盖）".to_string();
     }
 
     let temp = params
@@ -25,12 +25,17 @@ fn gen_params_summary(params_json: &str) -> String {
         .max_tokens
         .map(|m| m.to_string())
         .unwrap_or_else(|| "默认".to_string());
+    let context_window = params
+        .context_window
+        .map(|c| c.to_string())
+        .unwrap_or_else(|| "默认".to_string());
     let stream = params.stream.unwrap_or(true);
 
     format!(
-        "生成参数：temperature {} · 最大输出长度 {} · {}",
+        "生成参数：temperature {} · 最大输出长度 {} · 上下文窗口 {} · {}",
         temp,
         max_tokens,
+        context_window,
         if stream {
             "流式输出"
         } else {
@@ -58,6 +63,8 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let form_temperature = RwSignal::new(String::new());
     let form_max_tokens = RwSignal::new(String::new());
     let form_stream = RwSignal::new(true);
+    // 上下文窗口（T06）：决定装配进 prompt 的设定预算
+    let form_context_window = RwSignal::new(String::new());
 
     // 「拉取模型列表」（PRD §5.1 P0）
     let remote_models = RwSignal::new(Vec::<RemoteModel>::new());
@@ -68,6 +75,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
     let edit_temperature = RwSignal::new(String::new());
     let edit_max_tokens = RwSignal::new(String::new());
     let edit_stream = RwSignal::new(true);
+    let edit_context_window = RwSignal::new(String::new());
 
     let test_status = RwSignal::new(String::new());
 
@@ -121,14 +129,14 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                 .map_err(|_| "temperature 需为 0 ~ 2 之间的数字".to_string())
         }
     };
-    let parse_opt_u32 = |raw: String| -> Result<Option<u32>, String> {
+    let parse_opt_u32 = |raw: String, field: &str| -> Result<Option<u32>, String> {
         let t = raw.trim();
         if t.is_empty() {
             Ok(None)
         } else {
             t.parse::<u32>()
                 .map(Some)
-                .map_err(|_| "最大输出长度需为正整数".to_string())
+                .map_err(|_| format!("{}需为正整数", field))
         }
     };
 
@@ -149,7 +157,14 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                 return;
             }
         };
-        let max_tokens = match parse_opt_u32(form_max_tokens.get()) {
+        let max_tokens = match parse_opt_u32(form_max_tokens.get(), "最大输出长度") {
+            Ok(v) => v,
+            Err(msg) => {
+                test_status.set(format!("✕ {}", msg));
+                return;
+            }
+        };
+        let context_window = match parse_opt_u32(form_context_window.get(), "上下文窗口") {
             Ok(v) => v,
             Err(msg) => {
                 test_status.set(format!("✕ {}", msg));
@@ -168,6 +183,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                 .opt("temperature", temperature)
                 .opt("max_tokens", max_tokens)
                 .opt("stream", Some(form_stream.get()))
+                .opt("context_window", context_window)
                 .send::<LlmProfile>()
                 .await;
 
@@ -181,6 +197,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                     form_api_key.set(String::new());
                     form_temperature.set(String::new());
                     form_max_tokens.set(String::new());
+                    form_context_window.set(String::new());
                     form_stream.set(true);
                     remote_models.set(Vec::new());
                     test_status.set(
@@ -237,7 +254,14 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                 return;
             }
         };
-        let max_tokens = match parse_opt_u32(edit_max_tokens.get()) {
+        let max_tokens = match parse_opt_u32(edit_max_tokens.get(), "最大输出长度") {
+            Ok(v) => v,
+            Err(msg) => {
+                test_status.set(format!("✕ {}", msg));
+                return;
+            }
+        };
+        let context_window = match parse_opt_u32(edit_context_window.get(), "上下文窗口") {
             Ok(v) => v,
             Err(msg) => {
                 test_status.set(format!("✕ {}", msg));
@@ -257,6 +281,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                 .opt("temperature", temperature)
                 .opt("max_tokens", max_tokens)
                 .opt("stream", stream)
+                .opt("context_window", context_window)
                 .send::<LlmProfile>()
                 .await;
 
@@ -684,6 +709,10 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                             .max_tokens
                                                             .map(|t| t.to_string())
                                                             .unwrap_or_default();
+                                                        let saved_ctx_str = saved_params
+                                                            .context_window
+                                                            .map(|c| c.to_string())
+                                                            .unwrap_or_default();
                                                         let saved_stream = saved_params.stream.unwrap_or(true);
                                                         let is_editing = {
                                                             let id = p_id.clone();
@@ -727,12 +756,14 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                                                 let id = p_id.clone();
                                                                                 let t = saved_temp_str.clone();
                                                                                 let m = saved_max_str.clone();
+                                                                                let c = saved_ctx_str.clone();
                                                                                 move |_| {
                                                                                     if editing_id.get().as_deref() == Some(id.as_str()) {
                                                                                         editing_id.set(None);
                                                                                     } else {
                                                                                         edit_temperature.set(t.clone());
                                                                                         edit_max_tokens.set(m.clone());
+                                                                                        edit_context_window.set(c.clone());
                                                                                         edit_stream.set(saved_stream);
                                                                                         editing_id.set(Some(id.clone()));
                                                                                     }
@@ -755,7 +786,7 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                                     let p_save = p_for_save.clone();
                                                                     let _ = &p_for_edit;
                                                                     view! {
-                                                                        <div class="grid grid-cols-3 gap-3 pt-2 border-t border-slate-200 items-end">
+                                                                        <div class="grid grid-cols-4 gap-3 pt-2 border-t border-slate-200 items-end">
                                                                             <div class="space-y-1">
                                                                                 <label class="font-medium text-slate-600">"temperature"</label>
                                                                                 <input
@@ -778,6 +809,17 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                                                     placeholder="留空用默认"
                                                                                     prop:value=move || edit_max_tokens.get()
                                                                                     on:input=move |ev| edit_max_tokens.set(event_target_value(&ev))
+                                                                                />
+                                                                            </div>
+                                                                            <div class="space-y-1">
+                                                                                <label class="font-medium text-slate-600">"上下文窗口 (token)"</label>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="1"
+                                                                                    class="w-full p-1.5 border border-slate-300 rounded font-mono"
+                                                                                    placeholder="留空用默认"
+                                                                                    prop:value=move || edit_context_window.get()
+                                                                                    on:input=move |ev| edit_context_window.set(event_target_value(&ev))
                                                                                 />
                                                                             </div>
                                                                             <div class="flex items-center gap-2 pb-1.5">
@@ -907,6 +949,17 @@ pub fn ConfigModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                             placeholder="留空使用接口默认值"
                                                             prop:value=move || form_max_tokens.get()
                                                             on:input=move |ev| form_max_tokens.set(event_target_value(&ev))
+                                                        />
+                                                    </div>
+                                                    <div class="space-y-1">
+                                                        <label class="font-medium text-slate-600">"上下文窗口 (context_window, token)"</label>
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            class="w-full p-2 border border-slate-300 rounded focus:outline-blue-500 font-mono"
+                                                            placeholder="留空使用接口默认值（决定带入 prompt 的设定预算）"
+                                                            prop:value=move || form_context_window.get()
+                                                            on:input=move |ev| form_context_window.set(event_target_value(&ev))
                                                         />
                                                     </div>
                                                     <div class="col-span-2 space-y-1">

@@ -17,7 +17,7 @@
 | 维度 | 实际值 | 证据 |
 |---|---|---|
 | 版本 | 0.3.8（`package.json` / `src-tauri/Cargo.toml` / `frontend/Cargo.toml` / `shared-types/Cargo.toml` / `src-tauri/tauri.conf.json` 五处一致） | `scripts/check-version.mjs` 守护 |
-| Tauri 命令数 | **99**（全部在 `src-tauri/src/lib.rs:46` 的 `generate_handler!` 中注册，无未注册/孤儿命令） | `src-tauri/src/commands/*.rs` |
+| Tauri 命令数 | **109**（全部在 `src-tauri/src/lib.rs` 的 `generate_handler!` 中注册，无未注册/孤儿命令） | `src-tauri/src/commands/*.rs`、`src-tauri/tests/ipc_argcase.rs:91` |
 | 数据库表 | 迁移文件内 **19** 张 + 运行时创建 `schema_version` = **20** | `src-tauri/migrations/*.sql`、`src-tauri/src/db/mod.rs:26` |
 | 集成测试文件 | `src-tauri/tests/` 下 **23** 个 `.rs` | 另有 `tests/frontend` 2 个、`tests/scripts` 2 个 |
 | 前端 IPC 调用点 | **132** 处 | `frontend/src/**/*.rs` 的 `invoke_cmd` / `invoke_no_args` |
@@ -29,13 +29,14 @@
 
 任务书全局规则 3 写「数据库变更只能新增迁移文件（**refinery**，下一个可用版本号）」。
 
-**仓库中没有 refinery**（`Cargo.toml` / `Cargo.lock` / `src-tauri/Cargo.toml` 均无该依赖）。迁移是**手写阶梯**，位于 `src-tauri/src/db/mod.rs:117-169`：
+**仓库中没有 refinery**（`Cargo.toml` / `Cargo.lock` / `src-tauri/Cargo.toml` 均无该依赖）。迁移是**手写阶梯**，位于 `src-tauri/src/db/mod.rs:117-178`：
 
 ```rust
-pub const BASELINE_VERSION: i64 = 3;                       // db/mod.rs:39
+pub const BASELINE_VERSION: i64 = 4;                       // db/mod.rs:39
 if applied < 1 { conn.execute_batch(include_str!(".../V001__init.sql"))?; ... }
 if applied < 2 { run_legacy_safe_migrations(&conn)?; ... }  // db/mod.rs:53
 if applied < 3 { conn.execute_batch(include_str!(".../V003__indices_and_cleanup.sql"))?; ... }
+if applied < 4 { conn.execute_batch(include_str!(".../V004__entry_pinned.sql"))?; ... }
 ```
 
 **因此「新增一个迁移」实际是四步，不是一步**：
@@ -43,7 +44,7 @@ if applied < 3 { conn.execute_batch(include_str!(".../V003__indices_and_cleanup.
 1. 新增 `src-tauri/migrations/V00N__<name>.sql`
 2. 在 `init_db` 中加 `if applied < N { conn.execute_batch(include_str!(...))?; conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (N)", [])?; }`
 3. `BASELINE_VERSION` 改为 `N`
-4. 扩展 `src-tauri/tests/migration_ladder.rs`（该测试硬编码 v1/v2/v3 断言，如 `v1_database_upgrades_continuously_to_v3_keeping_all_data`）
+4. 扩展 `src-tauri/tests/migration_ladder.rs`（该测试硬编码 v1–v4 断言，如 `v1_database_upgrades_continuously_to_v4_keeping_all_data`）
 
 > **约束**：`V002` 走的是「按 `;` 朴素切分逐条执行」的 legacy-safe 路径（`db/mod.rs:53-93`），要求「一行一条语句、字符串字面量内不含 `;`」。**新建的 V00N 走 `execute_batch`，不受该约束** —— 但触发器（`BEGIN … END`）含分号，必须确认走的是 `execute_batch` 路径。
 >
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **V002**（+1）：`novel_lexicon`（`id, novel_id, term, category, frequency, source_id, created_at, updated_at`）
 **V003**：仅索引（`idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_item_chapter`、`idx_setting_change_target`、`idx_chapter_revision_auto`）
+**V004**：仅加列（`worldview_entry` / `character` / `plot_item` 各增 `pinned INTEGER NOT NULL DEFAULT 0`）
 **运行时**（+1）：`schema_version`（`version INTEGER PRIMARY KEY, applied_at TEXT`）
 
 **全仓库无 FTS 虚拟表、无触发器**（`grep 'CREATE VIRTUAL TABLE|CREATE TRIGGER'` 零命中）——这是 T09 的干净起点。
@@ -210,21 +212,23 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：中。**关键设计决定**：本任务的核心不是「加个徽标」，而是**把三处各自手写的中文错误统一成机器可判定的 `KEY_MISSING` 错误码**，并把检查覆盖面从「恢复时、仅 `llm_profile`」扩到「启动时 + `webdav_config.pwd_ref`」。
 
-#### T06 上下文装配透明度与预算 —— **部分符合**
+#### T06 上下文装配透明度与预算 —— **已落地（PR-08，迁移 V004）**
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
-| 重构 `ai/context.rs` | `src-tauri/src/ai/context.rs`（248 行）**已经是按预算装配**：`DEFAULT_CONTEXT_BUDGET_CHARS = 12_000`(`:25`)、`MAX_SINGLE_ENTRY_CHARS = 900`(`:31`)、优先级明确（作品梗概 > 当前章 > 出场角色 > 待回收伏笔 > 世界观，`:14-16`） | **不需要重构，是扩展** |
-| 角色（name 与 aliases）命中本章正文 | **已实现**：`context.rs:72 character_appears` 按本名或别名匹配，`split_by_presence`(`:85`) 分出场/未出场 | **已符合** |
-| 词库术语命中 | **无** | **缺** |
-| 最近 K 章摘要 | **无** | **缺** |
-| 被标记为「硬性」的设定始终带入 | `pinned` 列**不存在**（`worldview_entry` / `character` / `plot_item` 都没有；全仓库仅任务书自身命中） | **缺（需迁移）** |
-| `llm_profile.params` 增加 `context_window` | `params` 列存在且是 JSON 字符串（`V001:9`），但 `shared-types/src/lib.rs:170-177 GenerationParams` 只有 `temperature`/`max_tokens`/`stream` 三个字段，**无 `context_window`** | **缺（无需迁移）** |
-| 通过 `TokenEstimator` trait 估算 token | **无**，现为字符数预算 | **缺** |
-| 返回 `ContextManifest`（类型、id、标题、入选原因、token、被裁剪项、预算） | **无**，`AssembledContext` 只有 `system_prompt` + `context_text`（`context.rs:17-20`） | **缺** |
-| 前端「本次上下文」面板，可取消勾选或强制加入 | **无** | **缺** |
+| 重构 `ai/context.rs` | `src-tauri/src/ai/context.rs` 按优先级（作品梗概 > 当前章 > 出场角色 > 待回收伏笔 > 世界观）装配；常量 `DEFAULT_CONTEXT_BUDGET_CHARS = 12_000`(`:31`)、`DEFAULT_CONTEXT_BUDGET_TOKENS = 8_000`(`:34`)、`MAX_SINGLE_ENTRY_CHARS = 900`(`:40`) | **已符合** |
+| 角色（name 与 aliases）命中本章正文 | `character_appears` 按本名或别名匹配，`split_by_presence` 分出场/未出场 | **已符合** |
+| 词库术语命中 | 装配器按词库术语命中正文产生 `lexicon` 条目（reason=`lexicon`） | **已符合** |
+| 最近 K 章摘要 | 当前章之前章节以摘要入选（reason=`recent_summary`） | **已符合** |
+| 被标记为「硬性」的设定始终带入 | V004 迁移为三表加 `pinned INTEGER NOT NULL DEFAULT 0`；`set_entry_pinned` 命令持久化；pinned 条目在段内最前且免于预算裁剪（reason=`pinned`） | **已符合** |
+| `llm_profile.params` 增加 `context_window` | `shared-types` 的 `GenerationParams` 增 `context_window: Option<u32>`；预算解析 `params.context_window.unwrap_or(8000)` token，字符预算按 1.5 字符/token 换算；接口配置弹层可填写 | **已符合** |
+| 通过 `TokenEstimator` trait 估算 token | `TokenEstimator` trait（`context.rs:59`）+ `CharCoefficientEstimator` 默认实现（1 token ≈ 1.5 字符） | **已符合** |
+| 返回 `ContextManifest`（类型、id、标题、入选原因、token、被裁剪项、预算） | `shared_types::ContextManifest { budget_tokens, used_tokens, entries, trimmed }`，条目含 `entity_type` / `entry_id` / `title` / `reason` / `token_count` / `included`；命令 `get_context_manifest` | **已符合** |
+| 前端「本次上下文」面板，可取消勾选或强制加入 | 前端 `context_panel.rs` 挂进聊天侧栏；每条可勾选（pinned 强制加入），命令 `set_entry_pinned` | **已符合** |
 
-**工作量**：中偏大。**依赖**：`T08` 依赖本任务的 `pinned`；`T10` 需复用本任务的匹配逻辑（建议把命中逻辑抽到 `src-tauri/src/ai/relevance.rs` 共享）。
+**验收**：`src-tauri/tests/context_manifest.rs`（6 个命令级用例：预算解析链、reason 全集、pinned 持久化与切换、紧缩预算裁剪、无配置报错、无章节降级）；`src/ai/context.rs` 内 `#[cfg(test)]` 单元测试覆盖优先级/命中/裁剪；`tests/frontend/context_panel.test.js`（7 条前端契约）。
+
+**工作量**：已落地。**依赖**：`T08` 可复用本任务的 `pinned`；`T10` 可复用本任务的匹配逻辑。
 
 #### T07 提炼成本与去重 —— **部分符合**
 
@@ -377,7 +381,8 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | **已符合，仅需补测试/结论** | T12 | 补越界路径与 CSP 回归测试 |
 | **部分符合，缺口明确且有限** | T07、T08、T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
-| **部分符合，缺口较大** | T06、T09、T10 | 需新增 manifest/面板；需新增 FTS5 与整链替换；需新增看板与回收章节存储 |
+| **部分符合 → 已落地** | T02、T06 | PR-07（导出，零迁移，2026-10-22）/ PR-08（迁移 V004：pinned，2026-10-23） |
+| **部分符合，缺口较大** | T09、T10 | 需新增 FTS5 与整链替换；需新增看板与回收章节存储 |
 | **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
 | **文档同步** | T01 | 护栏脚本 + §五 刷新 |
 
@@ -391,7 +396,7 @@ PR-04 T03 备份保留策略扩展            ← 已完成（2026-10-22，零�
 PR-05 T04 设备标识与跨设备保护        ← 已完成（2026-10-22，零迁移）
 PR-06 T05 密钥缺失统一处理          ← 已完成（2026-10-22，零迁移）
 PR-07 T02 导出 txt/docx/epub        ← 已完成（2026-10-22，零迁移）
-PR-08 T06 上下文装配透明度        ← 提供 pinned
+PR-08 T06 上下文装配透明度        ← 已完成（2026-10-23，迁移 V004）
 PR-09 T09 全书搜索与替换
 PR-10 T07 提炼成本与去重
 PR-11 T08 冲突检测结构化          ← 依赖 T06 的 pinned
@@ -409,7 +414,7 @@ PR-19 T18 README 截图位
 
 | 迁移 | PR | 内容 |
 |---|---|---|
-| V004 | PR-08 | `worldview_entry` / `character` / `plot_item` 增 `pinned` |
+| V004 | PR-08 | `worldview_entry` / `character` / `plot_item` 增 `pinned` —— **已落地** |
 | V005 | PR-09 | `chapter_fts` FTS5(trigram) 虚拟表 + 触发器 + 回填 |
 | V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` |
 | V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 |

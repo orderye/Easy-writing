@@ -1,7 +1,13 @@
-use crate::ai::gateway::AiGateway;
+use crate::ai::context::{
+    assemble_writing_context_with_options, AssembleOptions, CharCoefficientEstimator,
+    DEFAULT_CONTEXT_BUDGET_TOKENS,
+};
+use crate::ai::gateway::{generation_params_of, AiGateway};
 use crate::ai::openai::ChatMessage;
 use crate::db::DbPool;
-use shared_types::{ChatMessage as ChatMessageDto, ChatSession, ExtractionCandidate};
+use shared_types::{
+    ChatMessage as ChatMessageDto, ChatSession, ContextManifest, ExtractionCandidate, LlmProfile,
+};
 use std::sync::Arc;
 use tauri::State;
 
@@ -47,6 +53,8 @@ pub async fn ai_chat_stream(
     chapter_id: Option<String>,
     prompt: String,
     event_name: String,
+    // 用户在「本次上下文」面板上取消勾选的条目 id（T06）：不进入本次装配。
+    excluded_entry_ids: Option<Vec<String>>,
 ) -> Result<String, String> {
     // 1. 落库用户消息，并取回「近几轮对话」作为上下文（PRD §4.1）
     let (novel, agent, profile, api_key, session_id, history) = {
@@ -75,11 +83,19 @@ pub async fn ai_chat_stream(
 
     let assembled = {
         let conn = pool.get().map_err(|e| e.to_string())?;
-        crate::ai::context::assemble_writing_context(
+        // 预算（T06）：接口配置的 context_window（缺省 8k token）按 1.5 字符/token
+        // 换算为字符预算；面板与真实发送共用同一解析链，保证清单与实际一致。
+        let (budget_chars, budget_tokens) = context_budget_tokens_of(&profile);
+        let estimator = CharCoefficientEstimator::default();
+        let mut opts = AssembleOptions::new(budget_chars, budget_tokens, &estimator);
+        opts.excluded_entry_ids = excluded_entry_ids.unwrap_or_default();
+        assemble_writing_context_with_options(
             &conn,
             &novel,
             chapter_id.as_deref(),
             &agent.system_prompt,
+            &prompt,
+            &opts,
         )
         .map_err(|e| e.to_string())?
     };
@@ -123,6 +139,107 @@ pub async fn ai_chat_stream(
     }
 
     Ok(reply)
+}
+
+// ---------- 上下文装配透明度（T06） ----------
+
+/// 从 LLM 接口配置解析上下文预算：`params.context_window`（token）
+/// 缺省 8k；字符预算按 1.5 字符/token 换算。
+/// `ai_chat_stream` 与 `get_context_manifest` 共用，保证面板与实际发送一致。
+fn context_budget_tokens_of(profile: &LlmProfile) -> (usize, usize) {
+    let params = generation_params_of(profile);
+    let budget_tokens = params
+        .context_window
+        .map(|w| w as usize)
+        .unwrap_or(DEFAULT_CONTEXT_BUDGET_TOKENS);
+    let budget_chars = budget_tokens * 3 / 2;
+    (budget_chars, budget_tokens)
+}
+
+/// 【T06】读取某作品（可按章节）本次会话的上下文装配清单。
+///
+/// 纯读库：不依赖 keyring / 网络，面板预览不因「未配置密钥」而失败；
+/// 预算解析链与 `ai_chat_stream` 完全一致。
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_context_manifest(
+    pool: State<'_, DbPool>,
+    novel_id: String,
+    chapter_id: Option<String>,
+    prompt: Option<String>,
+) -> Result<ContextManifest, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+
+    let novel = crate::db::novel::get_novel(&conn, &novel_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Novel not found".to_string())?;
+
+    // 写作助手 Agent 与其接口配置（不读密钥）
+    let agent = crate::db::agent::get_agent_by_key(&conn, "writing_assistant")
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Agent 'writing_assistant' not found in database".to_string())?;
+    let mut profile = match agent.llm_profile_id.as_ref() {
+        Some(prof_id) => crate::db::llm_profile::get_profile(&conn, prof_id)
+            .map_err(|e| e.to_string())?,
+        None => None,
+    };
+    if profile.is_none() {
+        // 与 dispatcher 同款回退：默认配置 → 首个可用配置
+        let list =
+            crate::db::llm_profile::list_profiles(&conn).map_err(|e| e.to_string())?;
+        profile = list.into_iter().find(|p| p.is_default).or_else(|| {
+            crate::db::llm_profile::list_profiles(&conn)
+                .ok()
+                .and_then(|l| l.into_iter().next())
+        });
+    }
+    let profile = profile
+        .ok_or_else(|| "No LLM profile configured. Please add an API profile in Settings.".to_string())?;
+
+    let (budget_chars, budget_tokens) = context_budget_tokens_of(&profile);
+    let estimator = CharCoefficientEstimator::default();
+    let opts = AssembleOptions::new(budget_chars, budget_tokens, &estimator);
+    let prompt = prompt.unwrap_or_default();
+    let assembled = assemble_writing_context_with_options(
+        &conn,
+        &novel,
+        chapter_id.as_deref(),
+        &agent.system_prompt,
+        &prompt,
+        &opts,
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(assembled.manifest)
+}
+
+/// 【T06】切换条目「恒入上下文」标记。
+///
+/// pinned 条目在装配时始终带入且排在所属类别最前；
+/// `entity_type` 取值与上下文清单一致：worldview / character / plot。
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_entry_pinned(
+    pool: State<'_, DbPool>,
+    entity_type: String,
+    entry_id: String,
+    pinned: bool,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    let table = match entity_type.as_str() {
+        "worldview" => "worldview_entry",
+        "character" => "character",
+        "plot" => "plot_item",
+        other => return Err(format!("不支持的实体类型：{}", other)),
+    };
+    let flag = if pinned { 1 } else { 0 };
+    conn.execute(
+        &format!(
+            "UPDATE {} SET pinned = ?1, updated_at = datetime('now') WHERE id = ?2",
+            table
+        ),
+        rusqlite::params![flag, entry_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ---------- 对话记录（PRD §4.1 P1：随作品保存，可按章节筛选） ----------

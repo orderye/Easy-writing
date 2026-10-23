@@ -117,6 +117,7 @@ pub struct WorldviewEntry {
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
+    pub pinned: bool,
     pub deleted_at: Option<String>,
 }
 
@@ -132,6 +133,7 @@ pub struct Character {
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
+    pub pinned: bool,
     pub deleted_at: Option<String>,
 }
 
@@ -148,6 +150,7 @@ pub struct PlotItem {
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
+    pub pinned: bool,
     pub deleted_at: Option<String>,
 }
 
@@ -166,6 +169,7 @@ pub struct Agent {
 
 /// 生成参数：temperature、最大输出长度、是否流式（PRD §5.1 P0）。
 /// 以 JSON 字符串形式持久化在 llm_profile.params 列中，缺省字段一律使用服务端/网关默认值。
+/// `context_window`（T06）：模型上下文窗口（token），用于推导写作上下文的字符预算。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct GenerationParams {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -174,6 +178,8 @@ pub struct GenerationParams {
     pub max_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
 }
 
 impl GenerationParams {
@@ -187,8 +193,36 @@ impl GenerationParams {
 
     /// 该参数对象是否为空（未设置任何生成参数）。
     pub fn is_empty(&self) -> bool {
-        self.temperature.is_none() && self.max_tokens.is_none() && self.stream.is_none()
+        self.temperature.is_none()
+            && self.max_tokens.is_none()
+            && self.stream.is_none()
+            && self.context_window.is_none()
     }
+}
+
+/// 上下文装配清单（T06）：面板展示与实际发送保持一致的入选依据。
+/// 每条目记录实体类型、id、标题、入选原因、估算 token 与是否入选；
+/// `trimmed` 收录被裁剪（预算不足或用户取消勾选）的条目。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextManifestEntry {
+    /// "novel" | "chapter" | "character" | "plot" | "worldview" | "lexicon"
+    pub entity_type: String,
+    pub entry_id: String,
+    pub title: String,
+    /// "core" | "recent_summary" | "pinned" | "presence" | "alias"
+    /// | "active_plot" | "lexicon" | "worldview" | "listed"
+    pub reason: String,
+    pub token_count: usize,
+    pub included: bool,
+    pub content_chars: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ContextManifest {
+    pub budget_tokens: usize,
+    pub used_tokens: usize,
+    pub entries: Vec<ContextManifestEntry>,
+    pub trimmed: Vec<ContextManifestEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
