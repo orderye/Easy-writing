@@ -98,6 +98,7 @@ pub fn UpdateModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                     {assets.into_iter().map(|asset| {
                                                         let asset_url = asset.browser_download_url.clone();
                                                         let size_mb = format!("{:.1} MB", (asset.size as f64) / (1024.0 * 1024.0));
+                                                        let sha = asset.sha256.clone();
                                                         view! {
                                                             <div
                                                                 class="flex items-center justify-between p-2 rounded-lg bg-slate-50 dark:bg-slate-900/40 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700/60 cursor-pointer transition-colors group"
@@ -112,6 +113,23 @@ pub fn UpdateModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                                     <span class="text-blue-600 dark:text-blue-400 font-semibold group-hover:underline">"下载 →"</span>
                                                                 </div>
                                                             </div>
+                                                            // SHA-256 展示（任务书 T13）：来源是 Release 的 SHA256SUMS.txt，
+                                                            // 后端没匹配到就为空 —— 空值不展示，不编造。
+                                                            {if !sha.is_empty() {
+                                                                view! {
+                                                                    <div class="px-2 pb-1.5 -mt-1 space-y-0.5">
+                                                                        <div class="flex items-center gap-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 select-text">
+                                                                            <span class="shrink-0 font-sans font-semibold text-slate-400 dark:text-slate-500">"SHA-256"</span>
+                                                                            <span class="truncate" title={sha.clone()}>{sha.clone()}</span>
+                                                                        </div>
+                                                                        <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans">
+                                                                            "校验方法：下载后执行 shasum -a 256 <文件名>（macOS）或 certutil -hashfile <文件名> SHA256（Windows），与上行比对一致方可安装。"
+                                                                        </div>
+                                                                    </div>
+                                                                }.into_any()
+                                                            } else {
+                                                                view! { <div></div> }.into_any()
+                                                            }}
                                                         }
                                                     }).collect_view()}
                                                 </div>

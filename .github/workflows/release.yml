@@ -163,6 +163,10 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      # 校验和（任务书 T13）：为 Release 全部附件生成 SHA256SUMS.txt 并上传。
+      # 必须在两个矩阵平台**都跑完**之后执行一次，否则会互相覆盖同一份文件，
+      # 因此放在单独的 gather job（见下方）。
+
       # build-only：只产出构建物供人工检查，绝不创建 Release。
       # 前端资源已在上一步构建完成，这里只跑 tauri build（macOS 走重试脚本）。
       - name: Build only (no release published) — macOS with DMG retry
@@ -172,3 +176,46 @@ jobs:
       - name: Build only (no release published) — other platforms
         if: needs.gate.outputs.is_release != 'true' && runner.os != 'macOS'
         run: pnpm tauri build ${{ matrix.args }}
+
+  # 校验和汇总（任务书 T13）：等全平台产物都上传完后，为 Release 附件
+  # 生成一份 SHA256SUMS.txt 再传回去。应用内更新提示（check_app_update）
+  # 会读取这份文件，把每个安装包的 SHA-256 展示给作者核对。
+  #
+  # 放在单独 job 而不是矩阵内：两个平台并行执行会各自上传同名文件互相覆盖，
+  # 只有一份覆盖了全部产物的校验和文件才有意义。
+  checksums:
+    name: 生成并上传 SHA256SUMS
+    needs: [gate, release]
+    if: needs.gate.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p release-assets
+          gh release download "${{ needs.gate.outputs.release_tag }}" \
+            --repo "${{ github.repository }}" \
+            --dir release-assets \
+            --clobber
+
+      - name: Generate SHA256SUMS.txt
+        working-directory: release-assets
+        # 校验和文件的行格式：<sha256>  <filename>（两个空格 + 相对文件名），
+        # 与 shasum -a 256 / sha256sum 的默认输出一致，可被 `sha256sum -c` 直接校验。
+        run: |
+          sha256sum --binary * > SHA256SUMS.txt
+          echo "---- SHA256SUMS.txt ----"
+          cat SHA256SUMS.txt
+
+      - name: Upload SHA256SUMS.txt to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # --clobber：重跑发布流程时覆盖旧校验和，而不是报错中断
+          gh release upload "${{ needs.gate.outputs.release_tag }}" \
+            release-assets/SHA256SUMS.txt \
+            --repo "${{ github.repository }}" \
+            --clobber
