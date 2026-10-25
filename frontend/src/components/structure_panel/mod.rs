@@ -80,7 +80,7 @@ pub fn StructurePanel(app_ctx: AppContext) -> impl IntoView {
 
     // Save POV / story_time changes（任务书 T11）
     let save_chapter_pov = move |pov: String, story_time: String| {
-        let Some(ch) = app_ctx.current_chapter.get() else { return };
+        let Some(mut ch) = app_ctx.current_chapter.get() else { return };
         let pov_opt = if pov.is_empty() { None } else { Some(pov.clone()) };
         let time_opt = if story_time.trim().is_empty() {
             None
