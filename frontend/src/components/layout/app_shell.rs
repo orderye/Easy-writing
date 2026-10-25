@@ -1,3 +1,4 @@
+use crate::bridge::tiptap;
 use crate::components::ai::conflict_modal::ConflictModal;
 use crate::components::ai::extraction_modal::ExtractionModal;
 use crate::components::config::config_modal::ConfigModal;
@@ -52,6 +53,19 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                 event.prevent_default();
                 ctx.is_search_open.set(false);
             }
+            // 专注/打字机模式（任务书 T11）：Ctrl/Cmd+Shift+F 切换两栏隐藏。
+            // 与 ⌘F（搜索）区分开；不 prevent_default 会触发 WebView 全屏。
+            if (event.meta_key() || event.ctrl_key()) && event.shift_key() && event.key().eq_ignore_ascii_case("f") {
+                event.prevent_default();
+                ctx.is_focus_mode.update(|v| *v = !*v);
+                return;
+            }
+            // 打字机模式：Ctrl/Cmd+Shift+T（无浏览器冲突）。
+            if (event.meta_key() || event.ctrl_key()) && event.shift_key() && event.key().eq_ignore_ascii_case("t") {
+                event.prevent_default();
+                ctx.is_typewriter_mode.update(|v| *v = !*v);
+                return;
+            }
         }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
 
         document
@@ -59,6 +73,43 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             .expect("failed to add keydown listener");
 
         key_listener.forget();
+    });
+
+    // 专注模式（任务书 T11）：把开关反映到 body class 上，由 CSS 隐藏左右两栏。
+    // 只切 class，不触碰编辑器实例 —— 与「切章不销毁编辑器」同一原则。
+    Effect::new(move |_| {
+        let focused = app_ctx.is_focus_mode.get();
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(body) = document.body() {
+                body.set_class_name(if focused { "focus-mode" } else { "" });
+            }
+        }
+    });
+
+    // 打字机模式（任务书 T11）：交给 Tiptap 桥在光标移动时把光标行滚到中部。
+    Effect::new(move |_| {
+        let enabled = app_ctx.is_typewriter_mode.get();
+        tiptap::set_typewriter(enabled);
+    });
+
+    // 每日字数统计（任务书 T11）：切作品时拉取今日净增与目标。
+    // 保存后由保存流程触发刷新（见 save_button.rs）。
+    Effect::new(move |_| {
+        let novel_id = app_ctx.current_novel.get().map(|n| n.id);
+        leptos::task::spawn_local(async move {
+            if let Some(nid) = novel_id {
+                if let Ok(stat) = invoke_cmd("get_daily_stat")
+                    .arg("novel_id", nid.clone())
+                    .send::<shared_types::DailyStat>()
+                    .await
+                {
+                    app_ctx.today_net_words.set(stat.net_words);
+                }
+            }
+            if let Ok(goal) = invoke_cmd("get_daily_goal").send::<i64>().await {
+                app_ctx.daily_goal.set(goal);
+            }
+        });
     });
 
     // 后台自动保存。

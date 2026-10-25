@@ -627,6 +627,11 @@ mod tests {
             [],
         )
         .unwrap();
+        // V009 的 POV / story_time 列（任务书 T11）：章节表头查询现在会取这两列
+        conn.execute_batch(include_str!(
+            "../../migrations/V009__daily_stat_and_chapter_pov.sql"
+        ))
+        .unwrap();
         // novel_lexicon 建表语句与 V002 一致
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS novel_lexicon (

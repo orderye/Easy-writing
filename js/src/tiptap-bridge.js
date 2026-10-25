@@ -449,6 +449,7 @@ export function mount_editor(elementId, initialJson, onUpdateCb) {
       }
     },
     onSelectionUpdate({ editor }) {
+      scrollToCaretCenter();
       if (typeof selectionCallback === 'function') {
         try {
           selectionCallback();
@@ -604,6 +605,32 @@ export function redo() {
   if (activeEditor) activeEditor.chain().focus().redo().run();
 }
 
+// -------------------------------------------------------------
+// Typewriter mode (T11): scroll caret line to vertical center
+// -------------------------------------------------------------
+let typewriterEnabled = false;
+
+function scrollToCaretCenter() {
+  if (!typewriterEnabled || !activeEditor) return;
+  try {
+    const { view } = activeEditor;
+    const coords = view.coordsAtPos(view.state.selection.from);
+    // 编辑器容器是 ProseMirror 根节点的滚动祖先
+    const scroller = view.dom.closest('.overflow-y-auto') || view.dom.parentElement;
+    if (!scroller) return;
+    const rect = scroller.getBoundingClientRect();
+    const target = (coords.top + coords.bottom) / 2 - rect.top - rect.height / 2;
+    scroller.scrollBy({ top: target, behavior: 'auto' });
+  } catch (e) {
+    // 光标坐标在未聚焦/空文档时可能不可得：静默跳过即可
+  }
+}
+
+export function set_typewriter(enabled) {
+  typewriterEnabled = !!enabled;
+  if (typewriterEnabled) scrollToCaretCenter();
+}
+
 // Expose on global window object for direct invocation or wasm-bindgen
 if (typeof window !== 'undefined') {
   window.TiptapBridge = {
@@ -639,5 +666,6 @@ if (typeof window !== 'undefined') {
     insert_image,
     undo,
     redo,
+    set_typewriter,
   };
 }

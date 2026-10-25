@@ -258,9 +258,9 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 
 ---
 
-## 五、数据库 Schema（当前 V001–V008 基线）
+## 五、数据库 Schema（当前 V001–V009 基线）
 
-> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V008 全部阶梯迁移的结果。
+> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V009 全部阶梯迁移的结果。
 > - `V001__init.sql`：18 张基础表（`llm_profile` / `novel` / `volume` / `chapter` / `chapter_revision` / `asset` / `worldview_entry` / `character` / `plot_item` / `agent` / `chat_session` / `chat_message` / `extraction_candidate` / `setting_change` / `prompt_template` / `webdav_config` / `app_setting` / `character_relation`）。
 > - `V002__legacy_safe_migrations.sql`：新增 `novel_lexicon`（专有词库）；为 `setting_change` 增 `target_title` / `is_reverted`，为 `chat_session` 增 `title`，为 `asset` 增 `deleted_at`，为 `extraction_candidate` 增 `title`。
 > - `V003__indices_and_cleanup.sql`：性能索引 `idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 等。
@@ -272,6 +272,7 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 > - `V006__extraction_duplicate.sql`：**仅加列** —— `extraction_candidate` 增 `possible_duplicate_of`（疑似同人锚点：既有角色 id 或另一条候选 id）+ `idx_extraction_duplicate`。
 > - `V007__chapter_conflict_ignore.sql`：**仅新增表** —— `chapter_conflict_ignore`（「本章忽略此类提示」记录）+ `idx_conflict_ignore_chapter`。忽略记录按 `novel_id + chapter_id + signature` 唯一，签名由后端统一计算。
 > - `V008__plot_resolved_chapter.sql`：**仅加列** —— `plot_item` 增 `resolved_chapter_id`（回收章节，V008 新增）+ `idx_plot_resolved_chapter`。与埋设章节（`chapter_id`）分开存储：埋设章由提炼或人工编辑确定，回收章由作者在看板上选定。
+> - `V009__daily_stat_and_chapter_pov.sql`：**新增表 + 仅加列**（任务书 T11）—— 新增 `daily_stat`（按「作品 + 自然日」记录净增字数，净增按保存时新旧字数差累加，导入与批量替换不计入）；`chapter` 增 `pov_character_id`（视角角色，角色删除时置空）与 `story_time`（故事内时间，自由文本）+ `idx_chapter_pov`。每日目标字数存 `app_setting` 键 `daily_goal`，不建新表。
 >
 > ⚠️ 本节与 `src-tauri/migrations/` 的**一致性由 CI 强制**：`scripts/check-docs-schema.mjs` 双向比对本节表清单与迁移实际建表，缺一即失败。改表结构必须同步改这里，也必须同步改迁移文件。
 > 完整建表脚本请参阅 `src-tauri/migrations/`。
@@ -334,12 +335,15 @@ CREATE TABLE chapter (
                     CHECK(status IN ('draft', 'editing', 'finalized')),
     extracted_hash  TEXT,                           -- 上次成功提炼的正文 MD5 指纹
     sort_order      INTEGER NOT NULL DEFAULT 0,
+    pov_character_id TEXT REFERENCES character(id) ON DELETE SET NULL,   -- V009：本章视角角色
+    story_time      TEXT,                           -- V009：故事内时间（自由文本）
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
     deleted_at      TEXT
 );
 CREATE INDEX idx_chapter_volume ON chapter(volume_id, sort_order);
 CREATE INDEX idx_chapter_novel  ON chapter(novel_id);
+CREATE INDEX idx_chapter_pov    ON chapter(novel_id, pov_character_id);   -- V009
 
 -- 5. 本地图片资产
 CREATE TABLE asset (
@@ -571,6 +575,18 @@ CREATE TABLE chapter_conflict_ignore (
     UNIQUE (novel_id, chapter_id, signature)
 );
 CREATE INDEX idx_conflict_ignore_chapter ON chapter_conflict_ignore (chapter_id, novel_id);
+
+-- 20. 每日字数统计（V009，任务书 T11）
+CREATE TABLE daily_stat (
+    id          TEXT PRIMARY KEY,
+    novel_id    TEXT NOT NULL REFERENCES novel(id) ON DELETE CASCADE,
+    stat_date   TEXT NOT NULL,                  -- YYYY-MM-DD（本地时区）
+    net_words   INTEGER NOT NULL DEFAULT 0,     -- 净增字数，可为负（删稿如实扣减）
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (novel_id, stat_date)                -- 同作品同一天只允许一行
+);
+CREATE INDEX idx_daily_stat_novel_date ON daily_stat(novel_id, stat_date);
 
 -- 初始化系统偏好
 INSERT INTO app_setting (key, value) VALUES

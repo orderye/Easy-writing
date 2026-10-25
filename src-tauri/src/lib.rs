@@ -73,6 +73,11 @@ pub fn run() {
             commands::move_chapter,
             commands::reorder_chapters,
             commands::delete_chapter,
+            // 每日字数统计与章节 POV（任务书 T11）
+            commands::get_daily_stat,
+            commands::get_daily_goal,
+            commands::set_daily_goal,
+            commands::update_chapter_pov,
             // Chapter Revisions
             commands::list_chapter_revisions,
             commands::get_chapter_revision,

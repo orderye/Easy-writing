@@ -60,6 +60,12 @@ pub struct Chapter {
     pub status: String, // "draft" | "editing" | "finalized"
     pub extracted_hash: Option<String>,
     pub sort_order: i32,
+    /// 本章视角角色（T11）。`None` = 未指定；角色被删除时数据库会自动置空。
+    #[serde(default)]
+    pub pov_character_id: Option<String>,
+    /// 故事内时间（T11），自由文本，如「第三年·冬」。
+    #[serde(default)]
+    pub story_time: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
@@ -76,6 +82,12 @@ pub struct ChapterHeader {
     pub status: String,
     pub sort_order: i32,
     pub updated_at: String,
+    /// 本章视角角色（T11），右栏按其筛选用。
+    #[serde(default)]
+    pub pov_character_id: Option<String>,
+    /// 故事内时间（T11），自由文本。
+    #[serde(default)]
+    pub story_time: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1029,8 +1041,16 @@ pub struct RestoreReport {
     pub dangling_keys: Vec<DanglingKeyInfo>,
 }
 
-/// 导出格式（任务书 T02）。
+/// 每日写作统计（任务书 T11）：某作品在某自然日的净增字数。
 ///
+/// 净增按保存时新旧字数差累加（允许负值）；导入与批量替换不计入。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DailyStat {
+    pub stat_date: String,
+    pub net_words: i64,
+}
+
+/// 导出格式（任务书 T02）。///
 /// 序列化用小写字符串（`"txt"` / `"docx"` / `"epub"`），
 /// 与前端下拉框取值、文件扩展名一致。
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

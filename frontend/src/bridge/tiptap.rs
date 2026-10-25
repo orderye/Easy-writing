@@ -98,6 +98,9 @@ extern "C" {
     pub fn set_ghost_completion_enabled(enabled: bool);
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]
+    pub fn set_typewriter(enabled: bool);
+
+    #[wasm_bindgen(js_namespace = TiptapBridge)]
     pub fn on_lexicon_term_accepted(cb: &js_sys::Function);
 
     #[wasm_bindgen(js_namespace = TiptapBridge)]

@@ -37,6 +37,26 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             <div class="flex items-center gap-3 text-slate-400 dark:text-slate-500">
+                // 每日目标进度（任务书 T11）：显示「今日 X 字」，设了目标再补比例。
+                {move || {
+                    let net = app_ctx.today_net_words.get();
+                    let goal = app_ctx.daily_goal.get();
+                    if goal > 0 {
+                        let pct = ((net as f64 / goal as f64) * 100.0).round() as i64;
+                        let pct = pct.clamp(0, 999);
+                        view! {
+                            <span class="flex items-center gap-1">
+                                <span>{format!("今日 {net}/{goal} 字 ({pct}%)")}</span>
+                            </span>
+                            <span class="text-slate-300 dark:text-slate-600">"|"</span>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <span>{format!("今日 {net} 字")}</span>
+                            <span class="text-slate-300 dark:text-slate-600">"|"</span>
+                        }.into_any()
+                    }
+                }}
                 <button
                     class=move || {
                         if app_ctx.is_ghost_completion_enabled.get() {
@@ -73,6 +93,47 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
                 >
                     <span>"🕒"</span>
                     <span>"版本历史"</span>
+                </button>
+                <span class="text-slate-300 dark:text-slate-600">"|"</span>
+                <button
+                    class=move || {
+                        if app_ctx.is_focus_mode.get() || app_ctx.is_typewriter_mode.get() {
+                            "hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1 transition-colors text-blue-600 dark:text-blue-400 font-medium"
+                        } else {
+                            "hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer flex items-center gap-1 transition-colors text-slate-400"
+                        }
+                    }
+                    title=move || {
+                        if app_ctx.is_focus_mode.get() && app_ctx.is_typewriter_mode.get() {
+                            "专注模式 + 打字机模式已开启（⌘/Ctrl+Shift+F 两栏，⌘/Ctrl+Shift+T 打字机）"
+                        } else if app_ctx.is_focus_mode.get() {
+                            "专注模式已开启，隐藏左右两栏（⌘/Ctrl+Shift+F 退出；⌘/Ctrl+Shift+T 打字机模式）"
+                        } else if app_ctx.is_typewriter_mode.get() {
+                            "打字机模式已开启，光标行居中（⌘/Ctrl+Shift+T 退出）"
+                        } else {
+                            "专注模式：隐藏左右两栏（⌘/Ctrl+Shift+F）；打字机模式：光标行居中（⌘/Ctrl+Shift+T）"
+                        }
+                    }
+                    on:click=move |_| {
+                        app_ctx.is_focus_mode.update(|v| *v = !*v);
+                    }
+                >
+                    <span>"🎯"</span>
+                    <span>
+                        {move || {
+                            if app_ctx.is_focus_mode.get() {
+                                if app_ctx.is_typewriter_mode.get() {
+                                    "专注 + 打字机"
+                                } else {
+                                    "专注模式: 开"
+                                }
+                            } else if app_ctx.is_typewriter_mode.get() {
+                                "打字机模式: 开"
+                            } else {
+                                "专注模式: 关"
+                            }
+                        }}
+                    </span>
                 </button>
                 <span class="text-slate-300 dark:text-slate-600">"|"</span>
                 <span>"快捷键: ⌘/Ctrl+S 保存"</span>
