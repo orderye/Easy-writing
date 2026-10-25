@@ -54,7 +54,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             class=move || {
                 format!(
                     "h-full bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col panel-transition select-none shrink-0 {}",
-                    if app_ctx.left_panel_open.get() { "w-72" } else { "w-0 overflow-hidden border-none" }
+                    if app_ctx.left_panel_open.get() && !app_ctx.is_focus_mode.get() { "w-72" } else { "w-0 overflow-hidden border-none" }
                 )
             }
         >

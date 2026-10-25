@@ -296,7 +296,12 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
             .trim()
             .to_string();
         let status_filter = app_ctx.chapter_status_filter.get();
-        let is_filtering = !query.is_empty() || status_filter != "all";
+        let pov_filter = app_ctx.chapter_pov_filter.get();
+        let story_time_filter = app_ctx.chapter_story_time_filter.get().to_lowercase();
+        let is_filtering = !query.is_empty()
+            || status_filter != "all"
+            || !pov_filter.is_empty()
+            || !story_time_filter.is_empty();
         let collapsed = collapsed_volumes.get();
 
         let mut nodes = Vec::new();
@@ -311,7 +316,16 @@ pub fn VolumeList(app_ctx: AppContext) -> impl IntoView {
                     total_vol_chapters += 1;
                     let match_q = query.is_empty() || ch.title.to_lowercase().contains(&query);
                     let match_s = status_filter == "all" || ch.status == status_filter;
-                    if match_q && match_s {
+                    let match_pov =
+                        pov_filter.is_empty() || ch.pov_character_id.as_deref() == Some(&pov_filter);
+                    let match_time = story_time_filter.is_empty()
+                        || ch
+                            .story_time
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&story_time_filter);
+                    if match_q && match_s && match_pov && match_time {
                         matching_chapters.push(ch.clone());
                     }
                 }

@@ -68,9 +68,9 @@ pub const NOVEL_COLS: &str =
 pub const VOLUME_COLS: &str =
     "id, novel_id, title, summary, sort_order, created_at, updated_at, deleted_at";
 pub const CHAPTER_HEADER_COLS: &str =
-    "id, novel_id, volume_id, title, summary, word_count, status, sort_order, updated_at";
+    "id, novel_id, volume_id, title, summary, word_count, status, sort_order, updated_at, pov_character_id, story_time";
 pub const CHAPTER_COLS: &str =
-    "id, novel_id, volume_id, title, summary, content, content_plain, word_count, status,      extracted_hash, sort_order, created_at, updated_at, deleted_at";
+    "id, novel_id, volume_id, title, summary, content, content_plain, word_count, status,      extracted_hash, sort_order, pov_character_id, story_time, created_at, updated_at, deleted_at";
 pub const AGENT_COLS: &str =
     "id, key, name, system_prompt, llm_profile_id, params, enabled, created_at, updated_at";
 pub const LLM_PROFILE_COLS: &str =

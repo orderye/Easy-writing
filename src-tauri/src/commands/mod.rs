@@ -13,6 +13,12 @@ use shared_types::{
 use tauri::State;
 
 // Novel commands
+/// 非致命警告：统计类附属功能失败时留痕但不上抛（Rust 侧没有 eprintln
+/// 以外的通道，保持与迁移日志同风格）。
+fn web_sys_like_warn(msg: &str) {
+    eprintln!("{msg}");
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn create_novel(
     pool: State<DbPool>,
@@ -206,8 +212,26 @@ pub fn save_chapter_content(
     word_count: i32,
 ) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
+    // 保存前的字数：净增 = 新字数 − 旧字数（任务书 T11）。
+    // 导入与批量替换不经过本命令，天然不计入每日统计。
+    let old_word_count: i32 = crate::db::chapter::get_chapter(&conn, &id)
+        .ok()
+        .flatten()
+        .map(|c| c.word_count)
+        .unwrap_or(0);
+
     crate::db::chapter::save_chapter_content(&conn, &id, &content, &content_plain, word_count)
         .map_err(|e| e.to_string())?;
+
+    // 每日净增字数（T11）。统计失败不影响保存本身 —— 它是附属功能。
+    if let Some(chap) = crate::db::chapter::get_chapter(&conn, &id).ok().flatten() {
+        let delta = (word_count as i64) - (old_word_count as i64);
+        if delta != 0 {
+            if let Err(e) = crate::db::daily_stat::add_net_words(&conn, &chap.novel_id, delta) {
+                web_sys_like_warn(&format!("[daily-stat] 记录净增字数失败：{e}"));
+            }
+        }
+    }
 
     // Auto snapshot trigger if conditions are met
     if let Ok(Some(chap)) = crate::db::chapter::get_chapter(&conn, &id) {
@@ -384,6 +408,46 @@ pub fn reorder_chapters(pool: State<DbPool>, chapter_ids: Vec<String>) -> Result
 pub fn delete_chapter(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::chapter::delete_chapter(&conn, &id).map_err(|e| e.to_string())
+}
+
+// 每日字数统计（任务书 T11）
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_daily_stat(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<shared_types::DailyStat, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::daily_stat::get_today(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn get_daily_goal(pool: State<DbPool>) -> Result<i64, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::daily_stat::get_goal(&conn).map_err(|e| e.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn set_daily_goal(pool: State<DbPool>, words: i64) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::daily_stat::set_goal(&conn, words).map_err(|e| e.to_string())
+}
+
+/// 更新章节的视角角色与故事时间（任务书 T11）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn update_chapter_pov(
+    pool: State<DbPool>,
+    id: String,
+    pov_character_id: Option<String>,
+    story_time: Option<String>,
+) -> Result<(), String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::chapter::update_chapter_pov(
+        &conn,
+        &id,
+        pov_character_id.as_deref(),
+        story_time.as_deref(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 // Settings commands

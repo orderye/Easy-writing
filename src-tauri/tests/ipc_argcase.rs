@@ -102,7 +102,11 @@ fn every_command_declares_snake_case() {
     // 115 → 117：伏笔看板（任务书 T10）增加 list_foreshadow_board 与 resolve_plot：
     // 前者返回伏笔看板（含章距/超期/关联角色）；后者标记回收并记录回收章节。
     // 两者均带 snake_case 并已加入 command_key_sweep。
-    assert_eq!(total, 117, "command count changed — re-audit the frontend call sites");
+    // 117 → 121：写作辅助（任务书 T11）增加 4 个命令：
+    // get_daily_stat（今日净增字数）、get_daily_goal / set_daily_goal（每日目标）、
+    // update_chapter_pov（视角角色 + 故事时间）。
+    // 四者均带 snake_case 并已加入 command_key_sweep。
+    assert_eq!(total, 121, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

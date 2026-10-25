@@ -14,6 +14,8 @@ fn map_chapter_header(row: &rusqlite::Row<'_>) -> Result<ChapterHeader> {
         status: row.get(6)?,
         sort_order: row.get(7)?,
         updated_at: row.get(8)?,
+        pov_character_id: row.get(9)?,
+        story_time: row.get(10)?,
     })
 }
 
@@ -30,9 +32,11 @@ fn map_chapter(row: &rusqlite::Row<'_>) -> Result<Chapter> {
         status: row.get(8)?,
         extracted_hash: row.get(9)?,
         sort_order: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-        deleted_at: row.get(13)?,
+        pov_character_id: row.get(11)?,
+        story_time: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
+        deleted_at: row.get(15)?,
     })
 }
 
@@ -79,7 +83,7 @@ pub fn list_chapter_headers(conn: &Connection, volume_id: &str) -> Result<Vec<Ch
 pub fn list_all_chapter_headers_for_novel(conn: &Connection, novel_id: &str) -> Result<Vec<ChapterHeader>> {
     query_list(
         conn,
-        "SELECT c.id, c.novel_id, c.volume_id, c.title, c.summary, c.word_count, c.status, c.sort_order, c.updated_at
+        "SELECT c.id, c.novel_id, c.volume_id, c.title, c.summary, c.word_count, c.status, c.sort_order, c.updated_at, c.pov_character_id, c.story_time
          FROM chapter c
          LEFT JOIN volume v ON c.volume_id = v.id
          WHERE c.novel_id = ?1 AND c.deleted_at IS NULL
@@ -101,7 +105,7 @@ pub fn list_chapters_for_export(conn: &Connection, novel_id: &str) -> Result<Vec
     query_list(
         conn,
         "SELECT c.id, c.novel_id, c.volume_id, c.title, c.summary, c.content, c.content_plain,
-                c.word_count, c.status, c.extracted_hash, c.sort_order, c.created_at, c.updated_at, c.deleted_at
+                c.word_count, c.status, c.extracted_hash, c.sort_order, c.pov_character_id, c.story_time, c.created_at, c.updated_at, c.deleted_at
          FROM chapter c
          LEFT JOIN volume v ON c.volume_id = v.id
          WHERE c.novel_id = ?1 AND c.deleted_at IS NULL
@@ -235,8 +239,27 @@ pub fn update_chapter_meta(
     Ok(())
 }
 
-pub fn move_chapter_to_volume(
+/// 更新章节的视角角色与故事时间（任务书 T11）。
+///
+/// 与 `update_chapter_meta` 分开：摘要/状态随编辑随手变，
+/// POV/story_time 是低频元数据，右栏一个独立入口维护，
+/// 合并进 meta 会让前端每次都多传两个参数。
+pub fn update_chapter_pov(
     conn: &Connection,
+    id: &str,
+    pov_character_id: Option<&str>,
+    story_time: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE chapter
+         SET pov_character_id = ?1, story_time = ?2, updated_at = datetime('now')
+         WHERE id = ?3",
+        params![pov_character_id, story_time, id],
+    )?;
+    Ok(())
+}
+
+pub fn move_chapter_to_volume(    conn: &Connection,
     chapter_id: &str,
     new_volume_id: &str,
     new_sort_order: i32,

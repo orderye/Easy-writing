@@ -63,6 +63,10 @@ pub struct AppContext {
     pub settings_search_query: RwSignal<String>,
     pub chapter_search_query: RwSignal<String>,
     pub chapter_status_filter: RwSignal<String>,
+    /// 右栏 POV 筛选（任务书 T11）：空串 = 不过滤；值为角色 id。
+    pub chapter_pov_filter: RwSignal<String>,
+    /// 右栏故事时间筛选（任务书 T11）：空串 = 不过滤，做子串匹配。
+    pub chapter_story_time_filter: RwSignal<String>,
     pub is_import_modal_open: RwSignal<bool>,
     /// 图库（浏览本作品图片资产、把已入库图片插回正文）
     pub is_asset_gallery_open: RwSignal<bool>,
@@ -102,6 +106,16 @@ pub struct AppContext {
     // 全书搜索与替换（任务书 T09）
     /// 搜索/替换弹层是否打开（Cmd/Ctrl+F 切换）。
     pub is_search_open: RwSignal<bool>,
+
+    // 写作辅助（任务书 T11）
+    /// 专注/打字机模式：隐藏左右两栏。纯 CSS 切换，不触碰编辑器实例。
+    pub is_focus_mode: RwSignal<bool>,
+    /// 打字机模式：光标行滚动到编辑区中部。由 Tiptap 桥实现滚动。
+    pub is_typewriter_mode: RwSignal<bool>,
+    /// 今日净增字数（按当前作品）。
+    pub today_net_words: RwSignal<i64>,
+    /// 每日目标字数；0 = 未设置（状态栏不显示目标进度）。
+    pub daily_goal: RwSignal<i64>,
 }
 
 impl AppContext {
@@ -148,6 +162,8 @@ impl AppContext {
             settings_search_query: RwSignal::new(String::new()),
             chapter_search_query: RwSignal::new(String::new()),
             chapter_status_filter: RwSignal::new("all".to_string()),
+            chapter_pov_filter: RwSignal::new(String::new()),
+            chapter_story_time_filter: RwSignal::new(String::new()),
             is_import_modal_open: RwSignal::new(false),
             is_asset_gallery_open: RwSignal::new(false),
             is_update_modal_open: RwSignal::new(false),
@@ -164,6 +180,10 @@ impl AppContext {
             export_summary: RwSignal::new(None),
             export_error: RwSignal::new(None),
             is_search_open: RwSignal::new(false),
+            is_focus_mode: RwSignal::new(false),
+            is_typewriter_mode: RwSignal::new(false),
+            today_net_words: RwSignal::new(0),
+            daily_goal: RwSignal::new(0),
         }
     }
 }

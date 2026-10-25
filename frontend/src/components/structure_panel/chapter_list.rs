@@ -100,6 +100,8 @@ pub fn create_chapter_in_volume(app_ctx: AppContext, volume_id: String) {
                     status: new_ch.status.clone(),
                     sort_order: new_ch.sort_order,
                     updated_at: new_ch.updated_at.clone(),
+                    pov_character_id: None,
+                    story_time: None,
                 };
                 list.push(new_header.clone());
                 app_ctx.chapters_map.set(list);

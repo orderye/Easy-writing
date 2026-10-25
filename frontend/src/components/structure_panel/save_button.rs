@@ -54,6 +54,23 @@ pub async fn perform_save_async(app_ctx: AppContext) -> save_state::SaveOutcome 
         web_sys::console::error_1(&format!("Failed to save chapter: {}", err).into());
     }
 
+    // 保存成功后刷新「今日字数」（任务书 T11）：后端已按新旧字数差累加，
+    // 前端只重新拉取一次，避免本地估算与库内口径漂移。
+    if succeeded {
+        if let Some(novel) = app_ctx.current_novel.get_untracked() {
+            let novel_id = novel.id;
+            leptos::task::spawn_local(async move {
+                if let Ok(stat) = invoke_cmd("get_daily_stat")
+                    .arg("novel_id", novel_id)
+                    .send::<shared_types::DailyStat>()
+                    .await
+                {
+                    app_ctx.today_net_words.set(stat.net_words);
+                }
+            });
+        }
+    }
+
     let edited_since = app_ctx.edit_seq.get_untracked() != seq_at_save;
     let outcome = save_state::resolve_save_outcome(succeeded, edited_since);
     app_ctx

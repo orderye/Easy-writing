@@ -83,6 +83,8 @@ pub async fn load_novel_workspace(app_ctx: AppContext, novel: Novel, ensure_cont
                 status: new_ch.status.clone(),
                 sort_order: new_ch.sort_order,
                 updated_at: new_ch.updated_at.clone(),
+                pov_character_id: None,
+                story_time: None,
             });
             app_ctx.current_chapter.set(Some(new_ch.clone()));
             app_ctx.chapters_map.set(chs);
