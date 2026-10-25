@@ -223,7 +223,7 @@ pub fn delete_character(conn: &Connection, id: &str) -> Result<()> {
 // --- Plot ---
 pub fn list_plots(conn: &Connection, novel_id: &str) -> Result<Vec<PlotItem>> {
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, content, kind, status, chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
+        "SELECT id, novel_id, title, content, kind, status, chapter_id, resolved_chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
          FROM plot_item
          WHERE novel_id = ?1 AND deleted_at IS NULL
          ORDER BY sort_order ASC, created_at ASC",
@@ -238,12 +238,13 @@ pub fn list_plots(conn: &Connection, novel_id: &str) -> Result<Vec<PlotItem>> {
             kind: row.get(4)?,
             status: row.get(5)?,
             chapter_id: row.get(6)?,
-            origin: row.get(7)?,
-            sort_order: row.get(8)?,
-            created_at: row.get(9)?,
-            updated_at: row.get(10)?,
-            pinned: row.get::<_, i32>(11)? != 0,
-            deleted_at: row.get(12)?,
+            resolved_chapter_id: row.get(7)?,
+            origin: row.get(8)?,
+            sort_order: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            pinned: row.get::<_, i32>(12)? != 0,
+            deleted_at: row.get(13)?,
         })
     })?;
 
@@ -284,6 +285,8 @@ pub fn save_plot(
             kind = excluded.kind,
             status = excluded.status,
             chapter_id = excluded.chapter_id,
+            -- 刻意不更新 resolved_chapter_id：编辑标题/内容时不能把回收章节抹掉。
+            -- 只有 resolve_plot 命令能改它（见 db/settings.rs 或 commands/mod.rs）。
             updated_at = datetime('now')",
         params![plot_id, novel_id, title, content, kind, status, chapter_id],
     )?;
@@ -305,7 +308,7 @@ pub fn save_plot(
     }
 
     let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, content, kind, status, chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
+        "SELECT id, novel_id, title, content, kind, status, chapter_id, resolved_chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
          FROM plot_item WHERE id = ?1",
     )?;
     stmt.query_row(params![plot_id], |row| {
@@ -317,12 +320,13 @@ pub fn save_plot(
             kind: row.get(4)?,
             status: row.get(5)?,
             chapter_id: row.get(6)?,
-            origin: row.get(7)?,
-            sort_order: row.get(8)?,
-            created_at: row.get(9)?,
-            updated_at: row.get(10)?,
-            pinned: row.get::<_, i32>(11)? != 0,
-            deleted_at: row.get(12)?,
+            resolved_chapter_id: row.get(7)?,
+            origin: row.get(8)?,
+            sort_order: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+            pinned: row.get::<_, i32>(12)? != 0,
+            deleted_at: row.get(13)?,
         })
     })
 }

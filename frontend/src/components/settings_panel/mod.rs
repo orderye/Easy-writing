@@ -1,6 +1,7 @@
 pub mod character_explosion_modal;
 pub mod character_graph_view;
 pub mod characters;
+pub mod foreshadow_board;
 pub mod lexicon;
 pub mod loaders;
 pub mod outline;
@@ -11,6 +12,7 @@ pub mod worldview;
 
 use crate::components::layout::panel_toggle::LeftToggle;
 use crate::components::settings_panel::characters::CharactersView;
+use crate::components::settings_panel::foreshadow_board::ForeshadowBoardView;
 use crate::components::settings_panel::lexicon::LexiconView;
 use crate::components::settings_panel::outline::OutlineView;
 use crate::components::settings_panel::plot_lines::PlotLinesView;
@@ -69,7 +71,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
             </div>
 
             // Five Settings Tabs
-            <div class="grid grid-cols-5 border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-400 font-medium text-center shrink-0">
+            <div class="grid grid-cols-6 border-b border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-xs text-slate-600 dark:text-slate-400 font-medium text-center shrink-0">
                 <button
                     class=move || {
                         format!(
@@ -102,6 +104,17 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                     on:click=move |_| app_ctx.active_settings_tab.set("plot".to_string())
                 >
                     "剧情"
+                </button>
+                <button
+                    class=move || {
+                        format!(
+                            "py-2 hover:bg-white dark:hover:bg-slate-700 transition-colors border-b-2 cursor-pointer {}",
+                            if active_tab() == "foreshadow" { "border-blue-600 text-blue-700 dark:text-blue-400 bg-white dark:bg-slate-900 font-bold" } else { "border-transparent" }
+                        )
+                    }
+                    on:click=move |_| app_ctx.active_settings_tab.set("foreshadow".to_string())
+                >
+                    "伏笔"
                 </button>
                 <button
                     class=move || {
@@ -161,6 +174,7 @@ pub fn SettingsPanel(app_ctx: AppContext) -> impl IntoView {
                 {move || match active_tab().as_str() {
                     "character" => view! { <CharactersView app_ctx=app_ctx /> }.into_any(),
                     "plot" => view! { <PlotLinesView app_ctx=app_ctx /> }.into_any(),
+                    "foreshadow" => view! { <ForeshadowBoardView app_ctx=app_ctx /> }.into_any(),
                     "outline" => view! { <OutlineView app_ctx=app_ctx /> }.into_any(),
                     "lexicon" => view! { <LexiconView app_ctx=app_ctx /> }.into_any(),
                     _ => view! { <WorldviewView app_ctx=app_ctx /> }.into_any(),

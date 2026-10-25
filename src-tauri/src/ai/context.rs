@@ -621,6 +621,12 @@ mod tests {
         // V004 的 pinned 列（测试库不跑迁移阶梯，直接补列）
         conn.execute_batch(include_str!("../../migrations/V004__entry_pinned.sql"))
             .unwrap();
+        // V008 的回收章节列（fixture 调用 list_plots 时需要）
+        conn.execute(
+            "ALTER TABLE plot_item ADD COLUMN resolved_chapter_id TEXT REFERENCES chapter(id) ON DELETE SET NULL",
+            [],
+        )
+        .unwrap();
         // novel_lexicon 建表语句与 V002 一致
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS novel_lexicon (

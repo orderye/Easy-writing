@@ -258,9 +258,9 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 
 ---
 
-## 五、数据库 Schema（当前 V001–V007 基线）
+## 五、数据库 Schema（当前 V001–V008 基线）
 
-> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V007 全部阶梯迁移的结果。
+> 📌 **DDL 版本与演进说明**：本节记录的是**当前生效**的 Schema，已包含 V001–V008 全部阶梯迁移的结果。
 > - `V001__init.sql`：18 张基础表（`llm_profile` / `novel` / `volume` / `chapter` / `chapter_revision` / `asset` / `worldview_entry` / `character` / `plot_item` / `agent` / `chat_session` / `chat_message` / `extraction_candidate` / `setting_change` / `prompt_template` / `webdav_config` / `app_setting` / `character_relation`）。
 > - `V002__legacy_safe_migrations.sql`：新增 `novel_lexicon`（专有词库）；为 `setting_change` 增 `target_title` / `is_reverted`，为 `chat_session` 增 `title`，为 `asset` 增 `deleted_at`，为 `extraction_candidate` 增 `title`。
 > - `V003__indices_and_cleanup.sql`：性能索引 `idx_asset_novel_hash`、`idx_asset_hash`、`idx_plot_chapter`、`idx_setting_change_target` 等。
@@ -271,6 +271,7 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 >
 > - `V006__extraction_duplicate.sql`：**仅加列** —— `extraction_candidate` 增 `possible_duplicate_of`（疑似同人锚点：既有角色 id 或另一条候选 id）+ `idx_extraction_duplicate`。
 > - `V007__chapter_conflict_ignore.sql`：**仅新增表** —— `chapter_conflict_ignore`（「本章忽略此类提示」记录）+ `idx_conflict_ignore_chapter`。忽略记录按 `novel_id + chapter_id + signature` 唯一，签名由后端统一计算。
+> - `V008__plot_resolved_chapter.sql`：**仅加列** —— `plot_item` 增 `resolved_chapter_id`（回收章节，V008 新增）+ `idx_plot_resolved_chapter`。与埋设章节（`chapter_id`）分开存储：埋设章由提炼或人工编辑确定，回收章由作者在看板上选定。
 >
 > ⚠️ 本节与 `src-tauri/migrations/` 的**一致性由 CI 强制**：`scripts/check-docs-schema.mjs` 双向比对本节表清单与迁移实际建表，缺一即失败。改表结构必须同步改这里，也必须同步改迁移文件。
 > 完整建表脚本请参阅 `src-tauri/migrations/`。
@@ -401,6 +402,7 @@ CREATE TABLE plot_item (
     status              TEXT NOT NULL DEFAULT 'planted'
                         CHECK(status IN ('planted', 'resolved')),
     chapter_id          TEXT REFERENCES chapter(id) ON DELETE SET NULL,
+    resolved_chapter_id TEXT REFERENCES chapter(id) ON DELETE SET NULL,   -- V008：回收章节
     origin              TEXT NOT NULL DEFAULT 'manual'
                         CHECK(origin IN ('manual', 'ai')),
     sort_order          INTEGER NOT NULL DEFAULT 0,
@@ -410,6 +412,7 @@ CREATE TABLE plot_item (
     deleted_at          TEXT
 );
 CREATE INDEX idx_plot_novel ON plot_item(novel_id, sort_order);
+CREATE INDEX idx_plot_resolved_chapter ON plot_item(novel_id, resolved_chapter_id);   -- V008
 
 -- 9. 预设 Agent 表
 CREATE TABLE agent (

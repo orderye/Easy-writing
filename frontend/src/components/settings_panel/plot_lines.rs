@@ -20,6 +20,8 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
     let on_add_plot = move |_| {
         if let Some(novel) = app_ctx.current_novel.get() {
             let novel_id = novel.id;
+            // 传当前打开的章节 id：人工新建伏笔才有埋设章节，看板才能算「距今章数」
+            let chapter_id = app_ctx.current_chapter.get().map(|c| c.id);
             leptos::task::spawn_local(async move {
                 let res = invoke_cmd("save_plot")
                     .opt("id", None::<String>)
@@ -28,7 +30,7 @@ pub fn PlotLinesView(app_ctx: AppContext) -> impl IntoView {
                     .arg("content", "".to_string())
                     .arg("kind", "foreshadow".to_string())
                     .arg("status", "planted".to_string())
-                    .opt("chapter_id", None::<String>)
+                    .opt("chapter_id", chapter_id)
                     .send::<PlotItem>()
                     .await;
 

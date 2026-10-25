@@ -88,6 +88,9 @@ pub fn run() {
             commands::list_plots,
             commands::save_plot,
             commands::delete_plot,
+            // 伏笔看板（T10）
+            commands::list_foreshadow_board,
+            commands::resolve_plot,
             // Setting Changes
             commands::list_setting_changes,
             commands::revert_setting_change,

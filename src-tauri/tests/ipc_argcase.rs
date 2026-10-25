@@ -99,7 +99,10 @@ fn every_command_declares_snake_case() {
     // 带 snake_case 并已加入 command_key_sweep。
     // 114 → 115：冲突检测结构化（任务书 T08）增加 ignore_chapter_conflict：
     // 记录「本章忽略此类提示」。带 snake_case 并已加入 command_key_sweep。
-    assert_eq!(total, 115, "command count changed — re-audit the frontend call sites");
+    // 115 → 117：伏笔看板（任务书 T10）增加 list_foreshadow_board 与 resolve_plot：
+    // 前者返回伏笔看板（含章距/超期/关联角色）；后者标记回收并记录回收章节。
+    // 两者均带 snake_case 并已加入 command_key_sweep。
+    assert_eq!(total, 117, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \

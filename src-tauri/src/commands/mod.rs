@@ -7,8 +7,8 @@ pub mod update_cmd;
 
 use crate::db::DbPool;
 use shared_types::{
-    Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, LexiconEntry, Novel, PlotItem,
-    SettingChange, TrashItem, Volume, WorldviewEntry,
+    Chapter, ChapterHeader, ChapterRevision, ChapterRevisionHeader, Character, ForeshadowRow,
+    LexiconEntry, Novel, PlotItem, SettingChange, TrashItem, Volume, WorldviewEntry,
 };
 use tauri::State;
 
@@ -493,6 +493,27 @@ pub fn save_plot(
 pub fn delete_plot(pool: State<DbPool>, id: String) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
     crate::db::settings::delete_plot(&conn, &id).map_err(|e| e.to_string())
+}
+
+/// 伏笔看板（T10）：含埋设/回收位置、距今章数、超期高亮与关联角色。
+#[tauri::command(rename_all = "snake_case")]
+pub fn list_foreshadow_board(
+    pool: State<DbPool>,
+    novel_id: String,
+) -> Result<Vec<ForeshadowRow>, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::foreshadow::list_foreshadow_board(&conn, &novel_id).map_err(|e| e.to_string())
+}
+
+/// 标记伏笔回收（T10 / V008）：设置 status=resolved 并记录回收章节。
+#[tauri::command(rename_all = "snake_case")]
+pub fn resolve_plot(
+    pool: State<DbPool>,
+    id: String,
+    resolved_chapter_id: Option<String>,
+) -> Result<PlotItem, String> {
+    let conn = pool.get().map_err(|e| e.to_string())?;
+    crate::db::foreshadow::resolve_plot(&conn, &id, resolved_chapter_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command(rename_all = "snake_case")]

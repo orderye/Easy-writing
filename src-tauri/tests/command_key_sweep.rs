@@ -74,6 +74,8 @@ fn all_command_keys_resolve() {
             easy_writing_lib::commands::list_plots,
             easy_writing_lib::commands::save_plot,
             easy_writing_lib::commands::delete_plot,
+            easy_writing_lib::commands::list_foreshadow_board,
+            easy_writing_lib::commands::resolve_plot,
             easy_writing_lib::commands::list_setting_changes,
             easy_writing_lib::commands::revert_setting_change,
             easy_writing_lib::commands::apply_conflict_setting_update,
@@ -180,6 +182,8 @@ fn all_command_keys_resolve() {
         ("list_plots", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("save_plot", r#"{"id": null, "novel_id": "@@NOVEL@@", "title": "v", "content": "v", "kind": "foreshadow", "status": "planted", "chapter_id": null}"#),
         ("delete_plot", r#"{"id": "@@CHAPTER@@"}"#),
+        ("list_foreshadow_board", r#"{"novel_id": "@@NOVEL@@"}"#),
+        ("resolve_plot", r#"{"id": "@@CHAPTER@@", "resolved_chapter_id": "@@CHAPTER@@"}"#),
         ("list_setting_changes", r#"{"novel_id": "@@NOVEL@@"}"#),
         ("find_affected_chapters", r#"{"novel_id": "@@NOVEL@@", "term": "剑"}"#),
         // 全书搜索与替换（任务书 T09）：四者首参均为 State<DbPool>，可进 sweep。

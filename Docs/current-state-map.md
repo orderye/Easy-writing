@@ -275,13 +275,15 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **README 承诺已修正**：`README.md:66` 由「尚未交付」改为真实描述（含 3 字符限制）。
 
-#### T10 伏笔看板 —— **部分符合**
+#### T10 伏笔看板 —— **已落地（PR-12，迁移 V008）**
 
-- `plot_item` 已有 `status` CHECK ∈ (`planted`,`resolved`)（`V001:128`）与 `chapter_id`（`V001:129`）——**埋设章节字段已有**。
-- 前端 `frontend/src/components/settings_panel/plot_lines.rs` 已有伏笔列表，且**状态切换按钮已在渲染「已埋设」/「已回收」**（`:136-149`），新建时默认 `kind="foreshadow"` / `status="planted"`（`:29-30`）。命令 `list_plots` / `save_plot` / `delete_plot` 齐备（`commands/mod.rs:466-494`）。
-- **但没有**：伏笔总览看板、距今章数计算、超过阈值未回收高亮、关联角色、状态栏未回收计数、一键跳转、`resolved_chapter_id`（回收章节**未被存储**，`resolved` 只是一个状态位）、「标记回收」操作。
-- **额外坑**：前端新建伏笔时 `save_plot` 传的是 `chapter_id: None`（`plot_lines.rs:31,107`）—— **埋设章节只有 AI 提炼路径会写**（`ai_cmd.rs:503`），人工新建的伏笔没有埋设章节。T10 必须一并解决这个数据缺口，否则「距今章数」对人工伏笔无意义。
-- **工作量**：中偏大。**依赖**：复用 T06 的匹配逻辑（判断某伏笔涉及哪些角色）。
+- `plot_item` 增 `resolved_chapter_id`（迁移 V008）—— 回收章节被存储，不再只是状态位。
+- 后端 `db/foreshadow.rs`：`list_foreshadow_board` 按全书章序算「距今章数」（跨卷正确）、超期高亮、关联角色（复用 T06 匹配逻辑，但文本来源是伏笔内容）；`resolve_plot` 标记回收并走 `record_setting_change` 留档。
+- 前端新增「伏笔」tab（设置面板第 6 个）：看板卡片展示标题、状态、埋设/回收章名、距今章数、关联角色、内容预览；超期未回收整卡高亮；一键跳转埋设章；行内下拉选回收章节后调 `resolve_plot`。
+- 未回收计数：当前在看板头部本地统计展示（「未回收 N / 超期 M」），使用组件本地信号；状态栏只读共享计数（`AppContext.foreshadow_board`）**尚未实现**，是 T10 的遗留项。
+- 人工新建伏笔带当前章节 id：`plot_lines.rs` 的 `on_add_plot` 传 `app_ctx.current_chapter.get().map(|c| c.id)`，修复数据缺口。
+- **伏笔口径**：看板展示全部三种 kind（mainline / conflict / foreshadow），因为 T06 的上下文装配同样把它们都当作「待回收伏笔」带入。
+- **可测**：`foreshadow_board.rs` 12 例（跨卷章距、末章 0、回收后不高亮、超期高亮、关联角色本名/别名/无匹配、埋设章缺失、`resolve_plot` 落库、跨作品章节被拒、留档、`save_plot` 不破坏回收章节、阈值解析、排序）、模块内单测 2 例、前端契约 6 条；`migration_ladder` 扩至 v8（15 例）；命令计数 115→117。
 
 #### T11 写作辅助 —— **不符合（全新）**
 
@@ -386,8 +388,8 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | **已符合，仅需补测试/结论** | T12 | 补越界路径与 CSP 回归测试 |
 | **部分符合，缺口明确且有限** | T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
-| **部分符合 → 已落地** | T02、T06、T07、T08、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（V004：pinned，2026-10-23）/ PR-09（V005：FTS5，2026-10-23）/ PR-10（V006：疑似同人锚点，2026-10-23）/ PR-11（V007：本章忽略记录表，2026-10-23） |
-| **部分符合，缺口较大** | T10 | 需新增看板与回收章节存储 |
+| **部分符合 → 已落地** | T02、T06、T07、T08、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（V004：pinned，2026-10-23）/ PR-09（V005：FTS5，2026-10-23）/ PR-10（V006：疑似同人锚点，2026-10-23）/ PR-11（V007：本章忽略记录表，2026-10-24） |
+| **部分符合 → 已落地** | T10 | PR-12（V008：plot_item 回收章节列，2026-10-24） |
 | **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
 | **文档同步** | T01 | 护栏脚本 + §五 刷新 |
 
@@ -405,7 +407,7 @@ PR-08 T06 上下文装配透明度        ← 已完成（2026-10-23，迁移 V0
 PR-09 T09 全书搜索与替换        ← 已完成（2026-10-23，迁移 V005）
 PR-10 T07 提炼成本与去重        ← 已完成（2026-10-23，迁移 V006）
 PR-11 T08 冲突检测结构化        ← 已完成（2026-10-23，迁移 V007）
-PR-12 T10 伏笔看板                ← 复用 T06 匹配逻辑
+PR-12 T10 伏笔看板                ← 已完成（2026-10-24，迁移 V008）
 PR-13 T11 写作辅助
 PR-14 T13 校验和与更新提示
 PR-15 T14 打包与签名
@@ -423,7 +425,7 @@ PR-19 T18 README 截图位
 | V005 | PR-09 | `chapter_fts` FTS5(trigram) 虚拟表 + 触发器 + 回填；`chapter_revision` 增 `batch_id` —— **已落地** |
 | V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` —— **已落地** |
 | V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 —— **已落地** |
-| V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` |
+| V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` —— **已落地** |
 | V009 | PR-13 | 新增 `daily_stat` 表；`chapter` 增 `pov_character_id` / `story_time` |
 
 **新增第三方依赖**（集中在 PR-07）：实际只引入 `tauri-plugin-dialog`（MIT/Apache-2.0）——
@@ -463,7 +465,7 @@ PR-19 T18 README 截图位
 ## 七、本次核对的未决项
 
 - `Docs/Easy-writing · 实施计划.md` 中「导入 MVP 不含…」等过时描述的逐条位置，PR-02 落笔时核对。
-- `plot_item.kind` 的三个 CHECK 值（`mainline`/`conflict`/`foreshadow`）与 T10「伏笔」口径的映射关系，PR-12 落笔时确认。
+- ~~`plot_item.kind` 的三个 CHECK 值（`mainline`/`conflict`/`foreshadow`）与 T10「伏笔」口径的映射关系~~ —— **已落结论（PR-12）**：看板展示全部三种 kind，因为 T06 的上下文装配同样把它们都当作「待回收伏笔」带入。
 - ~~`chapter_revision` 是否需要新增「批次 id」列以支撑 T09 的整批撤销~~ —— **需要，已在 V005 落定**（`batch_id TEXT` + `idx_revision_batch`）。
 - `restore.rs` 预检已读出 `schema_version` 但未见「高于当前应用即拒绝」的比较，PR-05 落笔时补齐并补测试。
 

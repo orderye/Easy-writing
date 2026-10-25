@@ -146,12 +146,45 @@ pub struct PlotItem {
     pub kind: String,   // "mainline" | "conflict" | "foreshadow"
     pub status: String, // "planted" | "resolved"
     pub chapter_id: Option<String>,
+    /// 回收章节（V008）。此前「已回收」只是状态位，没有记录在哪一回收的；
+    /// 伏笔看板据此算「距今章数」与一键跳回收章节。
+    ///
+    /// 与埋设章节（chapter_id）分开存储：埋设章由提炼或人工编辑确定，
+    /// 回收章由作者在看板上选定。两者语义不同，不能共用一个列。
+    pub resolved_chapter_id: Option<String>,
     pub origin: String, // "manual" | "ai"
     pub sort_order: i32,
     pub created_at: String,
     pub updated_at: String,
     pub pinned: bool,
     pub deleted_at: Option<String>,
+}
+
+/// 伏笔看板的一行（T10）。
+///
+/// 把 `plot_item` 的原始字段加上「全书章序位置」与「超期判定」后的展示结构：
+/// 看板不需要作者算章距，后端按卷章排序算好。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForeshadowRow {
+    pub id: String,
+    pub novel_id: String,
+    pub title: String,
+    pub content: String,
+    pub kind: String,
+    pub status: String,
+    pub chapter_id: Option<String>,
+    pub resolved_chapter_id: Option<String>,
+    /// 埋设章在全书章序中的下标（0 起）。None = 埋设章缺失或已删。
+    pub chapter_index: Option<usize>,
+    /// 回收章在全书章序中的下标。None = 已回收但未指定章节。
+    pub resolved_chapter_index: Option<usize>,
+    /// 距今章数 = 全书末章下标 + 1 - plant_index。埋设在末章为 0，
+    /// 埋设在倒数第二章为 1。跨卷天然正确，因为章序是「全书」序而非「卷内」序。
+    pub chapters_since_plant: Option<usize>,
+    /// 未回收且已超阈值（`foreshadow_overdue_chapters`）。
+    pub overdue: bool,
+    /// 关联角色名（按本名 + 别名在伏笔内容里匹配，T06 同口径但文本来源是伏笔内容）。
+    pub related_characters: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

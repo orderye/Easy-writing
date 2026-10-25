@@ -305,6 +305,35 @@ fn assert_v007_objects_present(conn: &Connection) {
     );
 }
 
+/// V008 创建的对象：`plot_item.resolved_chapter_id` 列与 `idx_plot_resolved_chapter` 索引。
+fn drop_v008_objects(conn: &Connection) {
+    conn.execute("DROP INDEX IF EXISTS idx_plot_resolved_chapter", [])
+        .unwrap();
+    conn.execute(
+        "ALTER TABLE plot_item DROP COLUMN resolved_chapter_id",
+        [],
+    )
+    .unwrap();
+}
+
+fn assert_v008_objects_absent(conn: &Connection) {
+    assert!(
+        !column_exists(conn, "plot_item", "resolved_chapter_id"),
+        "历史状态不应有 V008 的 resolved_chapter_id 列"
+    );
+}
+
+fn assert_v008_objects_present(conn: &Connection) {
+    assert!(
+        column_exists(conn, "plot_item", "resolved_chapter_id"),
+        "V008 必须给 plot_item 加 resolved_chapter_id"
+    );
+    assert!(
+        index_exists(conn, "idx_plot_resolved_chapter"),
+        "V008 必须创建 idx_plot_resolved_chapter"
+    );
+}
+
 /// 目标历史状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HistoricalState {
@@ -322,6 +351,8 @@ enum HistoricalState {
     V5,
     /// 引入 PR-10（T07）之后、PR-11（T08）之前的产物：V001–V006 已应用，V007 未应用。
     V6,
+    /// 引入 PR-11（T08）之后、PR-12（T10）之前的产物：V001–V007 已应用，V008 未应用。
+    V7,
 }
 
 fn index_exists(conn: &Connection, name: &str) -> bool {
@@ -553,6 +584,7 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
                 // ≤ v0.3.3 的库根本没有这张表，也没有 V004 的列
                 conn.execute("DROP TABLE schema_version", []).unwrap();
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 drop_v006_objects(&conn);
                 drop_v005_objects(&conn);
                 drop_v004_columns(&conn);
@@ -571,6 +603,7 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
                     }
                 }
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 drop_v006_objects(&conn);
                 drop_v005_objects(&conn);
                 drop_v004_columns(&conn);
@@ -582,6 +615,7 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
                     conn.execute(&format!("DROP INDEX IF EXISTS {idx}"), []).unwrap();
                 }
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 drop_v006_objects(&conn);
                 drop_v005_objects(&conn);
                 drop_v004_columns(&conn);
@@ -591,6 +625,7 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
             HistoricalState::V3 => {
                 // V004 只加列：把 pinned 列物理删掉，表结构才等于真实 v3 库
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 drop_v006_objects(&conn);
                 drop_v005_objects(&conn);
                 for table in ["character", "worldview_entry", "plot_item"] {
@@ -603,6 +638,7 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
             HistoricalState::V4 => {
                 // T06 之后、T09 之前的库：有 pinned，但没有 FTS 与 batch_id
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 drop_v006_objects(&conn);
                 drop_v005_objects(&conn);
                 conn.execute("DELETE FROM schema_version WHERE version > 4", [])
@@ -611,6 +647,7 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
             HistoricalState::V5 => {
                 // T09 之后、T10 之前的库：有 FTS，但没有去重锚点列
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 drop_v006_objects(&conn);
                 conn.execute("DELETE FROM schema_version WHERE version > 5", [])
                     .unwrap();
@@ -618,7 +655,14 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
             HistoricalState::V6 => {
                 // PR-10 之后、PR-11 之前的库：V001–V006 齐全，只缺 V007 的忽略表
                 drop_v007_objects(&conn);
+                drop_v008_objects(&conn);
                 conn.execute("DELETE FROM schema_version WHERE version > 6", [])
+                    .unwrap();
+            }
+            HistoricalState::V7 => {
+                // PR-11 之后、PR-12 之前的库：V001–V007 齐全，只缺 V008 的 resolved_chapter_id 列
+                drop_v008_objects(&conn);
+                conn.execute("DELETE FROM schema_version WHERE version > 7", [])
                     .unwrap();
             }
         }
@@ -704,6 +748,16 @@ fn historical_fixture(tag: &str, state: HistoricalState) -> PathBuf {
             assert_v006_objects_present(&conn);
             assert_v007_objects_absent(&conn);
         }
+        HistoricalState::V7 => {
+            assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7], "fixture 应处于 v7");
+            assert!(
+                table_exists(&conn, "chapter_fts"),
+                "v7 状态应已有 V005 的 chapter_fts"
+            );
+            assert_v006_objects_present(&conn);
+            assert_v007_objects_present(&conn);
+            assert_v008_objects_absent(&conn);
+        }
     }
     drop(conn);
     dir
@@ -722,7 +776,7 @@ fn v1_database_upgrades_continuously_to_v6_keeping_all_data() {
         db::BASELINE_VERSION,
         "升级后必须到达基线版本"
     );
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7], "七级版本记录都必须存在");
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8], "七级版本记录都必须存在");
 
     // V002 的产物必须被真正创建（证明 V002 没有被跳过）
     assert!(
@@ -749,6 +803,7 @@ fn v1_database_upgrades_continuously_to_v6_keeping_all_data() {
     assert_v005_objects_present(&conn);
     assert_v006_objects_present(&conn);
     assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
 
     // v1 库里本来就没有词库数据（表都不存在），因此只验证表已就位
     verify_business_data(&conn, false);
@@ -760,7 +815,7 @@ fn v1_database_upgrades_continuously_to_v6_keeping_all_data() {
 }
 
 #[test]
-fn v2_database_upgrades_to_v7_keeping_all_data() {
+fn v2_database_upgrades_to_v8_keeping_all_data() {
     // v0.3.4 用户升级到新版本的真实路径：补 V003 + V004 + V005 + V006 + V007。
     let dir = historical_fixture("ladder_v2", HistoricalState::V2);
 
@@ -768,7 +823,7 @@ fn v2_database_upgrades_to_v7_keeping_all_data() {
     let conn = pool.get().unwrap();
 
     assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     for idx in V003_INDEXES {
         assert!(index_exists(&conn, idx), "V003 索引 {idx} 必须被补上");
     }
@@ -781,20 +836,21 @@ fn v2_database_upgrades_to_v7_keeping_all_data() {
     assert_v005_objects_present(&conn);
     assert_v006_objects_present(&conn);
     assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
     // v2 库里词库数据是存在的，必须原样保留
     verify_business_data(&conn, true);
 }
 
 #[test]
-fn v3_database_upgrades_to_v7_keeping_all_data() {
-    // v0.3.5–v0.3.8 用户升级的真实路径：补 V004（pinned）+ V005（FTS5）+ V006（去重锚点）+ V007。
+fn v3_database_upgrades_to_v8_keeping_all_data() {
+    // v0.3.5–v0.3.8 用户升级的真实路径：补 V004（pinned）+ V005（FTS5）+ V006（去重锚点）+ V007 + V008。
     let dir = historical_fixture("ladder_v3", HistoricalState::V3);
 
     let pool = db::init_db(dir.clone()).unwrap();
     let conn = pool.get().unwrap();
 
     assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     for table in ["character", "worldview_entry", "plot_item"] {
         assert!(
             column_exists(&conn, table, "pinned"),
@@ -813,12 +869,13 @@ fn v3_database_upgrades_to_v7_keeping_all_data() {
     assert_v005_objects_present(&conn);
     assert_v006_objects_present(&conn);
     assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
     // v3 库里的全部业务数据（含词库）必须原样保留
     verify_business_data(&conn, true);
 }
 
 #[test]
-fn v4_database_upgrades_to_v7_keeping_all_data() {
+fn v4_database_upgrades_to_v8_keeping_all_data() {
     // T06 之后、T09 之前的用户升级的真实路径：补 V005（FTS5 + batch_id）+ V006 + V007。
     let dir = historical_fixture("ladder_v4", HistoricalState::V4);
 
@@ -826,63 +883,85 @@ fn v4_database_upgrades_to_v7_keeping_all_data() {
     let conn = pool.get().unwrap();
 
     assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     assert_v005_objects_present(&conn);
     assert_v006_objects_present(&conn);
     assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
     // 升级不得改动任何既有正文（索引是派生数据，正文才是真相）
     verify_business_data(&conn, true);
 }
 
 #[test]
-fn v5_database_upgrades_to_v7_keeping_all_data() {
-    // PR-09 之后、PR-10 之前的用户升级路径：补 V006（去重锚点列）+ V007。
+fn v5_database_upgrades_to_v8_keeping_all_data() {
+    // PR-09 之后、PR-10 之前的用户升级路径：补 V006（去重锚点列）+ V007 + V008。
     let dir = historical_fixture("ladder_v5", HistoricalState::V5);
 
     let pool = db::init_db(dir.clone()).unwrap();
     let conn = pool.get().unwrap();
 
     assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     assert_v006_objects_present(&conn);
-    // V005 的全文索引必须原样保留（V006/V007 只加列建表，不得碰索引）
+    // V005 的全文索引必须原样保留（V006/V007/V008 只加列建表，不得碰索引）
     assert_v005_objects_present(&conn);
     assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
     verify_business_data(&conn, true);
 }
 
 #[test]
-fn v6_database_upgrades_to_v7_keeping_all_data() {
-    // PR-10 之后、PR-11 之前的用户升级路径：只需要补 V007（本章忽略记录表）。
+fn v6_database_upgrades_to_v8_keeping_all_data() {
+    // PR-10 之后、PR-11 之前的用户升级路径：只需要补 V007（本章忽略记录表）+ V008（回收章节列）。
     let dir = historical_fixture("ladder_v6", HistoricalState::V6);
 
     let pool = db::init_db(dir.clone()).unwrap();
     let conn = pool.get().unwrap();
 
     assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     assert_v006_objects_present(&conn);
     assert_v007_objects_present(&conn);
-    // V005 的全文索引必须原样保留（V007 只是新建一张辅助表）
+    assert_v008_objects_present(&conn);
+    // V005 的全文索引必须原样保留（V007/V008 只是新建辅助表与加列）
     assert_v005_objects_present(&conn);
     verify_business_data(&conn, true);
 }
 
 #[test]
-fn pre_ladder_database_without_version_table_upgrades_to_v7() {
+fn v7_database_upgrades_to_v8_keeping_all_data() {
+    // PR-11 之后、PR-12 之前的用户升级路径：只需要补 V008（plot_item 回收章节列）。
+    let dir = historical_fixture("ladder_v7", HistoricalState::V7);
+
+    let pool = db::init_db(dir.clone()).unwrap();
+    let conn = pool.get().unwrap();
+
+    assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    assert_v006_objects_present(&conn);
+    assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
+    // V005 的全文索引必须原样保留（V008 只是加列）
+    assert_v005_objects_present(&conn);
+    verify_business_data(&conn, true);
+}
+
+#[test]
+fn pre_ladder_database_without_version_table_upgrades_to_v8() {
     // ≤ v0.3.3 的库连 schema_version 表都没有 —— 这是最老、也是数量最多的
-    // 一类真实用户库。它必须能一路升到 v7 且数据完好。
+    // 一类真实用户库。它必须能一路升到 v8 且数据完好。
     let dir = historical_fixture("ladder_legacy", HistoricalState::NoVersionTable);
 
     let pool = db::init_db(dir.clone()).unwrap();
     let conn = pool.get().unwrap();
 
     assert_eq!(schema_version(&conn), db::BASELINE_VERSION);
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
     for idx in V003_INDEXES {
         assert!(index_exists(&conn, idx));
     }
     assert_v007_objects_present(&conn);
+    assert_v008_objects_present(&conn);
     verify_business_data(&conn, true);
 }
 
@@ -917,7 +996,7 @@ fn completed_migrations_are_not_rerun_on_restart() {
             "第 {} 次重启后版本号不应增长",
             round + 1
         );
-        assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7], "不应出现重复版本记录");
+        assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8], "不应出现重复版本记录");
         assert_eq!(
             (
                 applied_at(&conn, 1),
@@ -994,8 +1073,8 @@ fn higher_version_database_is_never_downgraded_by_older_client() {
     // 作者在新机器上升级到未来版本、又把同一个数据目录拿回旧版本打开。
     // 旧客户端可以拒绝启动，但绝不能把高版本库降级或覆盖。
     //
-    // fixture 从**完整的 v7 状态**再加 version 8，而不是从 v3 直接跳到 8：
-    // 真实的高版本库必然已经跑完了 1→…→7，`{1,2,3,8}` 那种缺号的库
+    // fixture 从**完整的 v8 状态**再加 version 9，而不是从 v3 直接跳到 9：
+    // 真实的高版本库必然已经跑完了 1→…→8，`{1,2,3,9}` 那种缺号的库
     // 现实中不会出现，用它当 fixture 会测到一个假场景。
     let dir = temp_dir("ladder_future");
     {
@@ -1004,11 +1083,11 @@ fn higher_version_database_is_never_downgraded_by_older_client() {
         seed_business_data(&conn, true);
         assert_eq!(
             versions(&conn),
-            vec![1, 2, 3, 4, 5, 6, 7],
-            "前置：必须是完整 v7 库"
+            vec![1, 2, 3, 4, 5, 6, 7, 8],
+            "前置：必须是完整 v8 库"
         );
 
-        conn.execute("INSERT INTO schema_version (version) VALUES (8)", [])
+        conn.execute("INSERT INTO schema_version (version) VALUES (9)", [])
             .unwrap();
         // 未来版本新增的对象：当前客户端不认识，但必须原样留着
         conn.execute(
@@ -1028,11 +1107,11 @@ fn higher_version_database_is_never_downgraded_by_older_client() {
 
     assert_eq!(
         schema_version(&conn),
-        8,
+        9,
         "旧客户端不得把 schema 回退到 {}",
         db::BASELINE_VERSION
     );
-    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8]);
+    assert_eq!(versions(&conn), vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
     assert!(
         table_exists(&conn, "future_only_table"),
         "未来版本新增的表不得被删除"
