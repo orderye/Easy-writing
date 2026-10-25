@@ -802,6 +802,13 @@ pub struct AppUpdateAsset {
     pub name: String,
     pub size: u64,
     pub browser_download_url: String,
+    /// 该安装包的 SHA-256（任务书 T13）。
+    ///
+    /// 来源是 Release 附件里的 `SHA256SUMS.txt`；Release 没有该文件
+    /// （历史版本）或某个文件名未出现在其中时为空 —— 前端对空值不展示哈希，
+    /// 而不是编造一个。
+    #[serde(default)]
+    pub sha256: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
