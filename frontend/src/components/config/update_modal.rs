@@ -120,7 +120,7 @@ pub fn UpdateModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                                                     <div class="px-2 pb-1.5 -mt-1 space-y-0.5">
                                                                         <div class="flex items-center gap-1.5 text-[10px] font-mono text-slate-500 dark:text-slate-400 select-text">
                                                                             <span class="shrink-0 font-sans font-semibold text-slate-400 dark:text-slate-500">"SHA-256"</span>
-                                                                            <span class="truncate" title={sha.clone()}>{sha}</span>
+                                                                            <span class="truncate" title={sha.clone()}>{sha.clone()}</span>
                                                                         </div>
                                                                         <div class="text-[10px] text-slate-400 dark:text-slate-500 font-sans">
                                                                             "校验方法：下载后执行 shasum -a 256 <文件名>（macOS）或 certutil -hashfile <文件名> SHA256（Windows），与上行比对一致方可安装。"
