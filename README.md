@@ -129,6 +129,7 @@ macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `ca
 | 平台 | 格式 | 下载渠道 |
 | :--- | :--- | :--- |
 | **macOS (Apple Silicon)** | `.dmg`（安装镜像）/ `.zip`（免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
+| **macOS (Intel)** | `.dmg`（安装镜像）/ `.zip`（免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
 | **Windows (x64)** | `.msi`（安装向导）/ `.zip`（便携免安装） | [GitHub Releases](https://github.com/orderye/Easy-writing/releases) · [CNB Releases](https://cnb.cool/toroyxxx/Easy-writing/-/releases) |
 
 > 💡 **macOS 首次打开提示处理**：  
@@ -136,7 +137,9 @@ macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `ca
 > ```bash
 > xattr -cr /Applications/Easy-writing.app
 > ```
-> 或在访达（Finder）的「应用程序」目录中，按住 <kbd>Control</kbd> 键右键点击应用图标并选择「打开」。
+> 或在访达（Finder）的「应用程序」目录中，按住 <kbd>Control</kbd> 键右键点击应用图标并选择「打开」；也可在「系统设置 → 隐私与安全性」底部点击「仍要打开」。
+>
+> 💡 **Windows 首次运行提示处理**：SmartScreen 提示「已保护你的电脑」时，点击「更多信息」→「仍要运行此应用」即可。安装前建议先核对下载包的 SHA-256（见 Release 附件 `SHA256SUMS.txt`，或在应用内「检查更新」弹窗中查看每个安装包的哈希）。
 
 ---
 
