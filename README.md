@@ -78,6 +78,23 @@
 
 ---
 
+## 📸 功能截图
+
+> 以下截图位引用 `Docs/images/screenshots/` 下的图片。当前为占位，由人工补图后自动展示。
+> 补图规格与清单见 [截图占位说明](Docs/images/screenshots/README-SCREENSHOTS.md)。
+
+| 截图位 | 预览（占位） | 补图后路径与 alt 文本 |
+| :--- | :--- | :--- |
+| **写作台** | ![写作台](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/writing-workbench.png` —— Easy-writing 三栏沉浸式写作台：左栏设定/图库/词库，中栏正文编辑，右栏卷章目录树 |
+| **设定面板** | ![设定面板](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/settings-panel.png` —— 设置面板：写作偏好、AI 模型配置、WebDAV 备份、伏笔看板等 Tab |
+| **AI 修饰对比** | ![AI 修饰对比](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/ai-polish-diff.png` —— 正文选中文本后 AI 润色，并排 Diff 差异对比与一键采纳 |
+| **冲突卡片** | ![冲突卡片](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/conflict-card.png` —— 冲突检测弹窗：关联设定、证据、置信度阈值与「本章忽略」 |
+| **提炼面板** | ![提炼面板](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/extraction-panel.png` —— AI 提炼审核面板：世界观/角色/剧情/章摘要候选与疑似同人合并 |
+| **关系图谱** | ![关系图谱](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/character-graph.png` —— 全书人物关系力导向图谱（Force-Graph），节点拖拽与关联高亮 |
+| **备份设置** | ![备份设置](Docs/images/screenshots/placeholder.svg) | `Docs/images/screenshots/webdav-backup.png` —— WebDAV 云端备份设置：凭据表单、云端快照列表与备份/还原动作 |
+
+---
+
 ## 🛠️ 技术栈
 
 | 模块 | 技术选型 | 说明 |
