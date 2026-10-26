@@ -17,7 +17,7 @@
     "tauri": "tauri",
     "dev": "pnpm build:assets && tauri dev",
     "build": "pnpm build:assets && tauri build",
-    "test:frontend": "node --test tests/frontend/bundle_graph.test.js tests/frontend/gallery_and_bridge.test.js tests/frontend/export_modal.test.js tests/frontend/context_panel.test.js tests/frontend/search_modal.test.js tests/frontend/extraction_dedup.test.js tests/frontend/conflict_card.test.js tests/frontend/foreshadow_board.test.js",
+    "test:frontend": "node --test tests/frontend/bundle_graph.test.js tests/frontend/gallery_and_bridge.test.js tests/frontend/export_modal.test.js tests/frontend/context_panel.test.js tests/frontend/search_modal.test.js tests/frontend/extraction_dedup.test.js tests/frontend/conflict_card.test.js tests/frontend/foreshadow_board.test.js tests/frontend/webdav_plaintext.test.js",
     "test:scripts": "node --test tests/scripts/release_gate.test.js tests/scripts/check_version.test.js tests/scripts/check_docs_schema.test.js",
     "test:backend": "cargo test -p easy-writing-core -p easy-writing-frontend",
     "test": "pnpm test:frontend && pnpm test:scripts && pnpm test:backend"

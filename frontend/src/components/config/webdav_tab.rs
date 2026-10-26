@@ -57,6 +57,15 @@ fn outcome_text_classes(o: &RestoreOutcome) -> &'static str {
     }
 }
 
+/// 是否明文 WebDAV 地址（任务书 T15）：`http://` 前缀即明文。
+///
+/// 刻意**不豁免**本机回环地址（127.0.0.1 / localhost）：豁免需要解析 host，
+/// 而局域网 IP（192.168.x.x）常被当成「本机」误填 —— 警告成本极低、
+/// 误报代价小，反之一次漏报就是密码明文出网。全部 http:// 均警告。
+pub fn is_plaintext_webdav(url: &str) -> bool {
+    url.trim().to_ascii_lowercase().starts_with("http://")
+}
+
 /// 「WebDAV 整库同步」标签页。
 ///
 /// 从原 config_modal.rs 拆出：凭据表单、云端快照列表与备份/还原动作
@@ -76,6 +85,8 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
     let pending_restore = RwSignal::new(Option::<RestorePreflight>::None);
     // 检测到的跨设备冲突。Some(..) 即显示「继续上传 / 先恢复 / 取消」弹窗。
     let pending_conflict = RwSignal::new(Option::<BackupConflictInfo>::None);
+    // 明文传输二次确认（任务书 T15）：Some(..) 即显示确认弹窗。
+    let pending_plaintext = RwSignal::new(false);
 
     // 挂载时载入已保存的凭据与云端快照列表
     Effect::new(move |_| {
@@ -104,7 +115,9 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
         });
     };
 
-    let on_save_webdav = move |_| {
+    // 保存配置（任务书 T15）：http:// 明文地址先弹二次确认，
+    // https 或已在确认弹窗点过「继续」才真正执行。
+    let do_save_webdav = move || {
         webdav_status.set("正在保存并测试 WebDAV 连通性...".to_string());
         let pwd_val = webdav_pwd.get();
         let pwd_opt = if pwd_val.trim().is_empty() {
@@ -143,6 +156,15 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
                 }
             }
         });
+    };
+
+    let on_save_webdav = move |_| {
+        if is_plaintext_webdav(&webdav_url.get()) {
+            // 明文传输：先拦下来，弹窗把风险说清楚，作者确认后才继续。
+            pending_plaintext.set(true);
+            return;
+        }
+        do_save_webdav();
     };
 
     // 真正的上传动作。`override_conflict=true` 表示作者已经在冲突弹窗里
@@ -340,6 +362,20 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
                             prop:value=move || webdav_url.get()
                             on:input=move |ev| webdav_url.set(event_target_value(&ev))
                         />
+                        // 明文传输标识（任务书 T15）：http:// 地址常驻红色提示，
+                        // 不只依赖保存时的一次性确认 —— 作者随时能看到当前是明文。
+                        {move || {
+                            if is_plaintext_webdav(&webdav_url.get()) {
+                                view! {
+                                    <div class="flex items-center gap-1.5 text-[11px] font-semibold text-red-600 dark:text-red-400">
+                                        <span>"⚠"</span>
+                                        <span>"明文传输：该地址使用 http://，账号、密码与整库备份内容将以未加密形式经过网络，可能被同一网络中的第三方截获。建议改用 https:// 地址。"</span>
+                                    </div>
+                                }.into_any()
+                            } else {
+                                view! { <div></div> }.into_any()
+                            }
+                        }}
                     </div>
                     <div class="space-y-1">
                         <label class="font-medium text-slate-600 dark:text-slate-400">"用户名"</label>
@@ -795,6 +831,60 @@ pub fn WebdavTab(app_ctx: AppContext) -> impl IntoView {
                                     on:click=move |_| on_confirm_restore(pf_for_confirm.clone())
                                 >
                                     {confirm_label}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }.into_any()
+            }}
+
+            // 明文传输二次确认（任务书 T15）：http:// 地址在保存/测试连接前
+            // 必须显式确认一次。取消即放弃保存，配置不会被写入。
+            {move || {
+                if !pending_plaintext.get() {
+                    return view! { <div></div> }.into_any();
+                }
+                let url_now = webdav_url.get();
+                view! {
+                    <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 select-none">
+                        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-md w-full border border-red-200 dark:border-red-800 p-5 space-y-4">
+                            <div class="flex items-center gap-3 text-red-600 dark:text-red-400">
+                                <span class="text-2xl">"🔓"</span>
+                                <h3 class="font-bold text-sm text-red-700 dark:text-red-300">"确认使用明文（http://）传输？"</h3>
+                            </div>
+                            <div class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed space-y-2">
+                                <p>
+                                    "你填写的地址是 "
+                                    <span class="font-mono text-red-600 dark:text-red-400 break-all">{url_now}</span>
+                                    "，它使用未加密的 http 协议。"
+                                </p>
+                                <p class="font-semibold text-red-700 dark:text-red-300">
+                                    "保存并连接后，WebDAV 用户名、应用密码、整库备份（含全部章节正文）都会以明文形式经过网络传输，同一网络内的第三方（公共 Wi-Fi、公司路由器等）可能截获这些内容。"
+                                </p>
+                                <p>
+                                    "如果你的服务商支持 https，强烈建议把地址改为 https:// 开头后再保存。"
+                                </p>
+                            </div>
+                            <div class="flex justify-end gap-2 pt-1">
+                                <button
+                                    class="px-3.5 py-1.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded font-medium transition-colors cursor-pointer"
+                                    on:click=move |_| {
+                                        pending_plaintext.set(false);
+                                        webdav_status.set(
+                                            "已取消保存：请把地址改为 https:// 后重试，或点「仍要保存」确认承担明文传输风险。".to_string(),
+                                        );
+                                    }
+                                >
+                                    "取消（改为 https）"
+                                </button>
+                                <button
+                                    class="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded font-medium shadow-xs transition-colors cursor-pointer"
+                                    on:click=move |_| {
+                                        pending_plaintext.set(false);
+                                        do_save_webdav();
+                                    }
+                                >
+                                    "我已知晓风险，仍要保存"
                                 </button>
                             </div>
                         </div>
