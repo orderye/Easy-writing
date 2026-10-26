@@ -16,7 +16,7 @@
 | **CNB** | `https://cnb.cool/toroyxxx/Easy-writing.git` | `...@noreply.cnb.cool`（`.cnb-worktree`） | CNB OpenAPI / `@cnbcool/cnb-cli` |
 
 > ⚠️ **核心原则**：
-> 1. **代码提交身份严格隔离**：GitHub 在主目录提交，CNB 必须在 `.cnb-worktree` 用 `cherry-pick --no-commit` 重新生成带 CNB 邮箱的 commit（详见 [提交流程.md](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/提交流程.md)）。
+> 1. **代码提交身份严格隔离**：GitHub 在主目录提交，CNB 必须在 `.cnb-worktree` 用 `cherry-pick --no-commit` 重新生成带 CNB 邮箱的 commit（详见 [提交流程](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/submission-process.md)）。
 > 2. **Release 必须双端独立挂载**：GitHub 具备原生 Actions 与 `gh` CLI，CNB 需通过其专用 OpenAPI / CLI 挂载 DMG 与 ZIP 附件并标记为 `latest`。
 
 ---

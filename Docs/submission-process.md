@@ -7,7 +7,7 @@
 | `origin` | `git@github.com:orderye/Easy-writing.git` | GitHub 主仓 |
 | `cnb` | `https://cnb.cool/toroyxxx/Easy-writing.git` | CNB 镜像 |
 
-> 📌 **注**：日常代码提交流程见下文；若涉及版本号晋级与正式发布双平台 Release（挂载安装包），请参阅 [《双远程 Release 发布流程参考规范》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/双远程发布流程.md)。
+> 📌 **注**：日常代码提交流程见下文；若涉及版本号晋级与正式发布双平台 Release（挂载安装包），请参阅 [《双远程 Release 发布流程参考规范》](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/dual-remote-release-flow.md)。
 
 ## 关键约定：CNB 用隔离 worktree 提交
 
@@ -112,8 +112,8 @@ git log -1 --format='%an <%ae>' cnb/main
 git -C .cnb-worktree var GIT_AUTHOR_IDENT
 
 # 两端内容一致性抽查（行数/文件应相同）
-git show origin/main:Docs/提交流程.md | wc -l
-git show cnb/main:Docs/提交流程.md | wc -l
+git show origin/main:Docs/submission-process.md | wc -l
+git show cnb/main:Docs/submission-process.md | wc -l
 ```
 
 预期结果形如：
@@ -153,3 +153,6 @@ CNB 全部历史，会改变所有既有 hash；而这些提交内容本身正�
 5. 若 `git push` 被拒（历史上曾用 ff-only 同步过，导致远程已有同内容的
    GitHub 身份提交），需 `git push --force-with-lease` 覆盖该笔。
    `--force-with-lease` 会在远程出现他人新提交时拒绝执行，比 `--force` 安全。
+
+<!-- kimi-badge -->
+[![powered by KimiCode](../.github/assets/kimi-badge.svg)](https://www.kimi.com/code)

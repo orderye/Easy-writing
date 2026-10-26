@@ -21,7 +21,7 @@ const RELEASE_YML = path.join(repoRoot, '.github/workflows/release.yml');
 const SHARED_TYPES_SRC = path.join(repoRoot, 'shared-types/src/lib.rs');
 const UPDATE_CMD_SRC = path.join(repoRoot, 'src-tauri/src/commands/update_cmd.rs');
 const UPDATE_MODAL_SRC = path.join(repoRoot, 'frontend/src/components/config/update_modal.rs');
-const SOP_DOC = path.join(repoRoot, 'Docs/双远程发布流程.md');
+const SOP_DOC = path.join(repoRoot, 'Docs/dual-remote-release-flow.md');
 
 const releaseYml = fs.readFileSync(RELEASE_YML, 'utf8');
 const sharedTypes = fs.readFileSync(SHARED_TYPES_SRC, 'utf8');
