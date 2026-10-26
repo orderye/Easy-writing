@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+  <title id="title">功能截图占位</title>
+  <desc id="desc">此区域等待人工补充 Easy-writing 功能截图。图片路径见 Docs/images/screenshots/README-SCREENSHOTS.md。</desc>
+  <rect width="960" height="540" fill="#f1f5f9"/>
+  <rect x="1" y="1" width="958" height="538" fill="none" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="12 8"/>
+  <g transform="translate(480,220)" text-anchor="middle" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <circle r="36" fill="#e2e8f0"/>
+    <rect x="-16" y="-10" width="32" height="4" rx="2" fill="#94a3b8"/>
+    <rect x="-16" y="-2" width="32" height="4" rx="2" fill="#94a3b8"/>
+    <rect x="-16" y="6" width="32" height="4" rx="2" fill="#94a3b8"/>
+  </g>
+  <text x="480" y="290" text-anchor="middle" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="22" font-weight="600" fill="#475569">功能截图待补充</text>
+  <text x="480" y="320" text-anchor="middle" font-family="-apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="13" fill="#64748b">补图规格见 Docs/images/screenshots/README-SCREENSHOTS.md</text>
+</svg>
