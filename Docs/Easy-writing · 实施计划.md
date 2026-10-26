@@ -49,7 +49,7 @@ Easy-writing 是一款面向独立中长篇小说创作者的**本地桌面工�
 
 | 层级 | 选用技术 | 选型理由与工程考量 |
 |---|---|---|
-| **桌面运行时** | Tauri 2.x (Rust) | 原生安全性高、打包体积小（~15MB）、系统资源消耗低。 |
+| **桌面运行时** | Tauri 2.x (Rust) | 原生安全性高、打包体积小（约 7 MB）、系统资源消耗低。 |
 | **前端 UI 框架** | Leptos 0.7 (CSR, WASM) | 细粒度响应式系统（Fine-grained reactivity），全栈 Rust 类型共享，零虚拟 DOM 负担。 |
 | **前端构建与热更** | Trunk 0.21+ | Rust WASM 构建流水线标准工具，管理 HTML、WASM 编译产物。 |
 | **富文本核心** | Tiptap 2 + ProseMirror (JS) | 业界成熟度最高的可扩展文档模型，原生 JSON schema 完美对接底层存储。 |
@@ -253,7 +253,7 @@ easy-writing/                           # Cargo 多包工作区根目录 (Worksp
 └── Docs/                               # 规范与设计归档
     ├── Easy-writing · 实施计划.md
     ├── Easy-writing 审校整改方案.md
-    └── 双远程发布流程.md
+    └── dual-remote-release-flow.md
 ```
 
 ---

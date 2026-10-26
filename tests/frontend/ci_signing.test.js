@@ -18,7 +18,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 
 const RELEASE_YML = path.join(repoRoot, '.github/workflows/release.yml');
 const README = path.join(repoRoot, 'README.md');
-const SOP_DOC = path.join(repoRoot, 'Docs/双远程发布流程.md');
+const SOP_DOC = path.join(repoRoot, 'Docs/dual-remote-release-flow.md');
 
 const releaseYml = fs.readFileSync(RELEASE_YML, 'utf8');
 const readme = fs.readFileSync(README, 'utf8');

@@ -1,5 +1,8 @@
 # Easy-writing · 文档体系索引与全景导航
 
+<!-- kimi-badge -->
+[![powered by KimiCode](../.github/assets/kimi-badge.svg)](https://www.kimi.com/code)
+
 欢迎查阅 Easy-writing（中长篇小说工作台）项目文档库。本文档为 `Docs/` 目录的总索引，厘清各项设计方案、演进报告、重构记录与工程规范的生命周期与相互关系。
 
 ---
@@ -54,8 +57,8 @@ flowchart TD
 | [**Easy-writing 审校报告-第三方**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校报告-第三方.md) | 外部静态审校报告 | v0.3.5 (7.4 / 10) | 外部专家对 v0.3.5 源码静态审校，指出切章丢稿控制流漏洞、AI 提炼哈希锁死、CSP 缺失等要害 | `frontend/`, `src-tauri/` |
 | [**第三方审校整改闭环与实施报告**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校整改闭环方案与实施报告-第三方反馈.md) | 专项重构与防御闭环 | v0.3.5 (100% 修复) | SaveOutcome 状态机、非 saved 切章全拦截、AI 提炼哈希重试、章节梗概去重、远程 HTTPS 门禁与 CSP | `save_state.rs`, `extraction.rs`, `gateway.rs` |
 | [**Easy-writing 审校报告-第三方 02**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校报告-第三方%2002.md) | 外部二轮审校报告 | v0.3.6 | 外部对 v0.3.6 交付审校：AI 提炼全链路保护、切章异步锁、Windows Release 测试失败、删除数据库检查 | `extraction.rs`, `chapter_list.rs`, `package.json` |
-| [**提交流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/提交流程.md) | 协作运维规范 | 日常开发规范 | GitHub 主目录提交与 CNB `.cnb-worktree` 提交身份隔离、cherry-pick 重放流程 | `.git/worktrees/` |
-| [**双远程发布流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/双远程发布流程.md) | 版本发布 SOP | 发版运维规范 | 版本号 5 处晋级、自动化测试、桌面端打包、双端代码与 Tag 推送、GitHub & CNB 双端 Release 挂载 | `release-packages/` |
+| [**提交流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/submission-process.md) | 协作运维规范 | 日常开发规范 | GitHub 主目录提交与 CNB `.cnb-worktree` 提交身份隔离、cherry-pick 重放流程 | `.git/worktrees/` |
+| [**双远程发布流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/dual-remote-release-flow.md) | 版本发布 SOP | 发版运维规范 | 版本号 5 处晋级、自动化测试、桌面端打包、双端代码与 Tag 推送、GitHub & CNB 双端 Release 挂载 | `release-packages/` |
 
 ---
 

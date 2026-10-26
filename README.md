@@ -82,7 +82,7 @@
 
 | 模块 | 技术选型 | 说明 |
 | :--- | :--- | :--- |
-| **桌面运行时** | **Tauri 2.x** (Rust) | 原生安全跨平台，打包体积仅 ~18MB，极低内存占用 |
+| **桌面运行时** | **Tauri 2.x** (Rust) | 原生安全跨平台，打包体积约 7 MB（macOS DMG/ZIP 约 7 MB，Windows ZIP 约 6 MB），极低内存占用 |
 | **前端框架** | **Leptos 0.7** (CSR / WASM) | Rust 细粒度响应式驱动，编译为 WASM，零虚拟 DOM 开销 |
 | **富文本核心** | **Tiptap 2 + ProseMirror** | 结构化文档模型，切章不销毁实例，无缝脏检查与光标恢复 |
 | **本地数据** | **SQLite 3** (`rusqlite` + WAL) | 单文件 ACID，支持一致性快照与安全热备份 |
@@ -159,8 +159,8 @@ macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `ca
 - [审校整改方案](Docs/Easy-writing%20审校整改方案.md) —— 外部审校 13 项重点缺陷整改全记录
 - [框架方案与 PRD](<Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md>) —— 完整产品定位、核心场景、AI 协同模型与交互规格
 - [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与工程设计（[基线归档]）
-- [双远程 Release 发布流程参考规范](Docs/双远程发布流程.md) —— GitHub 与 CNB 双平台 Release 标准发布 6 步 SOP 与校验清单
-- [双远程提交流程规范](Docs/提交流程.md) —— 主目录与 `.cnb-worktree` 隔离身份双端提交流程
+- [双远程 Release 发布流程参考规范](Docs/dual-remote-release-flow.md) —— GitHub 与 CNB 双平台 Release 标准发布 6 步 SOP 与校验清单
+- [双远程提交流程规范](Docs/submission-process.md) —— 主目录与 `.cnb-worktree` 隔离身份双端提交流程
 
 ---
 
