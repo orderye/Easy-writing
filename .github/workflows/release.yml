@@ -202,9 +202,15 @@ jobs:
           buildCommand: ./scripts/tauri-build-retry.sh ${{ matrix.args }}
           tagName: ${{ needs.gate.outputs.release_tag }}
           releaseName: 'Easy-writing ${{ needs.gate.outputs.release_tag }}'
-          releaseBody: 'Easy-writing 小说工作台双端正式发布版本（支持 macOS 与 Windows）'
-          releaseDraft: false
-          prerelease: false
+          # 在代码签名与真机安装验收完成前，所有 tag 发布一律先落为 draft + prerelease，
+          # 由维护者确认附件与验收结果后手动 publish。不要把这里改回 false：
+          # 当前 CI 在未配置 secrets 时产出的是未签名、未公证安装包。
+          releaseBody: |
+            **draft / pre-release**：本版本产物未签名、未公证，macOS 与 Windows 的安装验收尚未执行。
+            请勿将其作为「可靠性修复已全部验证完成」的正式版分发；详情见仓库发布说明。
+            下载后请用 `SHA256SUMS.txt` 校验安装包。
+          releaseDraft: true
+          prerelease: true
           args: ${{ matrix.args }}
 
       # 校验和（任务书 T13）：为 Release 全部附件生成 SHA256SUMS.txt 并上传。

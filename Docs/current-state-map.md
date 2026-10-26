@@ -18,7 +18,7 @@
 |---|---|---|
 | 版本 | 0.3.8（`package.json` / `src-tauri/Cargo.toml` / `frontend/Cargo.toml` / `shared-types/Cargo.toml` / `src-tauri/tauri.conf.json` 五处一致） | `scripts/check-version.mjs` 守护 |
 | Tauri 命令数 | **109**（全部在 `src-tauri/src/lib.rs` 的 `generate_handler!` 中注册，无未注册/孤儿命令） | `src-tauri/src/commands/*.rs`、`src-tauri/tests/ipc_argcase.rs:91` |
-| 数据库表 | 迁移文件内 **19** 张 + 运行时创建 `schema_version` = **20** | `src-tauri/migrations/*.sql`、`src-tauri/src/db/mod.rs:26` |
+| 数据库表 | 迁移文件内 **21** 张；另有运行时创建的 `schema_version`（不计入护栏比对的 21 张） | `src-tauri/migrations/*.sql`、`src-tauri/src/db/mod.rs:30` |
 | 集成测试文件 | `src-tauri/tests/` 下 **23** 个 `.rs` | 另有 `tests/frontend` 2 个、`tests/scripts` 2 个 |
 | 前端 IPC 调用点 | **132** 处 | `frontend/src/**/*.rs` 的 `invoke_cmd` / `invoke_no_args` |
 | SQLite | rusqlite 0.32.1（`bundled`）→ libsqlite3-sys 0.30.1 → **SQLite 3.46.0**，`-DSQLITE_ENABLE_FTS5` 已启用，**含 trigram 分词器** | `src-tauri/Cargo.toml:19`、`libsqlite3-sys-0.30.1/build.rs:127-129`、`sqlite3.c:255381` |
@@ -29,14 +29,15 @@
 
 任务书全局规则 3 写「数据库变更只能新增迁移文件（**refinery**，下一个可用版本号）」。
 
-**仓库中没有 refinery**（`Cargo.toml` / `Cargo.lock` / `src-tauri/Cargo.toml` 均无该依赖）。迁移是**手写阶梯**，位于 `src-tauri/src/db/mod.rs:117-178`：
+**仓库中没有 refinery**（`Cargo.toml` / `Cargo.lock` / `src-tauri/Cargo.toml` 均无该依赖）。迁移是**手写阶梯**，位于 `src-tauri/src/db/mod.rs:150-229`：
 
 ```rust
-pub const BASELINE_VERSION: i64 = 4;                       // db/mod.rs:39
+pub const BASELINE_VERSION: i64 = 9;                       // db/mod.rs:43
 if applied < 1 { conn.execute_batch(include_str!(".../V001__init.sql"))?; ... }
-if applied < 2 { run_legacy_safe_migrations(&conn)?; ... }  // db/mod.rs:53
+if applied < 2 { run_legacy_safe_migrations(&conn)?; ... }  // db/mod.rs:157
 if applied < 3 { conn.execute_batch(include_str!(".../V003__indices_and_cleanup.sql"))?; ... }
-if applied < 4 { conn.execute_batch(include_str!(".../V004__entry_pinned.sql"))?; ... }
+// …
+if applied < 9 { conn.execute_batch(include_str!(".../V009__daily_stat_and_chapter_pov.sql"))?; ... }
 ```
 
 **因此「新增一个迁移」实际是四步，不是一步**：
@@ -44,11 +45,11 @@ if applied < 4 { conn.execute_batch(include_str!(".../V004__entry_pinned.sql"))?
 1. 新增 `src-tauri/migrations/V00N__<name>.sql`
 2. 在 `init_db` 中加 `if applied < N { conn.execute_batch(include_str!(...))?; conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (N)", [])?; }`
 3. `BASELINE_VERSION` 改为 `N`
-4. 扩展 `src-tauri/tests/migration_ladder.rs`（该测试硬编码 v1–v4 断言，如 `v1_database_upgrades_continuously_to_v4_keeping_all_data`）
+4. 扩展 `src-tauri/tests/migration_ladder.rs`（该测试硬编码连续升级与版本记录断言，如 `v1_database_upgrades_continuously_to_v6_keeping_all_data` 断言版本记录为 `[1..=9]`，`v8_database_upgrades_to_v9_keeping_all_data` 覆盖 V009 增量升级）
 
-> **约束**：`V002` 走的是「按 `;` 朴素切分逐条执行」的 legacy-safe 路径（`db/mod.rs:53-93`），要求「一行一条语句、字符串字面量内不含 `;`」。**新建的 V00N 走 `execute_batch`，不受该约束** —— 但触发器（`BEGIN … END`）含分号，必须确认走的是 `execute_batch` 路径。
+> **约束**：`V002` 走的是「按 `;` 朴素切分逐条执行」的 legacy-safe 路径（`db/mod.rs:57-85`），要求「一行一条语句、字符串字面量内不含 `;`」。**新建的 V00N 走 `execute_batch`，不受该约束** —— 但触发器（`BEGIN … END`）含分号，必须确认走的是 `execute_batch` 路径。
 >
-> `schema_version` 表本身**不在任何迁移文件里**，而是运行时创建（`db/mod.rs:26`）。「当前 Schema」文档必须把它列进去。
+> `schema_version` 表本身**不在任何迁移文件里**，而是运行时创建（`db/mod.rs:30`）。「当前 Schema」文档必须把它列进去。
 
 ### 1.2 设置项存储 —— **键值表，无迁移成本**
 
@@ -97,16 +98,16 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 ### 第一类：文档同步
 
-#### T01 实施计划更新为现状版 —— **部分符合（护栏脚本 + §五 Schema 已落地；功能描述补充待核）**
+#### T01 实施计划更新为现状版 —— **已符合（2026-10-26 收尾）**
 
 | 任务书假设 | 实际 | 缺口 |
 |---|---|---|
-| 实施计划需补 EPUB 导入、图库、词库、关系图谱、多作品看板、版本历史等已实现功能 | `scripts/check-docs-schema.mjs` 已建并接入 CI（`.github/workflows/ci.yml`「文档 Schema 护栏」job）；§五 标题已刷新为「数据库 Schema（当前 V001–V009 基线）」；但「图库 / 关系图谱 / 多作品看板 / 版本历史」等功能描述在实施计划中仍待补充 | **部分** |
-| 删除「导入 MVP 不含」等过时描述 | `Docs/Easy-writing · 实施计划.md:43` 等过时描述需核对清理 | **待核** |
+| 实施计划需补 EPUB 导入、图库、词库、关系图谱、多作品看板、版本历史等已实现功能 | `scripts/check-docs-schema.mjs` 已建并接入 CI；§五 已刷新为「数据库 Schema（当前 V001–V009 基线）」；§八 P1 交付表已补图库素材管理、专属小说词库、人物关系力导向图谱、多作品看板四行（版本历史、EPUB 导入原有） | **已符合** |
+| 删除「导入 MVP 不含」等过时描述 | `Docs/Easy-writing · 实施计划.md:43` 已改写为「已支持 TXT / MD / EPUB 批量解析」 | **已符合** |
 | 需新增「当前 Schema」章节 | §五 已改为「数据库 Schema（当前 V001–V009 基线）」，护栏脚本双向比对通过（21 张表） | **已符合** |
 | 需提供 `scripts/check-docs-schema` 校验并接入 CI | `scripts/check-docs-schema.mjs` 存在，CI「文档 Schema 护栏」job 运行 | **已符合** |
 
-**状态**：护栏脚本与 Schema 刷新已落地（PR-02）；实施计划的功能描述补充与过时描述清理**尚未完成**，属 T01 收尾事项。
+**状态**：护栏脚本、Schema 刷新、功能描述补充与过时描述清理均已落地；同时修正了本文件 §1.1 的基线版本陈旧引用（4 → 实际 V009）。
 
 #### T02 导出功能（txt / docx / epub）—— **不符合（全新）** → **已落地（PR-07，2026-10-22）**
 
@@ -370,12 +371,12 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 | 位置 | 任务书表述 | 源码事实 | 处理 |
 |---|---|---|---|
-| §0 全局规则 3 | 「只能新增迁移文件（**refinery**，下一个可用版本号）」 | **无 refinery**；是手写阶梯 `db/mod.rs:117-169` | 规则**意图**（只加新文件、不改已发布迁移）保留；**执行步骤**改为四步（见 §1.1） |
+| §0 全局规则 3 | 「只能新增迁移文件（**refinery**，下一个可用版本号）」 | **无 refinery**；是手写阶梯 `db/mod.rs:150-229` | 规则**意图**（只加新文件、不改已发布迁移）保留；**执行步骤**改为四步（见 §1.1） |
 | T04 | 「**先审计**：restore.rs 替换数据库文件前是否已关闭 r2d2 连接池或要求重启」 | 恢复走 Online Backup API，**不替换文件** | 审计结论「符合」，该问题在本仓库**不成立** |
 | T07 | 「`parallel_4`（现状）」 | 4 个并行 agent kind 提炼 —— **表述正确**；并发上限另有 2 | **已澄清**：两个维度（4 类 Agent / 并发 2）在 PR-10 中写明 |
 | T17 | 「当前分别写 ~18MB 与 ~15MB」 | 真实 ~7.4MB / ~7.1MB / ~5.8MB | 两处都要改成实测值，**不是只统一** |
 | T05 | 「有测试（可对 keyring 做 trait 抽象后 mock）」 | `keyring.rs` 只有自由函数、无 trait | 需**先做 trait 抽象**才有测试 |
-| §2 T01 | 「新增『当前 Schema』章节」 | §五 标题为「初始 V001 DDL 基线」 | 改为「当前 Schema（V001–V00N）」 |
+| §2 T01 | 「新增『当前 Schema』章节」 | §五 标题已为「数据库 Schema（当前 V001–V009 基线）」 | 已闭环 |
 | 全文 | （任务书未提） | `README.md:66` 原宣称「全文搜索替换」但功能不存在，**已随 PR-09 落地并改写为真实描述** | 已闭环 |
 
 ---
@@ -390,7 +391,7 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | **部分符合 → 已落地** | T10 | PR-12（V008：plot_item 回收章节列，2026-10-24） |
 | **部分符合 → 已落地** | T11、T13、T15、T16、T17、T18 | PR-13（V009：daily_stat + chapter POV，2026-10-25）/ PR-14（校验和，2026-10-25）/ PR-16（WebDAV 明文警告）/ PR-17（平台口径）/ PR-18（体积口径+文档命名）/ PR-19（CHANGELOG+截图位，均 2026-10-26） |
 | **完全缺失，全新建设** | （无） | 全部任务已落地 |
-| **文档同步（部分）** | T01 | 护栏脚本 + §五 Schema 刷新已落地（PR-02）；实施计划的功能描述补充与过时描述清理**待收尾** |
+| **文档同步（已闭环）** | T01 | 护栏脚本 + §五 Schema 刷新 + §八 功能描述补充 + 过时表述清理（2026-10-26） |
 
 **建议合并顺序**（依赖硬约束）：
 
@@ -463,7 +464,7 @@ PR-19 T18 CHANGELOG 与 README 截图  ← 已完成（2026-10-26，截图待人
 
 ## 七、本次核对的未决项
 
-- `Docs/Easy-writing · 实施计划.md` 中「导入 MVP 不含…」等过时描述的逐条位置，PR-02 落笔时核对。
+- ~~`Docs/Easy-writing · 实施计划.md` 中「导入 MVP 不含…」等过时描述的逐条位置，PR-02 落笔时核对~~ —— **已闭环（T01 收尾）**：`:43` 已改写为已支持 TXT/MD/EPUB 批量解析。
 - ~~`plot_item.kind` 的三个 CHECK 值（`mainline`/`conflict`/`foreshadow`）与 T10「伏笔」口径的映射关系~~ —— **已落结论（PR-12）**：看板展示全部三种 kind，因为 T06 的上下文装配同样把它们都当作「待回收伏笔」带入。
 - ~~`chapter_revision` 是否需要新增「批次 id」列以支撑 T09 的整批撤销~~ —— **需要，已在 V005 落定**（`batch_id TEXT` + `idx_revision_batch`）。
 - `restore.rs` 预检已读出 `schema_version` 但未见「高于当前应用即拒绝」的比较，PR-05 落笔时补齐并补测试。

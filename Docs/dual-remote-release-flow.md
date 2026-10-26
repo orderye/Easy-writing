@@ -122,16 +122,25 @@ git push cnb "${TAG}"
 
 ### 第五步：发布 GitHub Release
 
-通过 GitHub 官方 CLI 工具发布 Release 并挂载两个安装包：
+> ⚠️ **当前策略：tag 触发后先落 draft + pre-release。**
+> 在代码签名与 macOS / Windows 真机安装验收完成前，`release.yml` 固定以
+> `releaseDraft: true`、`prerelease: true` 创建 Release。维护者核对附件、
+> `SHA256SUMS.txt` 与发布说明后，再手动发布：
+> ```bash
+> gh release edit "v${VERSION}" --draft=false --prerelease \
+>   --notes-file "Docs/V${VERSION}_RELEASE_NOTES.md"
+> ```
+> 签名 secrets 配置完成并完成安装验收后，才可把工作流改回非 draft。
+
+通过 GitHub 官方 CLI 工具发布 Release 并挂载安装包（手动补发时同样应带 `--draft --prerelease`）：
 
 ```bash
 gh release create "v${VERSION}" \
   "release-packages/Easy-writing_${VERSION}_aarch64.dmg#macOS aarch64 (Apple Silicon DMG)" \
   "release-packages/Easy-writing_${VERSION}_macos_aarch64.zip#macOS aarch64 (Portable Zip)" \
+  --draft --prerelease \
   --title "Easy-writing · 中长篇小说工作台 v${VERSION}" \
-  --notes "### 🌟 Easy-writing v${VERSION} 发布说明
-
-- 记录本版本更新的关键功能与修复项。"
+  --notes-file "Docs/V${VERSION}_RELEASE_NOTES.md"
 ```
 
 ---
