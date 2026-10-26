@@ -112,7 +112,9 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          # x86_64-apple-darwin 供 Intel 矩阵使用（aarch64 runner 上交叉编译）；
+          # 缺少它会让 Intel 构建在 tauri build 阶段报 "Target not installed"。
+          targets: wasm32-unknown-unknown,aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Install Trunk
         uses: baptiste0928/cargo-install@v3

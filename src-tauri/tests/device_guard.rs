@@ -85,8 +85,12 @@ fn device_state_survives_database_overwrite() {
     // 跨设备保护成立的前提：设备身份不在库里。
     // 恢复会整体覆盖 .db，库里的身份会被来源设备覆盖。
     let dir = common::temp_dir("device_outside_db");
-    let _pool = seeded_pool(&dir);
-    let before = device::load(&dir);
+    // 连接池必须先关闭再删库：Windows 上 SQLite 持有文件句柄，
+    // 池未 drop 时 remove_file 会报「文件被另一进程占用」。
+    let before = {
+        let _pool = seeded_pool(&dir);
+        device::load(&dir)
+    };
 
     // 模拟恢复覆盖：把数据库文件换掉
     let db_path = dir.join("easy-writing.db");
