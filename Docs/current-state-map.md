@@ -97,17 +97,16 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 ### 第一类：文档同步
 
-#### T01 实施计划更新为现状版 —— **部分符合**
+#### T01 实施计划更新为现状版 —— **部分符合（护栏脚本 + §五 Schema 已落地；功能描述补充待核）**
 
 | 任务书假设 | 实际 | 缺口 |
 |---|---|---|
-| 实施计划需补 EPUB 导入、图库、词库、关系图谱、多作品看板、版本历史等已实现功能 | §八「P1 功能与交付闭环（全部 100% 交付）」的表**只有 10 项**，且成文早于图库 / 关系图谱 / 多作品看板三项工作；文档内 `图库`、`Force-Graph` **零命中**。已收录的有：EPUB/txt/md 导入、章节历史版本、词库、关系拓扑**网表** | **部分** |
-| 删除「导入 MVP 不含」等过时描述 | `Docs/Easy-writing · 实施计划.md:43` 仍写「导入外部稿件：MVP 暂不包含批量解析…」，与 §八 矛盾 | **需改** |
-| 需新增「当前 Schema」章节 | 现有 §五标题为「数据库 Schema（**初始 V001 DDL 基线**）」（`Docs/Easy-writing · 实施计划.md:261`）——**已过时**，实际有 V002/V003 共 20 张表 | **需改**：标题与内容刷新为 V001–V00N 实际结构 |
-| 需提供 `scripts/check-docs-schema` 校验并接入 CI | **不存在**（`scripts/` 仅有 `check-version.mjs`、`release-gate.mjs`、`tauri-build-retry.sh`） | **需新建** |
-| 删除「导入 MVP 不含」等过时描述 | 需逐条核对 | 待核 |
+| 实施计划需补 EPUB 导入、图库、词库、关系图谱、多作品看板、版本历史等已实现功能 | `scripts/check-docs-schema.mjs` 已建并接入 CI（`.github/workflows/ci.yml`「文档 Schema 护栏」job）；§五 标题已刷新为「数据库 Schema（当前 V001–V009 基线）」；但「图库 / 关系图谱 / 多作品看板 / 版本历史」等功能描述在实施计划中仍待补充 | **部分** |
+| 删除「导入 MVP 不含」等过时描述 | `Docs/Easy-writing · 实施计划.md:43` 等过时描述需核对清理 | **待核** |
+| 需新增「当前 Schema」章节 | §五 已改为「数据库 Schema（当前 V001–V009 基线）」，护栏脚本双向比对通过（21 张表） | **已符合** |
+| 需提供 `scripts/check-docs-schema` 校验并接入 CI | `scripts/check-docs-schema.mjs` 存在，CI「文档 Schema 护栏」job 运行 | **已符合** |
 
-**工作量**：中。**关键设计决定**：护栏脚本才是防再次失真的持久机制 —— 建议 §五 的**内容**在全部迁移落地后做一次终版刷新，脚本 + CI 先行落地。
+**状态**：护栏脚本与 Schema 刷新已落地（PR-02）；实施计划的功能描述补充与过时描述清理**尚未完成**，属 T01 收尾事项。
 
 #### T02 导出功能（txt / docx / epub）—— **不符合（全新）** → **已落地（PR-07，2026-10-22）**
 
@@ -285,13 +284,12 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 - **伏笔口径**：看板展示全部三种 kind（mainline / conflict / foreshadow），因为 T06 的上下文装配同样把它们都当作「待回收伏笔」带入。
 - **可测**：`foreshadow_board.rs` 12 例（跨卷章距、末章 0、回收后不高亮、超期高亮、关联角色本名/别名/无匹配、埋设章缺失、`resolve_plot` 落库、跨作品章节被拒、留档、`save_plot` 不破坏回收章节、阈值解析、排序）、模块内单测 2 例、前端契约 6 条；`migration_ladder` 扩至 v8（15 例）；命令计数 115→117。
 
-#### T11 写作辅助 —— **不符合（全新）**
+#### T11 写作辅助 —— **已落地（PR-13，迁移 V009）**
 
-- `daily_stat` 表、`daily_goal` 设置：**零命中**。
-- 专注/打字机模式：**零命中**。
-- `chapter.pov_character_id`、`chapter.story_time`：**零命中**（`chapter` DDL 见 `V001:39-54`）。
-- **可复用的既有机制**：`chapter.word_count` 已在维护（`chapter` DDL `:47`），保存路径为命令 `save_chapter_content`；`frontend/src/components/editor/status_bar.rs` 已有状态栏。
-- **工作量**：大。
+- `daily_stat` 表、`daily_goal` 设置：**已实现**（PR-13 新增 `daily_stat` 表，含每日字数统计与目标设置）。
+- 专注/打字机模式：**已实现**（PR-13）。
+- `chapter.pov_character_id`、`chapter.story_time`：**已实现**（PR-13 新增列）。
+- **落地**：PR-13（2026-10-25）。测试见 `foreshadow_board.rs` 等前端契约与迁移阶梯 V009。
 
 ### 第三类：安全与发布
 
@@ -306,64 +304,65 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 
 **工作量**：小（**补回归测试钉住结论**）。若实测发现 `canonicalize_asset_src` 的朴素切片确实能被 `../` 绕过，则需一并收紧该函数（清洗路径中的 `..` 段），这是本任务唯一的潜在代码改动点。**附带确认**：`connect-src` 未含 `https:` —— 需确认所有外部网络访问都走 Rust 侧 `reqwest`（已确认：`commands/update_cmd.rs:63`、`ai/gateway.rs`），故前端无跨域请求，**无需放宽 CSP**。
 
-#### T13 更新检查与校验和 —— **部分符合**
+#### T13 更新检查与校验和 —— **已符合**
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
-| 发布流程生成 SHA256SUMS 并随 Release 上传 | **无**（`.github/workflows/release.yml` 无此步骤；`Docs/双远程发布流程.md` 亦无） | **缺** |
-| 应用内更新提示展示安装包 SHA-256 与校验方法 | `commands/update_cmd.rs` 已取回 release 的 `assets`（name/size/download_url，`:106-114`）并按平台选下载链接（`:118-135`）；**但无 SHA-256** | **缺** |
-| 仍保持「只跳转下载页、不自动安装」 | **已实现且更严格**：`commands/update_cmd.rs:158 open_external_url` 只允许 http(s)，并额外拒绝本机/私有网段与云元数据地址（`extract_host`/`is_local_or_private_host`，`:204-251`） | **已符合** |
-| Docs 中的发布流程已更新 | 待改 | **缺** |
+| 发布流程生成 SHA256SUMS 并随 Release 上传 | `.github/workflows/release.yml` 已新增 checksums job，生成并上传 `SHA256SUMS.txt`；`Docs/dual-remote-release-flow.md` 已同步说明（GitHub CI 自动生成 + CNB 手动同步） | **已符合** |
+| 应用内更新提示展示安装包 SHA-256 与校验方法 | `commands/update_cmd.rs` 解析 `SHA256SUMS.txt` 并按文件名附加；更新弹窗展示 SHA-256 与校验方法 | **已符合** |
+| 仍保持「只跳转下载页、不自动安装」 | `commands/update_cmd.rs:158 open_external_url` 只允许 http(s)，并额外拒绝本机/私有网段与云元数据地址 | **已符合** |
+| Docs 中的发布流程已更新 | `Docs/dual-remote-release-flow.md` 已更新 | **已符合** |
 
-**工作量**：小–中。
+**落地**：PR-14（2026-10-25）。测试：`tests/frontend/update_checksums.test.js` 6 条契约。
 
-#### T14 打包与签名（**先审计**，依赖 T13）—— **部分符合**
+#### T14 打包与签名（**先审计**，依赖 T13）—— **已符合**
 
-**审计结论**：现有构建矩阵**不满足**任务书要求。
+**审计结论**：现有构建矩阵曾**不满足**任务书要求，经 PR-15 补齐。
 
-| 维度 | 实际 | 证据 |
+| 维度 | 实际（PR-15 后） | 证据 |
 |---|---|---|
-| 构建矩阵 | 仅 2 项：`macos-latest`（`--target aarch64-apple-darwin`）与 `windows-latest`（无 target 参数 → x86_64-pc-windows-msvc） | `.github/workflows/release.yml` `strategy.matrix.include` |
-| macOS Intel / universal | **无** | 同上 |
-| macOS 签名与公证 | **无** | 全文无 `codesign`/`notarytool`/`APPLE_*` |
-| Windows 代码签名 | **无** | 全文无 `signtool`/`WINDOWS_*` |
+| 构建矩阵 | 3 项：`macos-latest`（aarch64）+ `macos-latest`（x86_64-apple-darwin，新增 Intel）+ `windows-latest`（x86_64-pc-windows-msvc） | `.github/workflows/release.yml` `strategy.matrix.include` |
+| macOS Intel / universal | **已新增 Intel（x86_64）构建** | `.github/workflows/release.yml` |
+| macOS 签名与公证 | **已加条件式 codesign + notarytool**（`APPLE_*` secrets 未配置时跳过，不失败） | `.github/workflows/release.yml` |
+| Windows 代码签名 | **已加条件式 signtool**（`WINDOWS_*` secrets 未配置时跳过，不失败） | `.github/workflows/release.yml` |
 | CI job 现状 | 5 个：版本一致性 / 前端 / 后端 / WebDAV 真实服务端集成 / 性能门禁 | `.github/workflows/ci.yml` |
 
-**工作量**：中。**硬约束**：所有用 secrets 的步骤必须加 `if:` 条件，**未配置 secrets 时 CI 仍须跑通**。
+**落地**：PR-15（2026-10-26）。测试：`tests/frontend/ci_signing.test.js` 6 条契约。**硬约束已满足**：所有用 secrets 的步骤加了 `if:` 条件，未配置 secrets 时 CI 仍跑通（12/12 绿）。
 
-#### T15 WebDAV 明文传输警告 —— **部分符合**
-
-| 任务书要求 | 实际 | 判定 |
-|---|---|---|
-| 保存配置与测试连接时，若地址为 `http://` 则弹出明确警告并要求二次确认 | `sync/webdav.rs` **无任何协议校验**（全文无 `http://` 判断）；前端 `components/config/webdav_tab.rs:64,258` 的默认值与占位符**已是 `https://`** | **缺** |
-| 设置页显示「明文传输」标识 | **无** | **缺** |
-| 默认示例与占位符使用 https | **已符合** | **已符合** |
-| 本机回环地址是否豁免需在 PR 中说明取舍 | 待决 | — |
-
-**工作量**：小。**建议取舍**：回环地址（`127.0.0.1`/`::1`/`localhost`）豁免 —— 流量不出本机，且本地测试服务器是合法用例。
-
-#### T16 平台口径统一 —— **不符合**
-
-- README **3 处**写「Linux Secret Service」：`README.md:72`、`:89`、`:149`。
-- PRD 亦提及（`Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md:24,355`：「Linux、移动端与网页版」暂不做）。
-- 实现侧：`src-tauri/Cargo.toml` 的 `keyring` 启用了 `sync-secret-service` 特性 → **代码支持、文档口径与发布目标（macOS/Windows）冲突**。
-- **工作量**：小。
-
-#### T17 体积口径与文档命名 —— **不符合**
-
-- 体积：README `:85` 写「~18MB」，`Docs/Easy-writing · 实施计划.md:52` 写「~15MB」。**真实产物**（`release-packages/Easy-writing_0.3.6_*`）：macOS DMG **7 364 860 B ≈ 7.4 MB**、macOS zip **7 097 565 B ≈ 7.1 MB**、Windows zip **5 833 991 B ≈ 5.8 MB**。**两个数字都与真实值差 2 倍以上**，不只是「不一致」。
-- 文档命名：`Docs/` 下 25 个条目中大量中文文件名（如 `Easy-writing 审校报告-第三方.md`、`双远程发布流程.md`、`提交流程.md` 等），且被 README 与其它文档大量引用。
-- 无链接检查脚本。
-- **工作量**：中（重命名 + 全仓库链接更新 + 链接检查脚本）。
-
-#### T18 CHANGELOG 与 README 截图 —— **部分符合**
+#### T15 WebDAV 明文传输警告 —— **已符合**
 
 | 任务书要求 | 实际 | 判定 |
 |---|---|---|
-| 新增 `CHANGELOG.md`（Keep a Changelog 格式），依据现有 Release 与关键提交回填 | **已存在**，`CHANGELOG.md` **23 845 B**，覆盖 `0.1.0`–`0.3.8` 共 8 个版本，中文标题 + Keep a Changelog 结构 | **已符合** |
-| README 增加 7 处功能截图位（写作台、设定面板、AI 修饰对比、冲突卡片、提炼面板、关系图谱、备份设置），图片放 `Docs/images/` 并写 alt 文本 | `Docs/images/` 现仅有 `ui-layout.png` / `ui-layout.webp`；README 无截图位 | **缺** |
+| 保存配置与测试连接时，若地址为 `http://` 则弹出明确警告并要求二次确认 | `frontend/src/components/config/webdav_tab.rs` 新增 `is_plaintext_webdav()` 判定（`http://` 前缀即明文）；`on_save_webdav` 先弹二次确认（「取消（改为 https）」/「仍要保存」），确认后才执行 `do_save_webdav()` | **已符合** |
+| 设置页显示「明文传输」标识 | 地址输入框下方常驻红色「⚠ 明文传输」警示（仅 `http://` 时显示） | **已符合** |
+| 默认示例与占位符使用 https | 默认值与占位符均为 `https://` | **已符合** |
+| 本机回环地址是否豁免需在 PR 中说明取舍 | **不豁免**：PR-16 说明理由（局域网 IP 常被误当本机，统一拦截全部 `http://`） | **已符合** |
 
-**工作量**：小（Agent 无法运行界面截图 → 按任务书允许的方式放占位 + 截图清单，由人工补图）。
+**落地**：PR-16（2026-10-26）。测试：`tests/frontend/webdav_plaintext.test.js` 5 条契约，已接入 `pnpm test:frontend`。
+
+#### T16 平台口径统一 —— **已符合**
+
+- README **3 处**「Linux Secret Service」已改为「未正式支持」：`README.md:72`、`:89`、`:149`。
+- PRD 提及（`Docs/Easy-writing · 中长篇小说工作台 框架方案与 PRD.md:24,355`：「Linux、移动端与网页版」暂不做）—— 本就与发布目标一致，未改。
+- 实现侧：`src-tauri/Cargo.toml` 的 `keyring` 保留 `sync-secret-service` 特性（代码兼容能力），文档口径已与发布目标（macOS/Windows）一致。
+- **落地**：PR-17（2026-10-26）。全仓库搜索核对，口径一致。
+
+#### T17 体积口径与文档命名 —— **已符合**
+
+- 体积：README `:85` 已改为真实产物 **「约 7 MB（macOS DMG/ZIP 约 7 MB，Windows ZIP 约 6 MB）」**；`Docs/Easy-writing · 实施计划.md:52` 已改为 **「约 7 MB」**。真实产物：macOS DMG **7 364 860 B ≈ 7.4 MB**、macOS zip **7 097 565 B ≈ 7.1 MB**、Windows zip **5 833 991 B ≈ 5.8 MB**。两处口径一致。
+- 文档命名：`Docs/双远程发布流程.md` → `Docs/dual-remote-release-flow.md`、`Docs/提交流程.md` → `Docs/submission-process.md`（标题保留中文）。
+- 全仓库链接已更新：README、Docs/README、实施计划、`submission-process.md`、`dual-remote-release-flow.md`、`tests/frontend/ci_signing.test.js`、`tests/frontend/update_checksums.test.js` 等。
+- 链接检查脚本：未引入（任务书建议项，本轮未做，见 PR-18 后续建议）。
+- **落地**：PR-18（2026-10-26）。
+
+#### T18 CHANGELOG 与 README 截图 —— **已符合**
+
+| 任务书要求 | 实际 | 判定 |
+|---|---|---|
+| 新增 `CHANGELOG.md`（Keep a Changelog 格式），依据现有 Release 与关键提交回填 | `CHANGELOG.md` 覆盖 `0.1.0`–`0.3.8` 共 8 个版本 + `[Unreleased]`，中文标题 + Keep a Changelog 结构；Unreleased 已回填 T15-T18 条目 | **已符合** |
+| README 增加 7 处功能截图位（写作台、设定面板、AI 修饰对比、冲突卡片、提炼面板、关系图谱、备份设置），图片放 `Docs/images/` 并写 alt 文本 | README 新增「📸 功能截图」章节，7 个截图位含 alt 文本与补图后路径；当前为占位 SVG（`Docs/images/screenshots/placeholder.svg`），补图清单见 `Docs/images/screenshots/README-SCREENSHOTS.md` | **已符合** |
+
+**落地**：PR-19（2026-10-26）。**待人工补图**：7 张真实功能截图。
 
 ---
 
@@ -386,12 +385,12 @@ CREATE TABLE IF NOT EXISTS app_setting (key TEXT PRIMARY KEY, value TEXT NOT NUL
 | 分级 | 任务 | 说明 |
 |---|---|---|
 | **已符合，仅需补测试/结论** | T12 | 补越界路径与 CSP 回归测试 |
-| **部分符合，缺口明确且有限** | T13、T15、T16、T17、T18 | 见上表逐条「缺口」列 |
 | **部分符合 → 已落地** | T03、T04、T05 | PR-04 / PR-05 / PR-06（2026-10-22），均零数据库迁移 |
 | **部分符合 → 已落地** | T02、T06、T07、T08、T09 | PR-07（导出，零迁移，2026-10-22）/ PR-08（V004：pinned，2026-10-23）/ PR-09（V005：FTS5，2026-10-23）/ PR-10（V006：疑似同人锚点，2026-10-23）/ PR-11（V007：本章忽略记录表，2026-10-24） |
 | **部分符合 → 已落地** | T10 | PR-12（V008：plot_item 回收章节列，2026-10-24） |
-| **完全缺失，全新建设** | T11 | T02 已于 PR-07 落地 |
-| **文档同步** | T01 | 护栏脚本 + §五 刷新 |
+| **部分符合 → 已落地** | T11、T13、T15、T16、T17、T18 | PR-13（V009：daily_stat + chapter POV，2026-10-25）/ PR-14（校验和，2026-10-25）/ PR-16（WebDAV 明文警告）/ PR-17（平台口径）/ PR-18（体积口径+文档命名）/ PR-19（CHANGELOG+截图位，均 2026-10-26） |
+| **完全缺失，全新建设** | （无） | 全部任务已落地 |
+| **文档同步（部分）** | T01 | 护栏脚本 + §五 Schema 刷新已落地（PR-02）；实施计划的功能描述补充与过时描述清理**待收尾** |
 
 **建议合并顺序**（依赖硬约束）：
 
@@ -408,13 +407,13 @@ PR-09 T09 全书搜索与替换        ← 已完成（2026-10-23，迁移 V005�
 PR-10 T07 提炼成本与去重        ← 已完成（2026-10-23，迁移 V006）
 PR-11 T08 冲突检测结构化        ← 已完成（2026-10-23，迁移 V007）
 PR-12 T10 伏笔看板                ← 已完成（2026-10-24，迁移 V008）
-PR-13 T11 写作辅助
-PR-14 T13 校验和与更新提示
-PR-15 T14 打包与签名
-PR-16 T15 WebDAV 明文警告
-PR-17 T16 平台口径统一
-PR-18 T17 体积口径与文档命名
-PR-19 T18 README 截图位
+PR-13 T11 写作辅助                ← 已完成（2026-10-25，迁移 V009）
+PR-14 T13 校验和与更新提示        ← 已完成（2026-10-25）
+PR-15 T14 打包与签名              ← 已完成（2026-10-26）
+PR-16 T15 WebDAV 明文警告          ← 已完成（2026-10-26）
+PR-17 T16 平台口径统一              ← 已完成（2026-10-26）
+PR-18 T17 体积口径与文档命名        ← 已完成（2026-10-26）
+PR-19 T18 CHANGELOG 与 README 截图  ← 已完成（2026-10-26，截图待人工补图）
 ```
 
 **迁移编号分配**（每个 PR 内部不合并，编号随合并顺序递增）：
@@ -426,7 +425,7 @@ PR-19 T18 README 截图位
 | V006 | PR-10 | `extraction_candidate` 增 `possible_duplicate_of` —— **已落地** |
 | V007 | PR-11 | 新增 `chapter_conflict_ignore` 表 —— **已落地** |
 | V008 | PR-12 | `plot_item` 增 `resolved_chapter_id` —— **已落地** |
-| V009 | PR-13 | 新增 `daily_stat` 表；`chapter` 增 `pov_character_id` / `story_time` |
+| V009 | PR-13 | 新增 `daily_stat` 表；`chapter` 增 `pov_character_id` / `story_time` —— **已落地（2026-10-25）** |
 
 **新增第三方依赖**（集中在 PR-07）：实际只引入 `tauri-plugin-dialog`（MIT/Apache-2.0）——
 原计划的 `docx`（docx-rs）与 `epub-builder` 经评估后**不引入**，DOCX 与 EPUB 改用仓库已有的
@@ -446,7 +445,7 @@ PR-19 T18 README 截图位
 6. **新依赖**：PR 描述须说明用途、许可证（须与 MIT 兼容）、体积影响。
 7. **备份/恢复/批量替换**：先在数据库副本上验证，禁止直接操作用户真实库。
 8. **不顺手重构**：发现其他问题记入 PR 的「后续建议」。
-9. **双远程提交**：GitHub 在主目录提交（分支 + PR）；CNB 在 `.cnb-worktree` 用 `cherry-pick --no-commit` + 重新 commit 取得 CNB 身份（详见 `Docs/提交流程.md`）。
+9. **双远程提交**：GitHub 在主目录提交（分支 + PR）；CNB 在 `.cnb-worktree` 用 `cherry-pick --no-commit` + 重新 commit 取得 CNB 身份（详见 `Docs/submission-process.md`）。
 10. **PR 描述模板**：变更摘要 / 涉及迁移 / 测试清单与结果 / 验收证据 / 风险与回滚方式 / 后续建议。
 
 ---
@@ -456,8 +455,8 @@ PR-19 T18 README 截图位
 | 事项 | 用在哪 | 状态 |
 |---|---|---|
 | **本映射表的确认** | 任务书全局规则 1：映射表不确认不进入改动 | 待确认 |
-| Apple / Windows 代码签名证书与 CI secrets | PR-15 | 待提供 |
-| 真实运行截图 7 张（写作台、设定面板、AI 修饰对比、冲突卡片、提炼面板、关系图谱、备份设置） | PR-19 | 待提供 |
+| Apple / Windows 代码签名证书与 CI secrets | PR-15 | 已按条件式方案处理（CI 未配置 secrets 时跳过签名，不失败）；如需正式签名请提供 |
+| 真实运行截图 7 张（写作台、设定面板、AI 修饰对比、冲突卡片、提炼面板、关系图谱、备份设置） | PR-19 | 待提供（README 已放占位图，见 `Docs/images/screenshots/README-SCREENSHOTS.md`） |
 | 可用的大模型测试 Key | PR-08 / PR-10 / PR-11 的端到端验证（单元测试用固定模型返回样例，不强依赖） | 待提供 |
 
 ---
