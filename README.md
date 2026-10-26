@@ -69,7 +69,7 @@
 
 ### 9. 🔒 数据绝对自主与原生钥匙串安全
 - **单机 SQLite ACID 存储**：所有作品、设定、章节均保存在本地单文件 SQLite（开启 WAL 模式），断电防崩溃。
-- **原生系统钥匙串安全存储**：API Key 与 WebDAV 密码绝不落入明文数据库，全部交由各平台原生安全子系统（macOS Keychain、Windows 凭据管理器、Linux Secret Service）加密持久化。
+- **原生系统钥匙串安全存储**：API Key 与 WebDAV 密码绝不落入明文数据库，全部交由各平台原生安全子系统（macOS Keychain、Windows 凭据管理器）加密持久化；Linux 暂不正式支持。
 - **软删除作品回收站**：作品、卷、章节支持软删除机制，误删可一键完好恢复，亦可彻底清空释放空间。
 
 ### 10. 🔄 WebDAV 云端备份与软件在线更新
@@ -86,7 +86,7 @@
 | **前端框架** | **Leptos 0.7** (CSR / WASM) | Rust 细粒度响应式驱动，编译为 WASM，零虚拟 DOM 开销 |
 | **富文本核心** | **Tiptap 2 + ProseMirror** | 结构化文档模型，切章不销毁实例，无缝脏检查与光标恢复 |
 | **本地数据** | **SQLite 3** (`rusqlite` + WAL) | 单文件 ACID，支持一致性快照与安全热备份 |
-| **安全密钥** | **系统钥匙串** (`keyring`) | macOS Keychain / Windows 凭据管理器 / Linux Secret Service，凭据永不落库 |
+| **安全密钥** | **系统钥匙串** (`keyring`) | macOS Keychain / Windows 凭据管理器，凭据永不落库（Linux 未正式支持） |
 | **自动化测试** | **Node.js Test + Rust cargo test** | 覆盖前端 DOM 桥接、IPC 命令比对、UI 契约、作品级联删除与图库存储对账 |
 
 ---
@@ -149,7 +149,7 @@ macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `ca
 - **第三方 AI 交互透明度**：
   - 仅在创作者**主动点击或触发** AI 功能（如润色、对话、一致性检测、设定提取）时，才会将当前操作上下文或选中段落文本通过直接 HTTPS 请求发送给创作者**自行配置的 AI 提供商**（如 OpenAI、Anthropic、DeepSeek、Moonshot 或本地 Ollama）。
   - 应用不设立任何第三方云端中转服务器，直接由客户端点对点连接模型厂商官方 API 接口。
-- **凭据硬件级隔离**：大模型 API Key 与 WebDAV 凭据**绝不以明文或密文写入本地 SQLite 数据库**，完全托管在操作系统底层受保护的凭据系统（macOS Keychain / Windows 凭据管理器 / Linux Secret Service），防范窃取。
+- **凭据硬件级隔离**：大模型 API Key 与 WebDAV 凭据**绝不以明文或密文写入本地 SQLite 数据库**，完全托管在操作系统底层受保护的凭据系统（macOS Keychain / Windows 凭据管理器），防范窃取；Linux 暂不正式支持。
 
 ---
 
