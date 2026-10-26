@@ -161,6 +161,11 @@ jobs:
       #   APPLE_TEAM_ID            开发者团队 ID
       # tauri-action 读取 APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD /
       # APPLE_TEAM_ID 完成构建期签名与公证；导入证书供 codesign 使用。
+      #
+      # 注意：这些变量**只能在 secret 存在时导出**。直接写成
+      # `APPLE_SIGNING_IDENTITY: ${{ secrets.X }}` 会在未配置时得到一个空字符串，
+      # tauri 仍会尝试 `codesign --sign ""` 并报 "no identity found"，导致 macOS 构建失败
+      # （v0.3.8 首次 tag 构建即因此失败）。
       - name: Import Apple signing certificate (macOS, optional)
         if: runner.os == 'macOS' && env.APPLE_CERTIFICATE != ''
         id: apple_cert
@@ -178,21 +183,29 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$(security find-generic-password -s $KEYCHAIN_PATH >/dev/null 2>&1 && echo ignored || echo dummy)" -k dummy $KEYCHAIN_PATH >/dev/null 2>&1 || true
           security list-keychain -d user -s $KEYCHAIN_PATH login.keychain-db
 
+      - name: Export Apple signing env (macOS, optional)
+        if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY_SECRET != ''
+        env:
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          {
+            echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_SECRET"
+            echo "APPLE_ID=$APPLE_ID_SECRET"
+            echo "APPLE_PASSWORD=$APPLE_PASSWORD_SECRET"
+            echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET"
+          } >> "$GITHUB_ENV"
+
       - name: Build and Publish Tauri Desktop App
         if: needs.gate.outputs.is_release == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS 签名与公证（任务书 T14）：secret 未配置时为空串，
-          # tauri 构建器自动跳过签名，产物为未签名包 —— CI 不失败。
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Windows 代码签名（任务书 T14）：TAURI_SIGNING_* 走 tauri 内置
-          # signtool 流程；未配置时同样为空、跳过签名。
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.WINDOWS_SIGNING_PFX }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          # macOS / Windows 签名变量不在此处直接引用 secrets：
+          # macOS 走上面的条件导出；Windows 由构建后的 signtool 步骤处理。
+          # 空字符串不是「未配置」，会触发 tauri 对空身份的签名尝试。
         with:
           # buildCommand 让构建走带重试的脚本（scripts/tauri-build-retry.sh）。
           # 注意：这一项的实际生效情况尚未在一次真实 CI 运行中确认过

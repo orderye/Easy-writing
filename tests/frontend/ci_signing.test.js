@@ -30,20 +30,35 @@ test('1. 构建矩阵：aarch64 + x86_64 + Windows 三目标', () => {
   assert.ok(releaseYml.includes(`- platform: 'windows-latest'`), '缺 Windows 目标');
 });
 
-test('2. macOS 签名：证书导入步骤以 secret 为条件，公证变量透传', () => {
+test('2. macOS 签名：证书导入与签名变量都以 secret 为条件', () => {
   const importStep = releaseYml.indexOf('Import Apple signing certificate');
   assert.ok(importStep > 0, '缺证书导入步骤');
-  const block = releaseYml.slice(importStep, importStep + 1500);
+  const importBlock = releaseYml.slice(importStep, importStep + 1500);
   // 条件：secret 为空时跳过
   assert.ok(
-    block.includes(`env.APPLE_CERTIFICATE != ''`),
+    importBlock.includes(`env.APPLE_CERTIFICATE != ''`),
     '证书导入必须以 APPLE_CERTIFICATE 已配置为条件'
   );
-  // 公证变量透传给 tauri-action
-  assert.ok(releaseYml.includes('APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}'));
-  assert.ok(releaseYml.includes('APPLE_ID: ${{ secrets.APPLE_ID }}'));
-  assert.ok(releaseYml.includes('APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}'));
-  assert.ok(releaseYml.includes('APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}'));
+
+  // 签名变量必须通过 GITHUB_ENV 条件导出，不能直接传空字符串给 tauri-action：
+  // 空字符串会被 tauri 当成「要签名」，执行 codesign --sign "" 后失败。
+  const exportStep = releaseYml.indexOf('Export Apple signing env');
+  assert.ok(exportStep > 0, '缺 Apple 签名变量条件导出步骤');
+  const exportBlock = releaseYml.slice(exportStep, exportStep + 1200);
+  assert.ok(
+    exportBlock.includes(`env.APPLE_SIGNING_IDENTITY_SECRET != ''`),
+    '签名变量导出必须以 APPLE_SIGNING_IDENTITY 已配置为条件'
+  );
+  for (const name of ['APPLE_SIGNING_IDENTITY', 'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID']) {
+    assert.ok(
+      exportBlock.includes(`${name}=$${name}_SECRET`),
+      `签名变量 ${name} 必须通过 GITHUB_ENV 条件导出`
+    );
+    assert.ok(
+      !releaseYml.includes(`${name}: \${{ secrets.${name} }}`),
+      `${name} 不能直接以空字符串形式传给 tauri-action`
+    );
+  }
 });
 
 test('3. Windows 签名：signtool 步骤以 PFX secret 为条件', () => {

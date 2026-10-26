@@ -294,7 +294,9 @@ fn disabled_check_does_not_resolve_credentials() {
     let webview = tauri::WebviewWindowBuilder::new(&app, "w0", Default::default())
         .build()
         .unwrap();
-    let url: tauri::Url = "tauri://localhost".parse().unwrap();
+    let url: tauri::Url = if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }
+        .parse()
+        .unwrap();
     let res = tauri::test::get_ipc_response(
         &webview,
         InvokeRequest {
@@ -376,7 +378,9 @@ fn ignore_command_rejects_unknown_chapter_and_empty_signature() {
         let webview = tauri::WebviewWindowBuilder::new(&app, label, Default::default())
             .build()
             .unwrap();
-        let url: tauri::Url = "tauri://localhost".parse().unwrap();
+        let url: tauri::Url = if cfg!(windows) { "http://tauri.localhost" } else { "tauri://localhost" }
+        .parse()
+        .unwrap();
         tauri::test::get_ipc_response(
             &webview,
             InvokeRequest {
