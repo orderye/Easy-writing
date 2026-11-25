@@ -31,6 +31,7 @@ struct AnthropicStreamEvent {
     delta: Option<AnthropicStreamDelta>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_anthropic(
     client: &Client,
     base_url: &str,
@@ -92,18 +93,13 @@ pub async fn stream_anthropic(
     }
 
     let mut full_content = String::new();
-    let mut buffer = String::new();
+    let mut buffer: Vec<u8> = Vec::new();
 
     while let Some(item) = res.chunk().await.map_err(|e| e.to_string())? {
-        let chunk_str = String::from_utf8_lossy(&item);
-        buffer.push_str(&chunk_str);
+        crate::ai::openai::append_sse_chunk(&mut buffer, &item)?;
 
-        while let Some(idx) = buffer.find('\n') {
-            let line = buffer[..idx].trim().to_string();
-            buffer.drain(..=idx);
-
-            if line.starts_with("data: ") {
-                let data = &line["data: ".len()..];
+        for line in crate::ai::openai::drain_sse_lines(&mut buffer) {
+            if let Some(data) = line.strip_prefix("data: ") {
                 if let Ok(event) = serde_json::from_str::<AnthropicStreamEvent>(data) {
                     if event.event_type.as_deref() == Some("content_block_delta") {
                         if let Some(delta) = event.delta {

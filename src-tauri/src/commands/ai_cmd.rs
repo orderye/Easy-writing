@@ -17,8 +17,6 @@ pub async fn ai_polish(
     module_key: String,
     current_content: String,
 ) -> Result<String, String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
-
     // Map module_key to corresponding agent
     let agent_key = match module_key.as_str() {
         "worldview" => "worldview",
@@ -29,10 +27,15 @@ pub async fn ai_polish(
         _ => "writing_assistant",
     };
 
-    let (_agent, profile, api_key) =
-        crate::agent::dispatcher::resolve_agent_and_profile(&conn, agent_key)?;
+    let (profile, api_key, system_instruction) = {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        let (_agent, profile, api_key) =
+            crate::agent::dispatcher::resolve_agent_and_profile(&conn, agent_key)?;
+        let system_instruction =
+            crate::db::prompt_template::get_active_prompt_template(&conn, &module_key);
+        (profile, api_key, system_instruction)
+    };
 
-    let system_instruction = crate::db::prompt_template::get_active_prompt_template(&conn, &module_key);
     let gateway = AiGateway::new();
 
     let messages = vec![ChatMessage {
@@ -502,7 +505,7 @@ pub fn resolve_candidate(
     action: String, // "accept" | "ignore"
     custom_payload: Option<String>,
 ) -> Result<(), String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
+    let mut conn = pool.get().map_err(|e| e.to_string())?;
 
     if action == "ignore" {
         crate::db::extraction::update_candidate_status(&conn, &candidate_id, "ignored")
@@ -510,13 +513,17 @@ pub fn resolve_candidate(
         return Ok(());
     }
 
-    // Accept: fetch candidate details and insert into formal table
-    let mut stmt = conn
-        .prepare("SELECT novel_id, chapter_id, kind, action, target_id, COALESCE(title, ''), payload, evidence FROM extraction_candidate WHERE id = ?1")
-        .map_err(|e| e.to_string())?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
 
-    let candidate_row: Result<(String, String, String, String, Option<String>, String, String, String), rusqlite::Error> =
-        stmt.query_row(rusqlite::params![candidate_id], |r| {
+    type CandidateRow = (String, String, String, String, Option<String>, String, String, String);
+
+    // Accept: fetch candidate details and insert into formal table
+    let candidate_row: Option<CandidateRow> = {
+        let mut stmt = tx
+            .prepare("SELECT novel_id, chapter_id, kind, action, target_id, COALESCE(title, ''), payload, evidence FROM extraction_candidate WHERE id = ?1")
+            .map_err(|e| e.to_string())?;
+
+        match stmt.query_row(rusqlite::params![candidate_id], |r| {
             Ok((
                 r.get(0)?,
                 r.get(1)?,
@@ -527,9 +534,14 @@ pub fn resolve_candidate(
                 r.get(6)?,
                 r.get(7)?,
             ))
-        });
+        }) {
+            Ok(row) => Some(row),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(e.to_string()),
+        }
+    };
 
-    if let Ok((novel_id, chapter_id, kind, _cand_action, target_id, cand_title, default_payload, evidence)) = candidate_row {
+    if let Some((novel_id, chapter_id, kind, _cand_action, target_id, cand_title, default_payload, evidence)) = candidate_row {
         let final_text = custom_payload.unwrap_or(default_payload);
         let mut title = cand_title.trim().to_string();
         if title.is_empty() {
@@ -546,7 +558,7 @@ pub fn resolve_candidate(
             "worldview" => {
                 // 1. 设定：保存到世界观设定库（自修复 target_id 存在性）
                 let real_target_id = target_id.filter(|tid| {
-                    conn.query_row(
+                    tx.query_row(
                         "SELECT 1 FROM worldview_entry WHERE id = ?1 AND deleted_at IS NULL",
                         rusqlite::params![tid],
                         |_| Ok(()),
@@ -554,28 +566,30 @@ pub fn resolve_candidate(
                     .is_ok()
                 });
 
-                let _ = crate::db::settings::save_worldview(
-                    &conn,
+                crate::db::settings::save_worldview(
+                    &tx,
                     real_target_id,
                     &novel_id,
                     "世界观设定",
                     &title,
                     &final_text,
-                );
+                )
+                .map_err(|e| e.to_string())?;
 
                 // 2. 词库自联动：将该专有名词自动注册到小说词库中，供编辑器自动补全
-                let _ = crate::db::lexicon::upsert_lexicon_term(
-                    &conn,
+                crate::db::lexicon::upsert_lexicon_term(
+                    &tx,
                     &novel_id,
                     &title,
                     "worldview",
                     None,
-                );
+                )
+                .map_err(|e| e.to_string())?;
             }
             "character" => {
                 // 1. 角色与角色卡：智能合并 6 维全息解构
                 let real_target_id = target_id.filter(|tid| {
-                    conn.query_row(
+                    tx.query_row(
                         "SELECT 1 FROM character WHERE id = ?1 AND deleted_at IS NULL",
                         rusqlite::params![tid],
                         |_| Ok(()),
@@ -585,8 +599,8 @@ pub fn resolve_candidate(
 
                 let char_id = if let Some(ref tid) = real_target_id {
                     // 更新既有角色：无损合并新提炼信息至 ExplodedProfile
-                    let existing_char = crate::db::settings::list_characters(&conn, &novel_id)
-                        .unwrap_or_default()
+                    let existing_char = crate::db::settings::list_characters(&tx, &novel_id)
+                        .map_err(|e| e.to_string())?
                         .into_iter()
                         .find(|c| &c.id == tid);
 
@@ -606,74 +620,77 @@ pub fn resolve_candidate(
                     let profile_json = ep.to_json_string();
                     let ch_name = existing_char.as_ref().map(|c| c.name.as_str()).unwrap_or(&title);
                     let ch_aliases = existing_char.as_ref().map(|c| c.aliases.as_str()).unwrap_or("[]");
-                    let _ = crate::db::settings::save_character(
-                        &conn,
+                    crate::db::settings::save_character(
+                        &tx,
                         Some(tid.clone()),
                         &novel_id,
                         ch_name,
                         ch_aliases,
                         &profile_json,
-                    );
+                    )
+                    .map_err(|e| e.to_string())?;
                     tid.clone()
                 } else {
                     // 新建角色：初始化 6 维角色卡
-                    let mut ep = shared_types::ExplodedProfile::default();
-                    ep.raw_notes = final_text.clone();
-                    ep.faction = "默认阵营".to_string();
-                    ep.importance = 2;
+                    let ep = shared_types::ExplodedProfile {
+                        raw_notes: final_text.clone(),
+                        faction: "默认阵营".to_string(),
+                        importance: 2,
+                        ..Default::default()
+                    };
                     let profile_json = ep.to_json_string();
 
-                    if let Ok(new_ch) = crate::db::settings::save_character(
-                        &conn,
+                    let new_ch = crate::db::settings::save_character(
+                        &tx,
                         None,
                         &novel_id,
                         &title,
                         "[]",
                         &profile_json,
-                    ) {
-                        new_ch.id
-                    } else {
-                        uuid::Uuid::new_v4().to_string()
-                    }
+                    )
+                    .map_err(|e| e.to_string())?;
+                    new_ch.id
                 };
 
                 // 2. 词库自联动：角色名加入词库
-                let _ = crate::db::lexicon::upsert_lexicon_term(
-                    &conn,
+                crate::db::lexicon::upsert_lexicon_term(
+                    &tx,
                     &novel_id,
                     &title,
                     "character",
                     Some(&char_id),
-                );
+                )
+                .map_err(|e| e.to_string())?;
 
                 // 3. 关系管理与星云爆炸图自联动：检测与小说中其他已有角色的交互关系并建立连线
-                if let Ok(all_chars) = crate::db::settings::list_characters(&conn, &novel_id) {
-                    for other in all_chars {
-                        if other.id != char_id && (final_text.contains(&other.name) || evidence.contains(&other.name)) {
-                            // 自修复：推断关系标签并入库 character_relation
-                            let rel_name = if final_text.contains("君臣") || final_text.contains("官家") || final_text.contains("陛下") {
-                                "君臣"
-                            } else if final_text.contains("同袍") || final_text.contains("同门") || final_text.contains("部将") {
-                                "同袍/盟友"
-                            } else if final_text.contains("敌") || final_text.contains("战") || final_text.contains("诛") {
-                                "对立/宿敌"
-                            } else if final_text.contains("妻") || final_text.contains("夫") || final_text.contains("眷") {
-                                "眷属/羁绊"
-                            } else {
-                                "相识交互"
-                            };
+                let all_chars = crate::db::settings::list_characters(&tx, &novel_id)
+                    .map_err(|e| e.to_string())?;
+                for other in all_chars {
+                    if other.id != char_id && (final_text.contains(&other.name) || evidence.contains(&other.name)) {
+                        // 自修复：推断关系标签并入库 character_relation
+                        let rel_name = if final_text.contains("君臣") || final_text.contains("官家") || final_text.contains("陛下") {
+                            "君臣"
+                        } else if final_text.contains("同袍") || final_text.contains("同门") || final_text.contains("部将") {
+                            "同袍/盟友"
+                        } else if final_text.contains("敌") || final_text.contains("战") || final_text.contains("诛") {
+                            "对立/宿敌"
+                        } else if final_text.contains("妻") || final_text.contains("夫") || final_text.contains("眷") {
+                            "眷属/羁绊"
+                        } else {
+                            "相识交互"
+                        };
 
-                            let desc = format!("本章（第 {} 章证据）出现交互：{}", chapter_id, evidence.chars().take(60).collect::<String>());
-                            let _ = crate::db::character_relation::save_character_relation(
-                                &conn,
-                                None,
-                                &novel_id,
-                                &char_id,
-                                &other.id,
-                                rel_name,
-                                &desc,
-                            );
-                        }
+                        let desc = format!("本章（第 {} 章证据）出现交互：{}", chapter_id, evidence.chars().take(60).collect::<String>());
+                        crate::db::character_relation::save_character_relation(
+                            &tx,
+                            None,
+                            &novel_id,
+                            &char_id,
+                            &other.id,
+                            rel_name,
+                            &desc,
+                        )
+                        .map_err(|e| e.to_string())?;
                     }
                 }
             }
@@ -694,7 +711,7 @@ pub fn resolve_candidate(
                 };
 
                 let real_target_id = target_id.filter(|tid| {
-                    conn.query_row(
+                    tx.query_row(
                         "SELECT 1 FROM plot_item WHERE id = ?1 AND deleted_at IS NULL",
                         rusqlite::params![tid],
                         |_| Ok(()),
@@ -702,8 +719,8 @@ pub fn resolve_candidate(
                     .is_ok()
                 });
 
-                let _ = crate::db::settings::save_plot(
-                    &conn,
+                crate::db::settings::save_plot(
+                    &tx,
                     real_target_id,
                     &novel_id,
                     &title,
@@ -711,16 +728,18 @@ pub fn resolve_candidate(
                     plot_kind,
                     plot_status,
                     Some(chapter_id.clone()),
-                );
+                )
+                .map_err(|e| e.to_string())?;
             }
             "chapter_summary" => {
                 // 大纲：更新章节梗概 summary 字段，直接呈现在大纲视图
-                let _ = conn.execute(
+                tx.execute(
                     "UPDATE chapter SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
                     rusqlite::params![final_text, chapter_id],
-                );
-                let _ = crate::db::settings::record_setting_change(
-                    &conn,
+                )
+                .map_err(|e| e.to_string())?;
+                crate::db::settings::record_setting_change(
+                    &tx,
                     &novel_id,
                     Some(chapter_id.as_str()),
                     "chapter",
@@ -729,12 +748,16 @@ pub fn resolve_candidate(
                     "",
                     &final_text,
                     "AI提炼章纲梗概",
-                );
+                )
+                .map_err(|e| e.to_string())?;
             }
             _ => {}
         }
-        let _ = crate::db::extraction::update_candidate_status(&conn, &candidate_id, "accepted");
+        crate::db::extraction::update_candidate_status(&tx, &candidate_id, "accepted")
+            .map_err(|e| e.to_string())?;
     }
+
+    tx.commit().map_err(|e| e.to_string())?;
 
     Ok(())
 }

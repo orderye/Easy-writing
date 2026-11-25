@@ -28,11 +28,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            use std::sync::atomic::{AtomicBool, Ordering};
+            static CLOSING_SYNC_STARTED: AtomicBool = AtomicBool::new(false);
+
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if let Some(pool) = window.try_state::<db::DbPool>() {
                     let pool = pool.inner().clone();
                     if commands::sync_cmd::is_webdav_configured(&pool) {
                         api.prevent_close();
+                        if CLOSING_SYNC_STARTED
+                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                            .is_err()
+                        {
+                            return;
+                        }
                         let app_handle = window.app_handle().clone();
                         let window_clone = window.clone();
                         let app_data_dir = app_handle

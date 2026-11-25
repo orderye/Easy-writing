@@ -212,29 +212,24 @@ pub fn save_chapter_content(
     word_count: i32,
 ) -> Result<(), String> {
     let conn = pool.get().map_err(|e| e.to_string())?;
-    // 保存前的字数：净增 = 新字数 − 旧字数（任务书 T11）。
-    // 导入与批量替换不经过本命令，天然不计入每日统计。
-    let old_word_count: i32 = crate::db::chapter::get_chapter(&conn, &id)
-        .ok()
-        .flatten()
-        .map(|c| c.word_count)
-        .unwrap_or(0);
+    // 保存前读取一次章节元信息与旧字数（避免重复查库 3 次）：
+    // 净增 = 新字数 − 旧字数（任务书 T11）；导入与批量替换不经过本命令。
+    let existing = crate::db::chapter::get_chapter(&conn, &id).ok().flatten();
+    let old_word_count: i32 = existing.as_ref().map(|c| c.word_count).unwrap_or(0);
 
     crate::db::chapter::save_chapter_content(&conn, &id, &content, &content_plain, word_count)
         .map_err(|e| e.to_string())?;
 
-    // 每日净增字数（T11）。统计失败不影响保存本身 —— 它是附属功能。
-    if let Some(chap) = crate::db::chapter::get_chapter(&conn, &id).ok().flatten() {
+    if let Some(chap) = existing {
+        // 每日净增字数（T11）。统计失败不影响保存本身 —— 它是附属功能。
         let delta = (word_count as i64) - (old_word_count as i64);
         if delta != 0 {
             if let Err(e) = crate::db::daily_stat::add_net_words(&conn, &chap.novel_id, delta) {
                 web_sys_like_warn(&format!("[daily-stat] 记录净增字数失败：{e}"));
             }
         }
-    }
 
-    // Auto snapshot trigger if conditions are met
-    if let Ok(Some(chap)) = crate::db::chapter::get_chapter(&conn, &id) {
+        // Auto snapshot trigger if conditions are met
         let _ = crate::db::chapter_revision::maybe_auto_snapshot(
             &conn,
             &id,
@@ -536,6 +531,7 @@ pub fn list_plots(pool: State<DbPool>, novel_id: String) -> Result<Vec<PlotItem>
 }
 
 #[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
 pub fn save_plot(
     pool: State<DbPool>,
     id: Option<String>,
@@ -802,6 +798,10 @@ pub fn parse_import_epub(
     file_name: String,
     epub_base64: String,
 ) -> Result<shared_types::ImportPreview, String> {
+    const MAX_EPUB_BASE64_LEN: usize = (64 * 1024 * 1024 * 4 / 3) + 16;
+    if epub_base64.len() > MAX_EPUB_BASE64_LEN {
+        return Err("EPUB 文件超过 64 MiB 体积上限".to_string());
+    }
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(&epub_base64)
@@ -960,10 +960,12 @@ pub fn import_lexicon_terms(
     let mut imported = 0;
     for t in terms {
         let trimmed = t.trim();
-        if trimmed.chars().count() >= 2 && trimmed.chars().count() <= 40 {
-            if crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, trimmed, &category, None).is_ok() {
-                imported += 1;
-            }
+        if trimmed.chars().count() >= 2
+            && trimmed.chars().count() <= 40
+            && crate::db::lexicon::upsert_lexicon_term(&conn, &novel_id, trimmed, &category, None)
+                .is_ok()
+        {
+            imported += 1;
         }
     }
     Ok(imported)

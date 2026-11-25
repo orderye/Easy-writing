@@ -87,22 +87,29 @@ fn search_via_fts(
     Ok(out)
 }
 
+fn escape_like(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 fn search_via_like(
     conn: &Connection,
     novel_id: &str,
     term: &str,
     limit: usize,
 ) -> rusqlite::Result<Vec<ChapterSearchHit>> {
+    let escaped = escape_like(term);
     let mut stmt = conn.prepare(
         "SELECT id, volume_id, title, content_plain
          FROM chapter
          WHERE novel_id = ?1 AND deleted_at IS NULL
-           AND (content_plain LIKE '%' || ?2 || '%' OR title LIKE '%' || ?2 || '%')
+           AND (content_plain LIKE '%' || ?2 || '%' ESCAPE '\\' OR title LIKE '%' || ?2 || '%' ESCAPE '\\')
          ORDER BY sort_order ASC, created_at ASC
          LIMIT ?3",
     )?;
 
-    let rows = stmt.query_map(rusqlite::params![novel_id, term, limit as i64], |row| {
+    let rows = stmt.query_map(rusqlite::params![novel_id, escaped, limit as i64], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,

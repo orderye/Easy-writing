@@ -5,36 +5,28 @@ use regex::Regex;
 use shared_types::{ImportChapterPreview, ImportPreview, ImportVolumePreview};
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use std::sync::LazyLock;
 use zip::ZipArchive;
 
-/// 解码 URL 编码路径（例如 %20 还原为空格）
+/// 解码 URL 编码路径（按 UTF-8 字节流还原，支持中文文件名如 `%E7%AC%AC%E4%B8%80%E7%AB%A0.xhtml`）
 fn url_decode(s: &str) -> String {
-    let mut out = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            let h1 = chars.next();
-            let h2 = chars.next();
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                let hex_str = format!("{}{}", h1, h2);
-                if let Ok(byte) = u8::from_str_radix(&hex_str, 16) {
-                    out.push(byte as char);
+    let mut out = Vec::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(hex_str) = std::str::from_utf8(&bytes[i + 1..i + 3]) {
+                if let Ok(byte) = u8::from_str_radix(hex_str, 16) {
+                    out.push(byte);
+                    i += 3;
                     continue;
                 }
-                out.push('%');
-                out.push(h1);
-                out.push(h2);
-            } else {
-                out.push('%');
-                if let Some(h) = h1 {
-                    out.push(h);
-                }
             }
-        } else {
-            out.push(c);
         }
+        out.push(bytes[i]);
+        i += 1;
     }
-    out
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// 解析 Zip 内部相对路径
@@ -61,27 +53,28 @@ fn resolve_zip_path(base_dir: &str, href: &str) -> String {
     parts.join("/")
 }
 
+static RE_HEAD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<head[^>]*>.*?</head>").unwrap());
+static RE_SCRIPT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<script[^>]*>.*?</script>").unwrap());
+static RE_STYLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<style[^>]*>.*?</style>").unwrap());
+static RE_HEADING: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<h[1-2][^>]*>(.*?)</h[1-2]>").unwrap());
+static RE_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
+static RE_WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
+static RE_BR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)<br\s*/?>").unwrap());
+static RE_BLOCK: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)</?(p|div|h[1-6]|li|blockquote|section|article)\b[^>]*>").unwrap());
+
 /// 从 HTML 源码中提取纯净的段落文本行与可能存在的显式主标题
 fn html_to_paragraphs(html: &str) -> (Option<String>, Vec<String>) {
-    // 移除 head, script, style
-    let head_re = Regex::new(r"(?is)<head[^>]*>.*?</head>").unwrap();
-    let script_re = Regex::new(r"(?is)<script[^>]*>.*?</script>").unwrap();
-    let style_re = Regex::new(r"(?is)<style[^>]*>.*?</style>").unwrap();
-
-    let cleaned = head_re.replace_all(html, "");
-    let cleaned = script_re.replace_all(&cleaned, "");
-    let cleaned = style_re.replace_all(&cleaned, "");
+    let cleaned = RE_HEAD.replace_all(html, "");
+    let cleaned = RE_SCRIPT.replace_all(&cleaned, "");
+    let cleaned = RE_STYLE.replace_all(&cleaned, "");
 
     // 尝试提取 h1 或 h2 作为主标题
-    let heading_re = Regex::new(r"(?is)<h[1-2][^>]*>(.*?)</h[1-2]>").unwrap();
-    let tag_re = Regex::new(r"<[^>]+>").unwrap();
-    let ws_re = Regex::new(r"\s+").unwrap();
     let mut detected_heading = None;
-    if let Some(cap) = heading_re.captures(&cleaned) {
+    if let Some(cap) = RE_HEADING.captures(&cleaned) {
         let raw_h = &cap[1];
-        let plain_h = tag_re.replace_all(raw_h, " ").to_string();
+        let plain_h = RE_TAG.replace_all(raw_h, " ").to_string();
         let unescaped = unescape_html(plain_h.trim());
-        let normalized = ws_re.replace_all(&unescaped, " ").trim().to_string();
+        let normalized = RE_WS.replace_all(&unescaped, " ").trim().to_string();
         if !normalized.is_empty() && normalized.chars().count() <= 60 {
             detected_heading = Some(normalized);
         }
@@ -89,18 +82,15 @@ fn html_to_paragraphs(html: &str) -> (Option<String>, Vec<String>) {
 
     // 将显式标题从正文清理中移除，避免标题重复出现在正文第一行
     let cleaned_without_heading = if detected_heading.is_some() {
-        heading_re.replace(&cleaned, "").to_string()
+        RE_HEADING.replace(&cleaned, "").to_string()
     } else {
         cleaned.to_string()
     };
 
     // 块级标签替换为换行符
-    let br_re = Regex::new(r"(?i)<br\s*/?>").unwrap();
-    let block_re = Regex::new(r"(?i)</?(p|div|h[1-6]|li|blockquote|section|article)\b[^>]*>").unwrap();
-
-    let with_breaks = br_re.replace_all(&cleaned_without_heading, "\n");
-    let with_blocks = block_re.replace_all(&with_breaks, "\n\n");
-    let strip_all = tag_re.replace_all(&with_blocks, "");
+    let with_breaks = RE_BR.replace_all(&cleaned_without_heading, "\n");
+    let with_blocks = RE_BLOCK.replace_all(&with_breaks, "\n\n");
+    let strip_all = RE_TAG.replace_all(&with_blocks, "");
 
     let mut paragraphs = Vec::new();
     for raw_line in strip_all.lines() {
@@ -206,8 +196,6 @@ fn collect_toc_titles(nodes: &[NavNode], map: &mut HashMap<String, String>) {
 }
 
 
-
-/// 归档内允许的最大条目数。
 
 /// 归档内允许的最大条目数。
 ///
@@ -550,31 +538,35 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
                 if !root.src.is_empty() {
                     if let Ok(mut file) = archive.by_name(&root.src) {
                         let mut html = String::new();
-                        if read_entry_text(&mut file, &mut html).is_ok() {
-                            let (detected_h, mut paras) = html_to_paragraphs(&html);
-                            let chap_title = if !root.title.is_empty() {
-                                root.title.clone()
-                            } else if let Some(h) = detected_h {
-                                h
-                            } else {
-                                "章节".to_string()
-                            };
-
-                            if let Some(first_p) = paras.first() {
-                                let clean_first = first_p.replace(char::is_whitespace, "");
-                                let clean_title = chap_title.replace(char::is_whitespace, "");
-                                if clean_first == clean_title {
-                                    paras.remove(0);
-                                }
-                            }
-
-                            if let Some(ch) = finalize_chapter(&chap_title, &paras) {
-                                if let Some(last_vol) = volumes.last_mut() {
-                                    last_vol.chapters.push(ch);
+                        match read_entry_text(&mut file, &mut html) {
+                            Ok(()) => {
+                                let (detected_h, mut paras) = html_to_paragraphs(&html);
+                                let chap_title = if !root.title.is_empty() {
+                                    root.title.clone()
+                                } else if let Some(h) = detected_h {
+                                    h
                                 } else {
-                                    front_chapters.push(ch);
+                                    "章节".to_string()
+                                };
+
+                                if let Some(first_p) = paras.first() {
+                                    let clean_first = first_p.replace(char::is_whitespace, "");
+                                    let clean_title = chap_title.replace(char::is_whitespace, "");
+                                    if clean_first == clean_title {
+                                        paras.remove(0);
+                                    }
+                                }
+
+                                if let Some(ch) = finalize_chapter(&chap_title, &paras) {
+                                    if let Some(last_vol) = volumes.last_mut() {
+                                        last_vol.chapters.push(ch);
+                                    } else {
+                                        front_chapters.push(ch);
+                                    }
                                 }
                             }
+                            Err(EntryReadError::TooLarge(msg)) => return Err(msg),
+                            Err(EntryReadError::Corrupt) => {}
                         }
                     }
                 }
@@ -654,7 +646,7 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
             } else if paragraphs.len() <= 2 {
                 let first_line = paragraphs[0].trim();
                 is_volume_header(first_line)
-                    || (file_title_opt.as_deref().map(|t| is_volume_header(t)).unwrap_or(false))
+                    || file_title_opt.as_deref().is_some_and(is_volume_header)
             } else {
                 false
             };
@@ -744,4 +736,17 @@ pub fn parse_import_epub(file_name: &str, data: &[u8]) -> Result<ImportPreview, 
         total_word_count,
         volumes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn url_decode_preserves_utf8_chinese_paths() {
+        assert_eq!(
+            url_decode("OEBPS/%E7%AC%AC%E4%B8%80%E7%AB%A0%20%E8%B5%B7%E5%A7%8B.xhtml"),
+            "OEBPS/第一章 起始.xhtml"
+        );
+    }
 }

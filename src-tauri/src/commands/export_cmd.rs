@@ -29,6 +29,7 @@ pub const PROGRESS_EVENT: &str = "novel-export://progress";
 #[tauri::command(rename_all = "snake_case")]
 pub async fn choose_export_file(
     app: AppHandle,
+    state: State<'_, ExportState>,
     file_name: String,
     format: String,
 ) -> Result<Option<String>, String> {
@@ -77,7 +78,10 @@ pub async fn choose_export_file(
     // 「换一个文件名」而不是「已取消」这种错误提示。
     match chosen {
         Some(p) => match p.into_path() {
-            Ok(path) => Ok(Some(path.to_string_lossy().to_string())),
+            Ok(path) => {
+                state.approve_path(path.clone());
+                Ok(Some(path.to_string_lossy().to_string()))
+            }
             // 保存路径取不到（作者选了一个目录而不是文件等）属于
             // 「保存失败」而不是「取消」，要分开报 —— 前端才能给出
             // 「换一个文件名」而不是「已取消」这种错误提示。
@@ -104,6 +108,11 @@ pub async fn export_novel(
         return Err("导出路径为空。".to_string());
     }
 
+    let target = PathBuf::from(&path);
+    if !state.take_approved_path(&target) {
+        return Err("导出路径未经保存对话框授权，请重新选择导出位置。".to_string());
+    }
+
     let app_data_dir = app
         .path()
         .app_data_dir()
@@ -115,7 +124,6 @@ pub async fn export_novel(
     state.reset();
 
     let emitter = app.clone();
-    let target = PathBuf::from(path);
 
     let outcome = tokio::task::spawn_blocking(move || {
         crate::export::export_novel(

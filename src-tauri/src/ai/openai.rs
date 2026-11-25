@@ -33,6 +33,7 @@ struct StreamChunk {
     choices: Option<Vec<StreamChoice>>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn stream_openai(
     client: &Client,
     base_url: &str,
@@ -90,18 +91,13 @@ pub async fn stream_openai(
     }
 
     let mut full_content = String::new();
-    let mut buffer = String::new();
+    let mut buffer: Vec<u8> = Vec::new();
 
     while let Some(item) = res.chunk().await.map_err(|e| e.to_string())? {
-        let chunk_str = String::from_utf8_lossy(&item);
-        buffer.push_str(&chunk_str);
+        append_sse_chunk(&mut buffer, &item)?;
 
-        while let Some(idx) = buffer.find('\n') {
-            let line = buffer[..idx].trim().to_string();
-            buffer.drain(..=idx);
-
-            if line.starts_with("data: ") {
-                let data = &line["data: ".len()..];
+        for line in drain_sse_lines(&mut buffer) {
+            if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
                     break;
                 }
@@ -121,6 +117,27 @@ pub async fn stream_openai(
     }
 
     Ok(full_content)
+}
+
+const MAX_SSE_BUFFER_BYTES: usize = 2 * 1024 * 1024;
+
+pub(crate) fn append_sse_chunk(buffer: &mut Vec<u8>, chunk: &[u8]) -> Result<(), String> {
+    if buffer.len() + chunk.len() > MAX_SSE_BUFFER_BYTES {
+        return Err("SSE 流响应行缓冲超过上限".to_string());
+    }
+    buffer.extend_from_slice(chunk);
+    Ok(())
+}
+
+/// 按 `b'\n'` 切分完整 SSE 行后再执行 UTF-8 解码，避免多字节中文字符在 TCP 分片边界被拆坏。
+pub(crate) fn drain_sse_lines(buffer: &mut Vec<u8>) -> Vec<String> {
+    let mut lines = Vec::new();
+    while let Some(idx) = buffer.iter().position(|&b| b == b'\n') {
+        let line = String::from_utf8_lossy(&buffer[..idx]).trim().to_string();
+        buffer.drain(..=idx);
+        lines.push(line);
+    }
+    lines
 }
 
 /// 非流式一次性补全，供「是否流式 = 关闭」时使用。
@@ -220,5 +237,24 @@ pub async fn test_openai_connection(
         let status = res.status();
         let err_text = res.text().await.unwrap_or_default();
         Err(format!("Status {}: {}", status, err_text))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sse_buffer_handles_split_utf8_chinese_chars() {
+        let mut buffer = Vec::new();
+        // "data: 中文\n" 中 '中' (E4 B8 AD) 在第 1 个字节后被分片截断
+        let full = b"data: \xE4\xB8\xAD\xE6\x96\x87\n";
+        append_sse_chunk(&mut buffer, &full[..7]).unwrap();
+        assert!(drain_sse_lines(&mut buffer).is_empty());
+
+        append_sse_chunk(&mut buffer, &full[7..]).unwrap();
+        let lines = drain_sse_lines(&mut buffer);
+        assert_eq!(lines, vec!["data: 中文"]);
+        assert!(buffer.is_empty());
     }
 }

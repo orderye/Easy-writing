@@ -128,6 +128,9 @@ pub fn finalize_chapter(title: &str, paragraphs: &[String]) -> Option<ImportChap
     })
 }
 
+static RE_HTML_NUM: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"&#(x?[0-9a-fA-F]+);").unwrap());
+
 /// HTML 实体解码器，支持常用命名实体及数值实体（&#123; 或 &#x1F;）
 pub fn unescape_html(s: &str) -> String {
     let s = s
@@ -146,8 +149,7 @@ pub fn unescape_html(s: &str) -> String {
         .replace("&lsquo;", "‘")
         .replace("&rsquo;", "’");
 
-    let num_re = Regex::new(r"&#(x?[0-9a-fA-F]+);").unwrap();
-    num_re
+    RE_HTML_NUM
         .replace_all(&s, |caps: &regex::Captures| {
             let code_str = &caps[1];
             let code = if let Some(hex) = code_str.strip_prefix('x') {

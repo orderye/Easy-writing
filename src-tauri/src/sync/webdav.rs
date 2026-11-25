@@ -13,7 +13,7 @@ pub enum RemoteFetch {
     NotFound,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct WebDavClient {
     client: Client,
     base_url: String,
@@ -21,10 +21,21 @@ pub struct WebDavClient {
     password: String,
 }
 
+impl std::fmt::Debug for WebDavClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WebDavClient")
+            .field("base_url", &self.base_url)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
+}
+
 impl WebDavClient {
     pub fn new(base_url: &str, username: &str, password: &str) -> Self {
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
             .build()
             .unwrap_or_else(|_| Client::new());
 
@@ -186,12 +197,24 @@ impl WebDavClient {
             return Err(format!("WebDAV 下载失败: HTTP {}", status));
         }
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| format!("读取文件内容流失败: {}", e))?;
+        let bytes = Self::read_response_capped(res).await?;
+        Ok(bytes)
+    }
 
-        Ok(bytes.to_vec())
+    async fn read_response_capped(mut res: reqwest::Response) -> Result<Vec<u8>, String> {
+        const MAX_WEBDAV_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
+        let mut out = Vec::new();
+        while let Some(chunk) = res
+            .chunk()
+            .await
+            .map_err(|e| format!("读取文件内容流失败: {}", e))?
+        {
+            if out.len() + chunk.len() > MAX_WEBDAV_DOWNLOAD_BYTES {
+                return Err("WebDAV 响应体超过 256 MiB 安全上限".to_string());
+            }
+            out.extend_from_slice(&chunk);
+        }
+        Ok(out)
     }
 
     /// 下载一个**允许不存在**的文件。
@@ -231,12 +254,8 @@ impl WebDavClient {
             ));
         }
 
-        let bytes = res
-            .bytes()
-            .await
-            .map_err(|e| format!("读取文件内容流失败: {}", e))?;
-
-        Ok(RemoteFetch::Found(bytes.to_vec()))
+        let bytes = Self::read_response_capped(res).await?;
+        Ok(RemoteFetch::Found(bytes))
     }
 
     /// 列出远端目录下的**全部**文件（含清单 sidecar、meta sidecar 等）。
@@ -393,7 +412,7 @@ fn parse_webdav_multistatus(xml: &str) -> Vec<BackupFileInfo> {
         let filename = href
             .trim_end_matches('/')
             .split('/')
-            .last()
+            .next_back()
             .unwrap_or_default()
             .to_string();
 

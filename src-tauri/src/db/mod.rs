@@ -109,10 +109,10 @@ struct PragmaCustomizer;
 impl r2d2::CustomizeConnection<Connection, rusqlite::Error> for PragmaCustomizer {
     fn on_acquire(&self, conn: &mut Connection) -> Result<(), rusqlite::Error> {
         conn.execute_batch(
-            "PRAGMA foreign_keys = ON;
+            "PRAGMA busy_timeout = 5000;
+             PRAGMA foreign_keys = ON;
              PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 5000;",
+             PRAGMA synchronous = NORMAL;",
         )?;
         Ok(())
     }
@@ -138,7 +138,7 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
     // 进度记在 schema_version 表里；每次启动只跑「尚未应用」的部分。
     // 取代了以前「每次启动全量重跑 V001 + 一串 let _ = 吞错误的 ALTER」的做法：
     // 那种写法无法区分「已是最新」与「加列失败」，磁盘只读或库被锁时全部静默。
-    let conn = pool.get()?;
+    let mut conn = pool.get()?;
     conn.execute_batch(SCHEMA_VERSION_DDL)?;
 
     let applied: i64 = conn.query_row(
@@ -162,66 +162,26 @@ pub fn init_db(app_data_dir: PathBuf) -> Result<DbPool, Box<dyn std::error::Erro
         )?;
     }
 
-    if applied < 3 {
-        conn.execute_batch(include_str!("../../migrations/V003__indices_and_cleanup.sql"))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (3)",
-            [],
-        )?;
-    }
+    let migrations: &[(i64, &str)] = &[
+        (3, include_str!("../../migrations/V003__indices_and_cleanup.sql")),
+        (4, include_str!("../../migrations/V004__entry_pinned.sql")),
+        (5, include_str!("../../migrations/V005__chapter_fts.sql")),
+        (6, include_str!("../../migrations/V006__extraction_duplicate.sql")),
+        (7, include_str!("../../migrations/V007__chapter_conflict_ignore.sql")),
+        (8, include_str!("../../migrations/V008__plot_resolved_chapter.sql")),
+        (9, include_str!("../../migrations/V009__daily_stat_and_chapter_pov.sql")),
+    ];
 
-    if applied < 4 {
-        conn.execute_batch(include_str!("../../migrations/V004__entry_pinned.sql"))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (4)",
-            [],
-        )?;
-    }
-
-    if applied < 5 {
-        conn.execute_batch(include_str!("../../migrations/V005__chapter_fts.sql"))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (5)",
-            [],
-        )?;
-    }
-
-    if applied < 6 {
-        conn.execute_batch(include_str!("../../migrations/V006__extraction_duplicate.sql"))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (6)",
-            [],
-        )?;
-    }
-
-    if applied < 7 {
-        conn.execute_batch(include_str!(
-            "../../migrations/V007__chapter_conflict_ignore.sql"
-        ))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (7)",
-            [],
-        )?;
-    }
-
-    if applied < 8 {
-        conn.execute_batch(include_str!(
-            "../../migrations/V008__plot_resolved_chapter.sql"
-        ))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (8)",
-            [],
-        )?;
-    }
-
-    if applied < 9 {
-        conn.execute_batch(include_str!(
-            "../../migrations/V009__daily_stat_and_chapter_pov.sql"
-        ))?;
-        conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (9)",
-            [],
-        )?;
+    for (ver, sql) in migrations {
+        if applied < *ver {
+            let tx = conn.transaction()?;
+            tx.execute_batch(sql)?;
+            tx.execute(
+                "INSERT OR IGNORE INTO schema_version (version) VALUES (?1)",
+                rusqlite::params![ver],
+            )?;
+            tx.commit()?;
+        }
     }
 
     Ok(pool)

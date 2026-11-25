@@ -17,13 +17,25 @@ pub struct AiGateway {
     client: Client,
 }
 
+impl Default for AiGateway {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+static SHARED_AI_CLIENT: std::sync::LazyLock<Client> = std::sync::LazyLock::new(|| {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(90))
+        .build()
+        .unwrap_or_default()
+});
+
 impl AiGateway {
     pub fn new() -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(90))
-            .build()
-            .unwrap_or_default();
-        Self { client }
+        Self {
+            client: SHARED_AI_CLIENT.clone(),
+        }
     }
 
     pub async fn test_connection(
@@ -307,62 +319,68 @@ pub fn validate_base_url(base_url: &str) -> Result<(), String> {
         return Err("API Base URL 不能为空".to_string());
     }
 
-    let lower = trimmed.to_lowercase();
-    if lower.starts_with("https://") {
-        return Ok(());
+    let parsed = url::Url::parse(trimmed)
+        .map_err(|e| format!("无效的 Base URL 格式：「{}」（{}）", trimmed, e))?;
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("安全拦截：API Base URL 不允许包含 userinfo（用户名/密码）".to_string());
     }
 
-    if lower.starts_with("http://") {
-        let without_proto = &trimmed[7..];
-        let host_part = without_proto
-            .split(['/', ':', '?', '#'])
-            .next()
-            .unwrap_or("")
-            .trim();
-
-        if is_local_or_private_host(host_part) {
-            return Ok(());
+    match parsed.scheme() {
+        "https" => {
+            if parsed.host().is_none() {
+                return Err("API Base URL 缺少有效主机名".to_string());
+            }
+            Ok(())
         }
-
-        return Err(format!(
-            "安全拦截：远程模型服务「{}」使用了明文 HTTP 协议，可能导致 API 密钥在公网传输中泄露。公网远程接口请使用 HTTPS 协议，仅本地/局域网服务（如 localhost/127.0.0.1）允许使用 HTTP。",
-            host_part
-        ));
+        "http" => {
+            let host = parsed
+                .host()
+                .ok_or_else(|| "API Base URL 缺少有效主机名".to_string())?;
+            if is_local_or_private_host(&host) {
+                return Ok(());
+            }
+            let host_disp = parsed.host_str().unwrap_or_default();
+            Err(format!(
+                "安全拦截：远程模型服务「{}」使用了明文 HTTP 协议，可能导致 API 密钥在公网传输中泄露。公网远程接口请使用 HTTPS 协议，仅本地/局域网服务（如 localhost/127.0.0.1）允许使用 HTTP。",
+                host_disp
+            ))
+        }
+        _ => Err(format!(
+            "无效的 Base URL 协议：「{}」，仅支持 https:// 或 http://",
+            trimmed
+        )),
     }
-
-    Err(format!(
-        "无效的 Base URL 协议：「{}」，仅支持 https:// 或 http://",
-        trimmed
-    ))
 }
 
-fn is_local_or_private_host(host: &str) -> bool {
-    let h = host.trim().to_lowercase();
-    let clean_h = h.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(&h);
-    if clean_h == "localhost" || clean_h == "127.0.0.1" || clean_h == "::1" || clean_h == "0.0.0.0" {
-        return true;
-    }
-
-    // 局域网私有 IPv4
-    if let Ok(ip) = clean_h.parse::<std::net::Ipv4Addr>() {
-        let octets = ip.octets();
-        if octets[0] == 127
-            || octets[0] == 10
-            || (octets[0] == 172 && (16..=31).contains(&octets[1]))
-            || (octets[0] == 192 && octets[1] == 168)
-        {
-            return true;
+fn is_local_or_private_host(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(d) => {
+            let lower = d.to_ascii_lowercase();
+            lower == "localhost" || lower.ends_with(".localhost")
+        }
+        url::Host::Ipv4(ip) => {
+            let octets = ip.octets();
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || octets[0] == 10
+                || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+                || (octets[0] == 192 && octets[1] == 168)
+        }
+        url::Host::Ipv6(ip) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_unique_local()
+                || ip.to_ipv4_mapped().is_some_and(|v4| {
+                    let octets = v4.octets();
+                    v4.is_loopback()
+                        || v4.is_unspecified()
+                        || octets[0] == 10
+                        || (octets[0] == 172 && (16..=31).contains(&octets[1]))
+                        || (octets[0] == 192 && octets[1] == 168)
+                })
         }
     }
-
-    // 局域网私有 IPv6
-    if let Ok(ip) = clean_h.parse::<std::net::Ipv6Addr>() {
-        if ip.is_loopback() {
-            return true;
-        }
-    }
-
-    false
 }
 
 #[cfg(test)]
@@ -376,13 +394,17 @@ mod tests {
         assert!(validate_base_url("https://api.deepseek.com").is_ok());
         assert!(validate_base_url("https://api.anthropic.com/v1").is_ok());
 
-        // 本地开发与内网服务允许 HTTP
+        // 本地开发与内网服务允许 HTTP（含 IPv6 环回）
         assert!(validate_base_url("http://localhost:11434").is_ok());
+        assert!(validate_base_url("http://[::1]:11434").is_ok());
         assert!(validate_base_url("http://127.0.0.1:11434/v1").is_ok());
         assert!(validate_base_url("http://0.0.0.0:8000").is_ok());
         assert!(validate_base_url("http://192.168.1.100:8000").is_ok());
         assert!(validate_base_url("http://10.0.1.20:8080/v1").is_ok());
         assert!(validate_base_url("http://172.16.0.5:8000").is_ok());
+
+        // userinfo 伪装绕过必须拦截
+        assert!(validate_base_url("http://localhost:80@evil.com/v1").is_err());
 
         // 公网明文 HTTP 强制拦截保护密钥
         assert!(validate_base_url("http://api.openai.com/v1").is_err());

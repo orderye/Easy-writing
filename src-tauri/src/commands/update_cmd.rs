@@ -26,7 +26,8 @@ struct GithubReleaseResponse {
 }
 
 /// 解析类似 "v1.2.3-beta" 或 "0.1.0" 为三元组 (major, minor, patch)
-pub fn parse_semver(ver: &str) -> (u64, u64, u64) {    let clean = ver.trim().trim_start_matches(|c| c == 'v' || c == 'V');
+pub fn parse_semver(ver: &str) -> (u64, u64, u64) {
+    let clean = ver.trim().trim_start_matches(['v', 'V']);
     let main_part = clean.split('-').next().unwrap_or(clean);
     let mut parts = main_part.split('.');
     let major = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -109,6 +110,7 @@ pub async fn check_app_update(
     let check_url = custom_url
         .filter(|u| !u.trim().is_empty())
         .unwrap_or_else(|| "https://api.github.com/repos/orderye/Easy-writing/releases/latest".to_string());
+    let validated_check_url = validate_public_http_url(&check_url, true)?;
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(8))
@@ -116,7 +118,7 @@ pub async fn check_app_update(
         .map_err(|e| format!("构建 HTTP 客户端失败: {}", e))?;
 
     let resp = client
-        .get(&check_url)
+        .get(validated_check_url)
         .header(USER_AGENT, format!("Easy-writing-Desktop/{}", current_version))
         .send()
         .await
@@ -131,7 +133,7 @@ pub async fn check_app_update(
         .await
         .map_err(|e| format!("解析版本信息失败: {}", e))?;
 
-    let clean_latest = release.tag_name.trim().trim_start_matches(|c| c == 'v' || c == 'V').to_string();
+    let clean_latest = release.tag_name.trim().trim_start_matches(['v', 'V']).to_string();
     let is_newer = is_version_newer(&clean_latest, &current_version);
 
     // 如果非强制检测且用户忽略了此版本，则将 has_update 视为 false
@@ -178,17 +180,45 @@ pub async fn check_app_update(
             .find(|a| a.name.to_ascii_lowercase() == SHA256SUMS_NAME)
             .cloned()
             .unwrap();
-        match client
-            .get(&sums_asset.browser_download_url)
-            .header(USER_AGENT, format!("Easy-writing-Desktop/{}", current_version))
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => match resp.text().await {
-                Ok(content) => attach_sha256_to_assets(assets, &parse_sha256sums(&content)),
-                Err(_) => assets,
-            },
-            _ => assets,
+        if let Ok(sums_url) = validate_public_http_url(&sums_asset.browser_download_url, true) {
+            match client
+                .get(sums_url)
+                .header(USER_AGENT, format!("Easy-writing-Desktop/{}", current_version))
+                .send()
+                .await
+            {
+                Ok(mut resp) if resp.status().is_success() => {
+                    const MAX_SHA256SUMS_BYTES: usize = 256 * 1024;
+                    let mut buf = Vec::new();
+                    let mut too_large = false;
+                    let mut read_err = false;
+                    loop {
+                        match resp.chunk().await {
+                            Ok(Some(chunk)) => {
+                                if buf.len() + chunk.len() > MAX_SHA256SUMS_BYTES {
+                                    too_large = true;
+                                    break;
+                                }
+                                buf.extend_from_slice(&chunk);
+                            }
+                            Ok(None) => break,
+                            Err(_) => {
+                                read_err = true;
+                                break;
+                            }
+                        }
+                    }
+                    if !too_large && !read_err {
+                        let content = String::from_utf8_lossy(&buf);
+                        attach_sha256_to_assets(assets, &parse_sha256sums(&content))
+                    } else {
+                        assets
+                    }
+                }
+                _ => assets,
+            }
+        } else {
+            assets
         }
     } else {
         assets
@@ -236,35 +266,27 @@ pub async fn check_app_update(
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_external_url(url: String) -> Result<(), String> {
-    let trimmed = url.trim();
-    if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
-        return Err("仅支持打开 http/https 协议的链接".to_string());
-    }
-
-    // 协议校验不够：只限制 `http(s)://` 仍允许打开内网地址，
-    // 例如云元数据服务 `http://169.254.169.254/...` 或路由器管理页，
-    // 等于给前端一个「让系统浏览器访问本机/内网」的入口。
-    //
-    // 这里额外拒绝明显的本机与私有网段目标。更新链接应当永远指向公网
-    // 仓库地址，没有任何正当理由需要跳转到 127.0.0.1 或局域网 IP。
-    if let Some(host) = extract_host(trimmed) {
-        if is_local_or_private_host(&host) {
-            return Err(format!("出于安全考虑，不允许打开指向本机或内网的链接：{host}"));
-        }
-    }
+    let parsed = validate_public_http_url(&url, false)?;
+    let safe_url = parsed.as_str();
 
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(trimmed)
+            .arg(safe_url)
             .spawn()
             .map_err(|e| format!("打开系统浏览器失败: {}", e))?;
     }
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/c", "start", "", trimmed])
+        if safe_url
+            .chars()
+            .any(|c| matches!(c, '&' | '|' | '<' | '>' | '^' | '%' | '"' | '\'' | '`'))
+        {
+            return Err("链接包含不安全字符，已拒绝打开".to_string());
+        }
+        std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", safe_url])
             .spawn()
             .map_err(|e| format!("打开系统浏览器失败: {}", e))?;
     }
@@ -272,7 +294,7 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(trimmed)
+            .arg(safe_url)
             .spawn()
             .map_err(|e| format!("打开系统浏览器失败: {}", e))?;
     }
@@ -280,54 +302,101 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 从 URL 中取出 host 部分。
-fn extract_host(url: &str) -> Option<String> {
-    let rest = url.split_once("://")?.1;
-    // 去掉 userinfo、path、query、fragment
-    let after_auth = rest.rsplit_once('@').map(|(_, r)| r).unwrap_or(rest);
-    let host_part = after_auth
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    // 处理 IPv6 字面量 [::1]:8080
-    let host = if let Some(stripped) = host_part.strip_prefix('[') {
-        stripped.split(']').next().unwrap_or("").to_string()
-    } else {
-        host_part
-            .split(':')
-            .next()
-            .unwrap_or("")
-            .to_string()
-    };
-    if host.is_empty() {
-        None
-    } else {
-        Some(host)
+/// 校验外部 URL 的协议与公网目标合法性（防命令注入、userinfo 绕过与 SSRF）。
+fn validate_public_http_url(raw: &str, require_https: bool) -> Result<url::Url, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("链接不能为空".to_string());
+    }
+    if trimmed.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err("链接包含非法控制字符或空白字符".to_string());
+    }
+
+    let parsed = url::Url::parse(trimmed).map_err(|e| format!("无效的 URL 格式: {}", e))?;
+    match parsed.scheme() {
+        "https" => {}
+        "http" if !require_https => {}
+        _ if require_https => return Err("出于安全考虑，更新源仅支持 https:// 协议".to_string()),
+        _ => return Err("仅支持打开 http/https 协议的链接".to_string()),
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("出于安全考虑，不允许包含认证信息的链接".to_string());
+    }
+
+    let host = parsed
+        .host()
+        .ok_or_else(|| "链接缺少有效的主机名".to_string())?;
+    if is_local_or_private_parsed_host(&host) {
+        return Err(format!(
+            "出于安全考虑，不允许打开指向本机或内网的链接：{}",
+            parsed.host_str().unwrap_or_default()
+        ));
+    }
+
+    Ok(parsed)
+}
+
+fn is_private_ipv4(v4: std::net::Ipv4Addr) -> bool {
+    let octets = v4.octets();
+    let is_cgnat = octets[0] == 100 && (64..=127).contains(&octets[1]);
+    v4.is_loopback()
+        || v4.is_private()
+        || v4.is_link_local()
+        || v4.is_unspecified()
+        || v4.is_broadcast()
+        || v4.is_documentation()
+        || v4.is_multicast()
+        || is_cgnat
+}
+
+fn is_private_ipv6(v6: std::net::Ipv6Addr) -> bool {
+    v6.is_loopback()
+        || v6.is_unspecified()
+        || v6.is_multicast()
+        || v6.is_unique_local()
+        || v6.is_unicast_link_local()
+        || v6.to_ipv4_mapped().is_some_and(is_private_ipv4)
+}
+
+fn is_local_or_private_parsed_host(host: &url::Host<&str>) -> bool {
+    match host {
+        url::Host::Domain(d) => {
+            let lower = d.to_ascii_lowercase();
+            if lower == "localhost"
+                || lower.ends_with(".localhost")
+                || lower == "metadata.google.internal"
+            {
+                return true;
+            }
+            if let Ok(ip) = lower.parse::<std::net::IpAddr>() {
+                return match ip {
+                    std::net::IpAddr::V4(v4) => is_private_ipv4(v4),
+                    std::net::IpAddr::V6(v6) => is_private_ipv6(v6),
+                };
+            }
+            false
+        }
+        url::Host::Ipv4(v4) => is_private_ipv4(*v4),
+        url::Host::Ipv6(v6) => is_private_ipv6(*v6),
     }
 }
 
 /// 是否指向本机或私有网段。
+#[cfg(test)]
 fn is_local_or_private_host(host: &str) -> bool {
-    if host == "localhost" || host.ends_with(".localhost") || host == "::1" || host == "0.0.0.0" {
-        return true;
+    let clean = host
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    if let Ok(ip) = clean.parse::<std::net::IpAddr>() {
+        return match ip {
+            std::net::IpAddr::V4(v4) => is_private_ipv4(v4),
+            std::net::IpAddr::V6(v6) => is_private_ipv6(v6),
+        };
     }
-    // 云厂商元数据端点
-    if host == "169.254.169.254" || host == "metadata.google.internal" {
-        return true;
-    }
-    // 解析失败时保守放过（真正的拦截交给协议与浏览器），
-    // 但能解析出的私有网段一律拒绝。
-    match host.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(v4)) => {
-            v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
-                || v4.is_multicast()
-        }
-        Ok(std::net::IpAddr::V6(v6)) => {
-            v6.is_loopback() || v6.is_unspecified() || v6.is_multicast()
-        }
-        Err(_) => false,
-    }
+    is_local_or_private_parsed_host(&url::Host::Domain(&clean))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -375,12 +444,16 @@ mod tests {
     }
 
     #[test]
-    fn extract_host_handles_ports_and_ipv6() {
-        assert_eq!(extract_host("https://github.com/x/y").as_deref(), Some("github.com"));
-        assert_eq!(extract_host("http://127.0.0.1:8080/a").as_deref(), Some("127.0.0.1"));
-        assert_eq!(extract_host("https://user:pw@example.com/p").as_deref(), Some("example.com"));
-        assert_eq!(extract_host("http://[::1]:9000/x").as_deref(), Some("::1"));
-        assert_eq!(extract_host("not-a-url"), None);
+    fn validate_public_http_url_blocks_ssrf_and_bypasses() {
+        // 路径中带 @ 企图绕过 host 解析的 SSRF 攻击必须拦截
+        assert!(validate_public_http_url("https://127.0.0.1/foo@github.com", false).is_err());
+        assert!(validate_public_http_url("http://user@github.com/", false).is_err());
+        assert!(validate_public_http_url("http://[::1]/", false).is_err());
+        assert!(validate_public_http_url("http://169.254.169.254/latest/meta-data", false).is_err());
+        assert!(validate_public_http_url("https://example.com/\ncalc.exe", false).is_err());
+        assert!(validate_public_http_url("http://github.com/orderye/Easy-writing", true).is_err());
+        assert!(validate_public_http_url("https://github.com/orderye/Easy-writing/releases", false).is_ok());
+        assert!(validate_public_http_url("https://github.com/orderye/Easy-writing/releases", true).is_ok());
     }
 
     // ---- SHA256SUMS 解析（任务书 T13）----

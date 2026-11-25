@@ -48,7 +48,10 @@ impl KeyringStore for SystemKeyring {
 
     fn delete_secret(&self, key_ref: &str) -> Result<(), String> {
         let entry = Entry::new(SERVICE_NAME, key_ref).map_err(|e| e.to_string())?;
-        entry.delete_credential().map_err(|e| e.to_string())
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e.to_string()),
+        }
     }
 }
 

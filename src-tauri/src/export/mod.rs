@@ -25,9 +25,10 @@ pub mod docx;
 pub mod epub;
 pub mod txt;
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use shared_types::{
     ExportFormat, ExportOptions, ExportProgress, ExportSummary, ParagraphSeparator,
@@ -37,13 +38,11 @@ use crate::db::{self, DbPool};
 
 use doc::Block;
 
-/// 导出取消标志（由 `cancel_export` 命令置位）。
-///
-/// 用 `Arc` 包一层是为了让命令层能把取消标志**移动**进后台任务
-/// （`AtomicBool` 本身不可克隆）。
+/// 导出状态：包含协作式取消标志，以及由 `choose_export_file` 授权的目标路径集合。
 #[derive(Debug, Default)]
 pub struct ExportState {
     pub cancelled: Arc<AtomicBool>,
+    approved_paths: Mutex<HashSet<PathBuf>>,
 }
 
 impl ExportState {
@@ -60,6 +59,39 @@ impl ExportState {
     /// 复位（一次导出开始前调用）。
     pub fn reset(&self) {
         self.cancelled.store(false, Ordering::SeqCst);
+    }
+
+    /// 登记由系统「另存为」对话框选中的导出路径。
+    pub fn approve_path(&self, path: PathBuf) {
+        if let Ok(mut guard) = self.approved_paths.lock() {
+            guard.insert(path);
+        }
+    }
+
+    /// 校验并消费一条已授权导出路径，防止绕过对话框任意写盘。
+    pub fn take_approved_path(&self, path: &Path) -> bool {
+        if let Ok(mut guard) = self.approved_paths.lock() {
+            guard.remove(path)
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod export_state_tests {
+    use super::*;
+
+    #[test]
+    fn approved_path_is_consumed_once_and_unapproved_rejected() {
+        let state = ExportState::default();
+        let allowed = PathBuf::from("/tmp/out.txt");
+        let forged = PathBuf::from("/etc/passwd");
+
+        assert!(!state.take_approved_path(&forged));
+        state.approve_path(allowed.clone());
+        assert!(state.take_approved_path(&allowed));
+        assert!(!state.take_approved_path(&allowed));
     }
 }
 
@@ -411,10 +443,10 @@ fn load_chapters(pool: &DbPool, options: &ExportOptions) -> Result<Vec<SourceCha
             if !options.chapter_ids.iter().any(|id| id == &chapter.id) {
                 continue;
             }
-        } else if !options.volume_ids.is_empty() {
-            if !options.volume_ids.iter().any(|id| id == &chapter.volume_id) {
-                continue;
-            }
+        } else if !options.volume_ids.is_empty()
+            && !options.volume_ids.iter().any(|id| id == &chapter.volume_id)
+        {
+            continue;
         }
         let counter = chapter_index_by_volume.entry(chapter.volume_id.clone()).or_insert(0);
         *counter += 1;

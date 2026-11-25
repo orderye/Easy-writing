@@ -72,7 +72,7 @@ pub fn create_llm_profile(
         name
     };
 
-    crate::db::llm_profile::create_profile(
+    match crate::db::llm_profile::create_profile(
         &conn,
         &display_name,
         &protocol,
@@ -81,8 +81,14 @@ pub fn create_llm_profile(
         &model,
         &params_json,
         is_default,
-    )
-    .map_err(|e| e.to_string())
+    ) {
+        Ok(profile) => Ok(profile),
+        Err(e) => {
+            // 数据库落库失败时回收已写入的钥匙串条目，避免孤儿凭据残留
+            let _ = crate::keyring::delete_secret(&key_ref);
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -103,9 +109,12 @@ pub fn update_llm_profile(
     let params_json = normalize_params(temperature, max_tokens, stream, context_window)?;
     let conn = pool.get().map_err(|e| e.to_string())?;
 
-    let existing = crate::db::llm_profile::get_profile(&conn, &id)
+    if crate::db::llm_profile::get_profile(&conn, &id)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| "找不到该接口配置".to_string())?;
+        .is_none()
+    {
+        return Err("找不到该接口配置".to_string());
+    }
 
     let display_name = if name.trim().is_empty() {
         model.clone()
@@ -125,8 +134,7 @@ pub fn update_llm_profile(
     )
     .map_err(|e| e.to_string())?;
 
-    // key_ref 保持不变，仅当传入新密钥时替换钥匙串条目
-    let _ = existing;
+    // 本命令只更新非凭据元数据，key_ref 保持不变；密钥轮换走独立接口
     crate::db::llm_profile::get_profile(&conn, &id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "更新后读取接口配置失败".to_string())
@@ -205,10 +213,12 @@ pub async fn test_llm_connection(
     pool: State<'_, DbPool>,
     profile_id: String,
 ) -> Result<(), String> {
-    let conn = pool.get().map_err(|e| e.to_string())?;
-    let profile = crate::db::llm_profile::get_profile(&conn, &profile_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "Profile not found".to_string())?;
+    let profile = {
+        let conn = pool.get().map_err(|e| e.to_string())?;
+        crate::db::llm_profile::get_profile(&conn, &profile_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| "Profile not found".to_string())?
+    };
 
     let api_key =
         crate::keys::require_llm_key(crate::keyring::system(), &profile.key_ref)?;

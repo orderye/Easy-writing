@@ -32,9 +32,18 @@ pub fn save_image(
     mime: &str,
     base64_data: &str,
 ) -> Result<String, String> {
+    const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+    const MAX_IMAGE_BASE64_LEN: usize = (MAX_IMAGE_BYTES * 4 / 3) + 16;
+    if base64_data.len() > MAX_IMAGE_BASE64_LEN {
+        return Err("图片大小超过 20 MiB 上限".to_string());
+    }
+
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(base64_data)
         .map_err(|e| format!("Base64 decode error: {}", e))?;
+    if bytes.len() > MAX_IMAGE_BYTES {
+        return Err("图片大小超过 20 MiB 上限".to_string());
+    }
 
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
@@ -325,7 +334,12 @@ pub fn scan_storage(conn: &Connection, app_data_dir: &Path) -> Result<ImageScanR
 
     let mut missing_records = Vec::new();
     for asset in list_all_assets(conn)? {
-        if !app_data_dir.join(&asset.rel_path).exists() {
+        let rel = std::path::Path::new(&asset.rel_path);
+        let is_safe_rel = asset.rel_path.starts_with("images/")
+            && rel
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)));
+        if !is_safe_rel || !app_data_dir.join(rel).exists() {
             missing_records.push(asset);
         }
     }
