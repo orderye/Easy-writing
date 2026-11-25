@@ -159,7 +159,7 @@ pub fn BubbleMenu(app_ctx: AppContext) -> impl IntoView {
             // Diff comparison modal for selection actions
             <PolishModal
                 is_open=is_modal_open
-                original_text=original_cached.get()
+                original_text=original_cached
                 polished_text=polished_text
                 is_loading=is_loading
                 on_adopt=on_adopt

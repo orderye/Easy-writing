@@ -47,6 +47,7 @@ class CharacterGraphEngine {
   }
 
   resize() {
+    if (!this.canvas || !this.canvas.parentElement) return;
     const rect = this.canvas.parentElement.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     this.width = rect.width;
@@ -55,7 +56,7 @@ class CharacterGraphEngine {
     this.canvas.height = rect.height * dpr;
     this.canvas.style.width = `${rect.width}px`;
     this.canvas.style.height = `${rect.height}px`;
-    this.ctx.scale(dpr, dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
   setData(nodesData, linksData, activeId = null) {
@@ -474,7 +475,7 @@ class CharacterGraphEngine {
       }
     });
 
-    window.addEventListener('mousemove', (e) => {
+    this._onMouseMove = (e) => {
       const pos = getPos(e);
       if (this.draggedNode) {
         const world = this.screenToWorld(pos.x, pos.y);
@@ -491,9 +492,10 @@ class CharacterGraphEngine {
         this.transform.y += dy;
         this.lastMouse = pos;
       }
-    });
+    };
+    window.addEventListener('mousemove', this._onMouseMove);
 
-    window.addEventListener('mouseup', (e) => {
+    this._onMouseUp = (e) => {
       if (this.draggedNode) {
         // If clicked without large drag, trigger node click
         const node = this.draggedNode;
@@ -503,7 +505,8 @@ class CharacterGraphEngine {
         }
       }
       this.isDragging = false;
-    });
+    };
+    window.addEventListener('mouseup', this._onMouseUp);
 
     // Zoom on wheel
     this.canvas.addEventListener('wheel', (e) => {
@@ -519,7 +522,8 @@ class CharacterGraphEngine {
     }, { passive: false });
 
     // Window resize
-    window.addEventListener('resize', () => this.resize());
+    this._onResize = () => this.resize();
+    window.addEventListener('resize', this._onResize);
   }
 
   zoomIn() {
@@ -543,7 +547,11 @@ class CharacterGraphEngine {
   destroy() {
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
     }
+    if (this._onMouseMove) window.removeEventListener('mousemove', this._onMouseMove);
+    if (this._onMouseUp) window.removeEventListener('mouseup', this._onMouseUp);
+    if (this._onResize) window.removeEventListener('resize', this._onResize);
   }
 }
 
@@ -554,6 +562,9 @@ window.CharacterGraphBridge = {
   mount: function(canvasId, optionsJson) {
     const canvas = document.getElementById(canvasId);
     if (!canvas) return false;
+    if (this.instances.has(canvasId)) {
+      this.destroy(canvasId);
+    }
 
     let opts = {};
     if (typeof optionsJson === 'string') {
@@ -579,8 +590,15 @@ window.CharacterGraphBridge = {
     const engine = this.instances.get(canvasId);
     if (!engine) return false;
 
-    const nodes = typeof nodesJson === 'string' ? JSON.parse(nodesJson) : nodesJson;
-    const links = typeof linksJson === 'string' ? JSON.parse(linksJson) : linksJson;
+    let nodes = [];
+    let links = [];
+    try {
+      nodes = typeof nodesJson === 'string' ? JSON.parse(nodesJson) : (nodesJson || []);
+      links = typeof linksJson === 'string' ? JSON.parse(linksJson) : (linksJson || []);
+    } catch (e) {
+      console.error('[CharacterGraphBridge] setData JSON parse error:', e);
+      return false;
+    }
     engine.setData(nodes, links, activeId);
     return true;
   },

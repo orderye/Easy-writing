@@ -88,10 +88,11 @@ pub async fn load_novel_workspace(app_ctx: AppContext, novel: Novel, ensure_cont
             });
             app_ctx.current_chapter.set(Some(new_ch.clone()));
             app_ctx.chapters_map.set(chs);
-            // 新建章节内容为空，直接装载空文档
+            // 新建章节内容为空，直接装载空文档并恢复可编辑
             if !crate::bridge::tiptap::set_content(&new_ch.content) {
                 app_ctx.pending_editor_content.set(Some(new_ch.content.clone()));
             }
+            crate::bridge::tiptap::set_editable(true);
             app_ctx.word_count.set(0);
             app_ctx.save_status.set("saved".to_string());
             return;
@@ -121,6 +122,7 @@ pub async fn load_novel_workspace(app_ctx: AppContext, novel: Novel, ensure_cont
         if !crate::bridge::tiptap::set_content(&full_ch.content) {
             app_ctx.pending_editor_content.set(Some(full_ch.content.clone()));
         }
+        crate::bridge::tiptap::set_editable(true);
         app_ctx.word_count.set(full_ch.word_count as u32);
         app_ctx.save_status.set("saved".to_string());
         app_ctx.current_chapter.set(Some(full_ch));

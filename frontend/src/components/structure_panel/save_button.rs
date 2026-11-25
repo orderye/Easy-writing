@@ -22,6 +22,10 @@ pub fn perform_save(app_ctx: AppContext) {
 /// （`edit_seq` 已变），保存成功也不能标记为 "saved" —— 否则切章逻辑看到
 /// "saved" 就直接切走，那段输入会被静默丢弃。
 pub async fn perform_save_async(app_ctx: AppContext) -> save_state::SaveOutcome {
+    if app_ctx.save_status.get_untracked() == "saving" {
+        return save_state::SaveOutcome::EditedDuringSave;
+    }
+
     let Some(mut chapter) = app_ctx.current_chapter.get_untracked() else {
         // 没有当前章节，视为无事发生（不算失败，避免自动保存误报）
         return save_state::SaveOutcome::Saved;
@@ -38,8 +42,6 @@ pub async fn perform_save_async(app_ctx: AppContext) -> save_state::SaveOutcome 
     chapter.content_plain = content_plain.clone();
     chapter.word_count = word_count;
     let chapter_id = chapter.id.clone();
-    app_ctx.current_chapter.set(Some(chapter));
-    app_ctx.word_count.set(word_count as u32);
 
     let res = invoke_cmd("save_chapter_content")
         .arg("id", chapter_id)
@@ -54,9 +56,10 @@ pub async fn perform_save_async(app_ctx: AppContext) -> save_state::SaveOutcome 
         web_sys::console::error_1(&format!("Failed to save chapter: {}", err).into());
     }
 
-    // 保存成功后刷新「今日字数」（任务书 T11）：后端已按新旧字数差累加，
-    // 前端只重新拉取一次，避免本地估算与库内口径漂移。
+    // 保存成功后刷新「今日字数」（任务书 T11）并提交当前章节状态
     if succeeded {
+        app_ctx.current_chapter.set(Some(chapter));
+        app_ctx.word_count.set(word_count as u32);
         if let Some(novel) = app_ctx.current_novel.get_untracked() {
             let novel_id = novel.id;
             leptos::task::spawn_local(async move {

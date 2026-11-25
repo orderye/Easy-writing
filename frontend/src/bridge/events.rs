@@ -32,8 +32,11 @@ export function tauri_event_listen(event_name, callback) {
 }
 "#)]
 extern "C" {
+    #[wasm_bindgen(js_name = tauri_event_listen)]
     fn tauri_event_listen_raw(event_name: &str, callback: &js_sys::Function);
 }
+
+type EventListenerList = RefCell<Vec<Closure<dyn FnMut(JsValue)>>>;
 
 thread_local! {
     /// 订阅回调的保活区。
@@ -41,7 +44,7 @@ thread_local! {
     /// `Closure` 被丢弃时，wasm-bindgen 会同时释放 JS 侧的函数对象；
     /// 如果没人持有它，回调会在下一次 GC 时消失，事件就再也收不到了。
     /// 这里把闭包存起来，让它活到页面结束。
-    static LISTENERS: RefCell<Vec<Closure<dyn FnMut(JsValue)>>> = RefCell::new(Vec::new());
+    static LISTENERS: EventListenerList = const { RefCell::new(Vec::new()) };
 }
 
 /// 订阅一个 Tauri 事件，回调直接用 Rust 闭包接收载荷。

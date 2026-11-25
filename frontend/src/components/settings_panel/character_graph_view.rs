@@ -3,6 +3,8 @@ use leptos::prelude::*;
 use shared_types::{Character, CharacterRelation, ExplodedProfile, GraphLinkDto, GraphNodeDto};
 use wasm_bindgen::prelude::*;
 
+type GraphClickListener = Option<(web_sys::Window, Closure<dyn FnMut(web_sys::CustomEvent)>)>;
+
 #[component]
 pub fn CharacterGraphView(
     characters: RwSignal<Vec<Character>>,
@@ -14,33 +16,48 @@ pub fn CharacterGraphView(
     let active_node_id = RwSignal::new(String::new());
     let search_query = RwSignal::new(String::new());
 
+    let listener_handle: StoredValue<GraphClickListener, LocalStorage> =
+        StoredValue::new_local(None);
+
     // Mount canvas once DOM is ready
     Effect::new(move |_| {
         let mounted = graph::mount(canvas_id, "{}");
         if mounted {
-            // Register event listener for node clicks
-            let window = web_sys::window().unwrap();
-            let closure = Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
-                if let Ok(detail) = js_sys::Reflect::get(&event.detail(), &JsValue::from_str("nodeId")) {
-                    if let Some(id_str) = detail.as_string() {
-                        active_node_id.set(id_str);
+            if let Some(window) = web_sys::window() {
+                let closure = Closure::wrap(Box::new(move |event: web_sys::CustomEvent| {
+                    if let Ok(detail) = js_sys::Reflect::get(&event.detail(), &JsValue::from_str("nodeId")) {
+                        if let Some(id_str) = detail.as_string() {
+                            active_node_id.set(id_str);
+                        }
                     }
-                }
-            }) as Box<dyn FnMut(_)>);
+                }) as Box<dyn FnMut(_)>);
 
-            let _ = window.add_event_listener_with_callback(
-                "character-graph-node-click",
-                closure.as_ref().unchecked_ref(),
-            );
-            closure.forget();
+                let _ = window.add_event_listener_with_callback(
+                    "character-graph-node-click",
+                    closure.as_ref().unchecked_ref(),
+                );
+                listener_handle.set_value(Some((window, closure)));
+            }
         }
+    });
+
+    on_cleanup(move || {
+        graph::destroy(canvas_id);
+        listener_handle.update_value(|slot| {
+            if let Some((window, closure)) = slot.take() {
+                let _ = window.remove_event_listener_with_callback(
+                    "character-graph-node-click",
+                    closure.as_ref().unchecked_ref(),
+                );
+            }
+        });
     });
 
     // Sync data into Canvas Bridge when characters or relations change
     Effect::new(move |_| {
         let chars = characters.get();
         let rels = relations.get();
-        let cur_active = active_node_id.get();
+        let cur_active = active_node_id.get_untracked();
 
         if chars.is_empty() {
             return;

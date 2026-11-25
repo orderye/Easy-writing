@@ -37,7 +37,7 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                             let text_sig = raw_text;
                             let err_sig = error_msg;
                             let epub_sig = epub_base64;
-                            let on_load = Closure::wrap(Box::new(move |_: Event| {
+                            let on_load = Closure::once_into_js(move |_: Event| {
                                 if let Ok(val) = reader_clone.result() {
                                     if let Some(data_url) = val.as_string() {
                                         let b64 = data_url.split(',').nth(1).unwrap_or("").to_string();
@@ -47,17 +47,16 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                         err_sig.set(Some("读取 EPUB 电子书文件失败".to_string()));
                                     }
                                 }
-                            }) as Box<dyn FnMut(_)>);
+                            });
 
-                            reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
-                            on_load.forget();
+                            reader.set_onload(Some(on_load.unchecked_ref()));
                             let _ = reader.read_as_data_url(&file);
                         }
                     } else if let Ok(reader) = FileReader::new() {
                         let reader_clone = reader.clone();
                         let text_sig = raw_text;
                         let err_sig = error_msg;
-                        let on_load = Closure::wrap(Box::new(move |_: Event| {
+                        let on_load = Closure::once_into_js(move |_: Event| {
                             if let Ok(val) = reader_clone.result() {
                                 if let Some(text) = val.as_string() {
                                     text_sig.set(text);
@@ -65,11 +64,9 @@ pub fn ImportModal(is_open: RwSignal<bool>, app_ctx: AppContext) -> impl IntoVie
                                     err_sig.set(Some("无法以 UTF-8 编码读取文本文件".to_string()));
                                 }
                             }
-                        })
-                            as Box<dyn FnMut(_)>);
+                        });
 
-                        reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
-                        on_load.forget();
+                        reader.set_onload(Some(on_load.unchecked_ref()));
                         let _ = reader.read_as_text(&file);
                     }
                 }

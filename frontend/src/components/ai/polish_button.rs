@@ -71,7 +71,7 @@ pub fn PolishButton(
                 view! {
                     <PolishModal
                         is_open=is_open
-                        original_text=original_draft.get()
+                        original_text=original_draft
                         polished_text=polished_draft
                         is_loading=is_loading
                         on_adopt=on_adopt

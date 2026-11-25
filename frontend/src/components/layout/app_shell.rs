@@ -9,6 +9,7 @@ use crate::components::export::export_modal::ExportModal;
 use crate::components::layout::writing_stage::WritingStage;
 use crate::components::novel::import_modal::ImportModal;
 use crate::components::novel::novel_manager::NovelManagerModal;
+use crate::components::search::command_palette::CommandPalette;
 use crate::components::search::search_modal::SearchModal;
 use crate::components::settings_panel::setting_changes_modal::SettingChangesModal;
 use crate::components::settings_panel::trash_modal::TrashModal;
@@ -33,8 +34,9 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
     // 谁先谁后取决于注册顺序，容易互相抵消。集中在一处，优先级一目了然。
     Effect::new(move |_| {
         let ctx = app_ctx;
-        let window = web_sys::window().expect("global window does not exist");
-        let document = window.document().expect("document does not exist");
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
 
         let key_listener = Closure::wrap(Box::new(move |event: web_sys::KeyboardEvent| {
             if (event.meta_key() || event.ctrl_key()) && event.key() == "s" {
@@ -42,9 +44,27 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                 perform_save(ctx);
                 return;
             }
+            // 全局命令面板 (Cmd/Ctrl+K)
+            if (event.meta_key() || event.ctrl_key()) && event.key().eq_ignore_ascii_case("k") {
+                event.prevent_default();
+                ctx.is_command_palette_open.update(|v| *v = !*v);
+                return;
+            }
+            if event.key() == "Escape" && ctx.is_command_palette_open.get_untracked() {
+                event.prevent_default();
+                ctx.is_command_palette_open.set(false);
+                return;
+            }
+            // 专注/打字机模式（任务书 T11）：Ctrl/Cmd+Shift+F 切换两栏隐藏。
+            // 必须在 Cmd/Ctrl+F 之前检查，否则会被搜索快捷键拦截。
+            if (event.meta_key() || event.ctrl_key()) && event.shift_key() && event.key().eq_ignore_ascii_case("f") {
+                event.prevent_default();
+                ctx.is_focus_mode.update(|v| *v = !*v);
+                return;
+            }
             // 全书搜索（任务书 T09）。Ctrl/Cmd+F 与浏览器/WebView 自带的
             // 页内查找冲突，必须 prevent_default，否则会弹出 WebView 的查找框。
-            if (event.meta_key() || event.ctrl_key()) && event.key().eq_ignore_ascii_case("f") {
+            if (event.meta_key() || event.ctrl_key()) && !event.shift_key() && event.key().eq_ignore_ascii_case("f") {
                 event.prevent_default();
                 ctx.is_search_open.set(true);
                 return;
@@ -53,26 +73,19 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
                 event.prevent_default();
                 ctx.is_search_open.set(false);
             }
-            // 专注/打字机模式（任务书 T11）：Ctrl/Cmd+Shift+F 切换两栏隐藏。
-            // 与 ⌘F（搜索）区分开；不 prevent_default 会触发 WebView 全屏。
-            if (event.meta_key() || event.ctrl_key()) && event.shift_key() && event.key().eq_ignore_ascii_case("f") {
-                event.prevent_default();
-                ctx.is_focus_mode.update(|v| *v = !*v);
-                return;
-            }
             // 打字机模式：Ctrl/Cmd+Shift+T（无浏览器冲突）。
             if (event.meta_key() || event.ctrl_key()) && event.shift_key() && event.key().eq_ignore_ascii_case("t") {
                 event.prevent_default();
                 ctx.is_typewriter_mode.update(|v| *v = !*v);
-                return;
             }
         }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
 
-        document
+        if document
             .add_event_listener_with_callback("keydown", key_listener.as_ref().unchecked_ref())
-            .expect("failed to add keydown listener");
-
-        key_listener.forget();
+            .is_ok()
+        {
+            key_listener.forget();
+        }
     });
 
     // 专注模式（任务书 T11）：把开关反映到 body class 上，由 CSS 隐藏左右两栏。
@@ -81,7 +94,25 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
         let focused = app_ctx.is_focus_mode.get();
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
             if let Some(body) = document.body() {
-                body.set_class_name(if focused { "focus-mode" } else { "" });
+                if focused {
+                    let _ = body.class_list().add_1("focus-mode");
+                } else {
+                    let _ = body.class_list().remove_1("focus-mode");
+                }
+            }
+        }
+    });
+
+    // 聚光灯聚焦模式：为 body 添加/移除 spotlight-active 类
+    Effect::new(move |_| {
+        let spotlight = app_ctx.is_spotlight_mode.get();
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(body) = document.body() {
+                if spotlight {
+                    let _ = body.class_list().add_1("spotlight-active");
+                } else {
+                    let _ = body.class_list().remove_1("spotlight-active");
+                }
             }
         }
     });
@@ -311,6 +342,7 @@ pub fn AppShell(app_ctx: AppContext) -> impl IntoView {
             <ExportModal app_ctx=app_ctx />
 
             <SearchModal app_ctx=app_ctx />
+            <CommandPalette app_ctx=app_ctx />
 
             <ExtractionModal
                 app_ctx=app_ctx

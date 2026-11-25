@@ -3,7 +3,7 @@ use leptos::prelude::*;
 #[component]
 pub fn PolishModal<F>(
     is_open: RwSignal<bool>,
-    original_text: String,
+    original_text: RwSignal<String>,
     polished_text: RwSignal<String>,
     is_loading: RwSignal<bool>,
     on_adopt: F,
@@ -14,8 +14,6 @@ where
     view! {
         {move || {
             if is_open.get() {
-                let orig = original_text.clone();
-                let current_polished = polished_text.get();
                 view! {
                     <div class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center z-50 p-6 select-none animate-in fade-in">
                         <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl max-w-3xl w-full border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95">
@@ -39,7 +37,7 @@ where
                                 <div class="flex flex-col space-y-1.5">
                                     <span class="text-xs font-semibold text-slate-500 dark:text-slate-400">"【原文草稿】"</span>
                                     <div class="flex-1 p-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-700 dark:text-slate-200 whitespace-pre-wrap leading-relaxed select-text min-h-[150px]">
-                                        {orig}
+                                        {move || original_text.get()}
                                     </div>
                                 </div>
 
@@ -72,7 +70,7 @@ where
                                 <button
                                     class="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded-md font-semibold shadow-xs transition-colors cursor-pointer"
                                     on:click=move |_| {
-                                        on_adopt(current_polished.clone());
+                                        on_adopt(polished_text.get_untracked());
                                         is_open.set(false);
                                     }
                                 >
