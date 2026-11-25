@@ -106,6 +106,10 @@ pub struct AppContext {
     // 全书搜索与替换（任务书 T09）
     /// 搜索/替换弹层是否打开（Cmd/Ctrl+F 切换）。
     pub is_search_open: RwSignal<bool>,
+    /// 全局快速指令面板是否打开 (Cmd/Ctrl+K)。
+    pub is_command_palette_open: RwSignal<bool>,
+    /// 段落聚光灯聚焦模式
+    pub is_spotlight_mode: RwSignal<bool>,
 
     // 写作辅助（任务书 T11）
     /// 专注/打字机模式：隐藏左右两栏。纯 CSS 切换，不触碰编辑器实例。
@@ -180,6 +184,8 @@ impl AppContext {
             export_summary: RwSignal::new(None),
             export_error: RwSignal::new(None),
             is_search_open: RwSignal::new(false),
+            is_command_palette_open: RwSignal::new(false),
+            is_spotlight_mode: RwSignal::new(false),
             is_focus_mode: RwSignal::new(false),
             is_typewriter_mode: RwSignal::new(false),
             today_net_words: RwSignal::new(0),

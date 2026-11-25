@@ -36,6 +36,7 @@ flowchart TD
 
     Operations --> O1["《提交流程》<br>GitHub / CNB 双远程与隔离 worktree"]
     Operations --> O2["《双远程发布流程》<br>版本晋级、多端构建、双平台 Release SOP"]
+    Operations --> O3["《目录架构与数据分布地图》<br>各目录职责、测试数据生命周期、缓存去留"]
 ```
 
 ---
@@ -59,6 +60,7 @@ flowchart TD
 | [**Easy-writing 审校报告-第三方 02**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/Easy-writing%20审校报告-第三方%2002.md) | 外部二轮审校报告 | v0.3.6 | 外部对 v0.3.6 交付审校：AI 提炼全链路保护、切章异步锁、Windows Release 测试失败、删除数据库检查 | `extraction.rs`, `chapter_list.rs`, `package.json` |
 | [**提交流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/submission-process.md) | 协作运维规范 | 日常开发规范 | GitHub 主目录提交与 CNB `.cnb-worktree` 提交身份隔离、cherry-pick 重放流程 | `.git/worktrees/` |
 | [**双远程发布流程**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/dual-remote-release-flow.md) | 版本发布 SOP | 发版运维规范 | 版本号 5 处晋级、自动化测试、桌面端打包、双端代码与 Tag 推送、GitHub & CNB 双端 Release 挂载 | `release-packages/` |
+| [**目录架构与数据分布地图**](file:///Volumes/WD%20Drive/项目/Easy-writing%20·%20小说工作台/Docs/目录架构.md) | 工程结构规范（持续维护） | 日常开发规范 | 顶层目录职责、测试数据生命周期（仓库内不落测试数据）、`target/` 各构建目标去留、活库路径与清理记录 | 全项目 |
 
 ---
 

@@ -2,6 +2,7 @@ pub mod ai;
 pub mod config;
 pub mod editor;
 pub mod export;
+pub mod icons;
 pub mod layout;
 pub mod novel;
 pub mod search;

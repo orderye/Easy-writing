@@ -19,7 +19,7 @@
 | 版本 | 0.3.8（`package.json` / `src-tauri/Cargo.toml` / `frontend/Cargo.toml` / `shared-types/Cargo.toml` / `src-tauri/tauri.conf.json` 五处一致） | `scripts/check-version.mjs` 守护 |
 | Tauri 命令数 | **109**（全部在 `src-tauri/src/lib.rs` 的 `generate_handler!` 中注册，无未注册/孤儿命令） | `src-tauri/src/commands/*.rs`、`src-tauri/tests/ipc_argcase.rs:91` |
 | 数据库表 | 迁移文件内 **21** 张；另有运行时创建的 `schema_version`（不计入护栏比对的 21 张） | `src-tauri/migrations/*.sql`、`src-tauri/src/db/mod.rs:30` |
-| 集成测试文件 | `src-tauri/tests/` 下 **23** 个 `.rs` | 另有 `tests/frontend` 2 个、`tests/scripts` 2 个 |
+| 集成测试文件 | `src-tauri/tests/` 下 **35** 个 `.rs`（+ `common/` 脚手架 2 个） | 另有 `tests/frontend` 12 个、`tests/scripts` 3 个 JS 契约测试（2026-11-03 目录整理时核对） |
 | 前端 IPC 调用点 | **132** 处 | `frontend/src/**/*.rs` 的 `invoke_cmd` / `invoke_no_args` |
 | SQLite | rusqlite 0.32.1（`bundled`）→ libsqlite3-sys 0.30.1 → **SQLite 3.46.0**，`-DSQLITE_ENABLE_FTS5` 已启用，**含 trigram 分词器** | `src-tauri/Cargo.toml:19`、`libsqlite3-sys-0.30.1/build.rs:127-129`、`sqlite3.c:255381` |
 | 数据库文件 | `<app_data_dir>/easy-writing.db`，WAL，`foreign_keys=ON`，连接池 `r2d2` max_size=8 | `src-tauri/src/db/mod.rs:117-130` |

@@ -60,7 +60,15 @@ class LexiconTrie {
   loadTerms(list) {
     this.clear();
     if (!list) return;
-    const items = typeof list === 'string' ? JSON.parse(list) : list;
+    let items = list;
+    if (typeof list === 'string') {
+      try {
+        items = JSON.parse(list);
+      } catch (e) {
+        console.error('[TiptapBridge] Failed to parse lexicon JSON:', e);
+        return;
+      }
+    }
     if (!Array.isArray(items)) return;
 
     for (const item of items) {
@@ -450,6 +458,7 @@ export function mount_editor(elementId, initialJson, onUpdateCb) {
     },
     onSelectionUpdate({ editor }) {
       scrollToCaretCenter();
+      updateSpotlightFocus();
       if (typeof selectionCallback === 'function') {
         try {
           selectionCallback();
@@ -468,6 +477,9 @@ export function destroy_editor() {
     activeEditor.destroy();
     activeEditor = null;
     updateCallback = null;
+    selectionCallback = null;
+    termAcceptedCallback = null;
+    isComposing = false;
   }
 }
 
@@ -609,6 +621,25 @@ export function redo() {
 // Typewriter mode (T11): scroll caret line to vertical center
 // -------------------------------------------------------------
 let typewriterEnabled = false;
+
+
+function updateSpotlightFocus() {
+  if (!activeEditor) return;
+  try {
+    if (!document.body.classList.contains('spotlight-active')) return;
+    const { view } = activeEditor;
+    const { from } = view.state.selection;
+    const domNode = view.domAtPos(from).node;
+    const paragraph = domNode.nodeType === 1 ? domNode.closest('p') : domNode.parentElement?.closest('p');
+    const existing = view.dom.querySelectorAll('p.has-focus');
+    existing.forEach(p => { if (p !== paragraph) p.classList.remove('has-focus'); });
+    if (paragraph && !paragraph.classList.contains('has-focus')) {
+      paragraph.classList.add('has-focus');
+    }
+  } catch (e) {
+    // 静默忽略选择越界
+  }
+}
 
 function scrollToCaretCenter() {
   if (!typewriterEnabled || !activeEditor) return;

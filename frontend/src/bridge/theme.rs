@@ -7,6 +7,13 @@ export function apply_app_theme(theme) {
     localStorage.setItem('easywriting_theme', theme);
   } catch (e) {}
 
+  root.classList.remove('theme-sepia', 'theme-midnight');
+  if (theme === 'sepia') {
+    root.classList.remove('dark');
+    root.classList.add('theme-sepia');
+    return;
+  }
+
   let isDark = false;
   if (theme === 'dark') {
     isDark = true;

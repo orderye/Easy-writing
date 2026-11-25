@@ -178,6 +178,7 @@ macOS 构建产物输出于 `target/release/bundle/dmg/`，Windows 可使用 `ca
 - [实施计划与数据设计](<Docs/Easy-writing · 实施计划.md>) —— 数据库 DDL、IPC 架构、时序图与工程设计（[基线归档]）
 - [双远程 Release 发布流程参考规范](Docs/dual-remote-release-flow.md) —— GitHub 与 CNB 双平台 Release 标准发布 6 步 SOP 与校验清单
 - [双远程提交流程规范](Docs/submission-process.md) —— 主目录与 `.cnb-worktree` 隔离身份双端提交流程
+- [目录架构与数据分布地图](Docs/目录架构.md) —— 各目录职责、测试数据分布与生命周期、构建缓存去留原则
 
 ---
 
