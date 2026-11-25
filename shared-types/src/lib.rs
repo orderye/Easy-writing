@@ -1060,18 +1060,13 @@ pub struct DailyStat {
 /// 导出格式（任务书 T02）。///
 /// 序列化用小写字符串（`"txt"` / `"docx"` / `"epub"`），
 /// 与前端下拉框取值、文件扩展名一致。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportFormat {
+    #[default]
     Txt,
     Docx,
     Epub,
-}
-
-impl Default for ExportFormat {
-    fn default() -> Self {
-        ExportFormat::Txt
-    }
 }
 
 impl ExportFormat {
@@ -1089,17 +1084,12 @@ impl ExportFormat {
 ///
 /// - `indent`：段首缩进两字（全角空格），段间不空行；
 /// - `blank_line`：段首不缩进，段间空一行。
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ParagraphSeparator {
+    #[default]
     Indent,
     BlankLine,
-}
-
-impl Default for ParagraphSeparator {
-    fn default() -> Self {
-        ParagraphSeparator::Indent
-    }
 }
 
 /// 一次导出的全部选项（任务书 T02）。

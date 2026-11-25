@@ -712,7 +712,7 @@ fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
             continue;
         }
         let length = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
-        if matches!(marker, 0xC0 | 0xC1 | 0xC2) {
+        if matches!(marker, 0xC0..=0xC2) {
             // 帧头：1 字节精度 + 2 字节高 + 2 字节宽。
             if i + 9 > bytes.len() {
                 return None;

@@ -17,6 +17,7 @@ fn bold(t: &str) -> Value {
     json!({ "type": "text", "text": t, "marks": [{ "type": "bold" }] })
 }
 
+#[allow(dead_code)]
 fn italic(t: &str) -> Value {
     json!({ "type": "text", "text": t, "marks": [{ "type": "italic" }] })
 }
@@ -176,7 +177,7 @@ fn invalid_tiptap_json_is_rejected_rather_than_written_back() {
 fn word_count_and_plain_text_follow_editor_metrics() {
     let content = doc(vec![para(vec![text("断水剑在此。")])]);
     let before_plain = {
-        let v = parse(&content);
+        let _v = parse(&content);
         easy_writing_lib::export::doc::blocks_to_plain_text(
             &easy_writing_lib::export::doc::parse_chapter(&content, "").blocks,
         )

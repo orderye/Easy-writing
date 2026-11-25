@@ -232,7 +232,7 @@ async fn conflict_detected_for_other_device_newer_than_last_sync() {
     let app = dir.join("app");
 
     // 本机状态：上次同步在 2026-01-01
-    let mut state = device::DeviceState {
+    let state = device::DeviceState {
         device_id: "local-device-0001".to_string(),
         device_name: "本机".to_string(),
         last_sync_at: Some("2026-01-01T00:00:00+00:00".to_string()),
@@ -378,7 +378,7 @@ async fn silent_sync_skips_on_conflict_and_records_notice() {
     let app = dir.join("app");
     let pool = seeded_pool(&app);
 
-    let mut state = device::DeviceState {
+    let state = device::DeviceState {
         device_id: "local-device-0001".to_string(),
         device_name: "本机".to_string(),
         last_sync_at: Some("2026-01-01T00:00:00+00:00".to_string()),

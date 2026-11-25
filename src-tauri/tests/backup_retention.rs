@@ -313,7 +313,7 @@ fn snapshot_limit_prunes_oldest_auto_only() {
             "第一章",
             &format!("{{\"p\":{i}}}"),
             &format!("第 {i} 段内容"),
-            10 + i as i32,
+            10 + i,
             "auto",
             "自动保存快照",
         )
@@ -384,7 +384,7 @@ fn snapshot_limit_is_configurable() {
             "第一章",
             &format!("{{\"p\":{i}}}"),
             &format!("第 {i} 段内容"),
-            10 + i as i32,
+            10 + i,
             "auto",
             "自动保存快照",
         )

@@ -178,7 +178,6 @@ fn manifest_records_schema_and_entity_counts() {
     assert_eq!(m.entity_counts.get("novel").copied(), Some(1));
     assert!(m.entity_counts.contains_key("chapter"));
     assert_eq!(m.compressed_size_bytes, 42);
-    Ok::<(), String>(()).unwrap();
 }
 
 #[test]
@@ -350,7 +349,7 @@ fn snapshot_is_consistent_under_wal() {
     let snap = dir.join("snap.db");
     backup::snapshot_to_file(&pool, &snap).unwrap();
 
-    let journal = format!("{}-wal", snap.display().to_string());
+    let journal = format!("{}-wal", snap.display());
     assert!(
         !Path::new(&journal).exists(),
         "快照落盘后不应残留 WAL 旁文件"

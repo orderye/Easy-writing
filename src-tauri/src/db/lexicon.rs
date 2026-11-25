@@ -125,13 +125,11 @@ pub fn sync_lexicon_from_settings(conn: &Connection, novel_id: &str) -> Result<u
     let rows = stmt.query_map(params![novel_id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
-    for r in rows {
-        if let Ok((id, title)) = r {
-            let t = title.trim();
-            if t.chars().count() >= 2 && t.chars().count() <= 30 {
-                let _ = upsert_lexicon_term(conn, novel_id, t, "worldview", Some(&id));
-                added_count += 1;
-            }
+    for (id, title) in rows.flatten() {
+        let t = title.trim();
+        if t.chars().count() >= 2 && t.chars().count() <= 30 {
+            let _ = upsert_lexicon_term(conn, novel_id, t, "worldview", Some(&id));
+            added_count += 1;
         }
     }
 
@@ -147,35 +145,33 @@ pub fn sync_lexicon_from_settings(conn: &Connection, novel_id: &str) -> Result<u
             row.get::<_, String>(3)?,
         ))
     })?;
-    for r in rows {
-        if let Ok((id, name, aliases_json, profile_json)) = r {
-            let name_trim = name.trim();
-            if name_trim.chars().count() >= 2 && name_trim.chars().count() <= 20 {
-                let _ = upsert_lexicon_term(conn, novel_id, name_trim, "character", Some(&id));
-                added_count += 1;
-            }
+    for (id, name, aliases_json, profile_json) in rows.flatten() {
+        let name_trim = name.trim();
+        if name_trim.chars().count() >= 2 && name_trim.chars().count() <= 20 {
+            let _ = upsert_lexicon_term(conn, novel_id, name_trim, "character", Some(&id));
+            added_count += 1;
+        }
 
-            // Parse aliases JSON array
-            if let Ok(aliases) = serde_json::from_str::<Vec<String>>(&aliases_json) {
-                for alias in aliases {
-                    let a_trim = alias.trim();
-                    if a_trim.chars().count() >= 2 && a_trim.chars().count() <= 20 {
-                        let _ = upsert_lexicon_term(conn, novel_id, a_trim, "character", Some(&id));
-                        added_count += 1;
-                    }
+        // Parse aliases JSON array
+        if let Ok(aliases) = serde_json::from_str::<Vec<String>>(&aliases_json) {
+            for alias in aliases {
+                let a_trim = alias.trim();
+                if a_trim.chars().count() >= 2 && a_trim.chars().count() <= 20 {
+                    let _ = upsert_lexicon_term(conn, novel_id, a_trim, "character", Some(&id));
+                    added_count += 1;
                 }
             }
+        }
 
-            // Check profile for assets / kungfu / weapons
-            if let Ok(profile_val) = serde_json::from_str::<serde_json::Value>(&profile_json) {
-                if let Some(assets) = profile_val.get("assets").and_then(|v| v.as_array()) {
-                    for item in assets {
-                        if let Some(n) = item.get("name").and_then(|v| v.as_str()) {
-                            let item_name = n.trim();
-                            if item_name.chars().count() >= 2 && item_name.chars().count() <= 30 {
-                                let _ = upsert_lexicon_term(conn, novel_id, item_name, "character", Some(&id));
-                                added_count += 1;
-                            }
+        // Check profile for assets / kungfu / weapons
+        if let Ok(profile_val) = serde_json::from_str::<serde_json::Value>(&profile_json) {
+            if let Some(assets) = profile_val.get("assets").and_then(|v| v.as_array()) {
+                for item in assets {
+                    if let Some(n) = item.get("name").and_then(|v| v.as_str()) {
+                        let item_name = n.trim();
+                        if item_name.chars().count() >= 2 && item_name.chars().count() <= 30 {
+                            let _ = upsert_lexicon_term(conn, novel_id, item_name, "character", Some(&id));
+                            added_count += 1;
                         }
                     }
                 }
@@ -190,13 +186,11 @@ pub fn sync_lexicon_from_settings(conn: &Connection, novel_id: &str) -> Result<u
     let rows = stmt.query_map(params![novel_id], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
-    for r in rows {
-        if let Ok((id, title)) = r {
-            let t = title.trim();
-            if t.chars().count() >= 2 && t.chars().count() <= 25 {
-                let _ = upsert_lexicon_term(conn, novel_id, t, "plot", Some(&id));
-                added_count += 1;
-            }
+    for (id, title) in rows.flatten() {
+        let t = title.trim();
+        if t.chars().count() >= 2 && t.chars().count() <= 25 {
+            let _ = upsert_lexicon_term(conn, novel_id, t, "plot", Some(&id));
+            added_count += 1;
         }
     }
 
@@ -212,11 +206,9 @@ pub fn scan_and_extract_corpus_terms(conn: &Connection, novel_id: &str) -> Resul
 
     // Collect all text
     let mut all_text = String::new();
-    for r in rows {
-        if let Ok(text) = r {
-            all_text.push_str(&text);
-            all_text.push('\n');
-        }
+    for text in rows.flatten() {
+        all_text.push_str(&text);
+        all_text.push('\n');
     }
 
     if all_text.is_empty() {
@@ -253,10 +245,10 @@ pub fn scan_and_extract_corpus_terms(conn: &Connection, novel_id: &str) -> Resul
                 for window in chars.windows(n) {
                     let s: String = window.iter().collect();
                     // Must be all Chinese
-                    if s.chars().all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
-                        if !stop_words.contains(s.as_str()) {
-                            *freq_map.entry(s).or_insert(0) += 1;
-                        }
+                    if s.chars().all(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+                        && !stop_words.contains(s.as_str())
+                    {
+                        *freq_map.entry(s).or_insert(0) += 1;
                     }
                 }
             }

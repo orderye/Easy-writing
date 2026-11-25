@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! 测试专用的进程内 WebDAV 服务端。
 //!
 //! ## 为什么不用 mock

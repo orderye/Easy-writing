@@ -128,7 +128,7 @@ fn is_candidate_name(name: &str) -> bool {
 fn remove_candidate(token: &str) {
     if let Ok(gz) = candidate_gz_path(token) {
         let _ = fs::remove_file(&gz);
-        let _ = fs::remove_file(&manifest::sidecar_path_for(&gz));
+        let _ = fs::remove_file(manifest::sidecar_path_for(&gz));
     }
 }
 
@@ -318,10 +318,11 @@ pub async fn run_restore_preflight(
                 if !m.sha256.is_empty() && !m.sha256.eq_ignore_ascii_case(&token) {
                     let _ = fs::remove_file(&cand_db);
                     remove_candidate(&token);
-                    return Err(format!(
+                    return Err(
                         "恢复中止：备份的来源信息（meta）记录的哈希与实际下载内容不符，\
                          这份来源信息不属于该备份包。原数据未被改动。"
-                    ));
+                            .to_string(),
+                    );
                 }
                 source_meta = Some(m);
             }
@@ -920,6 +921,7 @@ fn rollback_after_change(
 ///
 /// 会**重新下载候选内容并重新跑完整校验**（哈希绑定 + 结构预检 + 清单交叉校验），
 /// 因此「确认 A 却恢复 B」不可能发生：候选内容一旦被改动，哈希就对不上。
+#[allow(clippy::too_many_arguments)]
 pub async fn run_consistency_restore(
     pool: DbPool,
     client: &WebDavClient,

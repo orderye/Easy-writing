@@ -64,7 +64,7 @@ pub fn commit_import_novel(
     };
 
     // 查询当前已有卷的最大序号
-    let mut vol_order: i32 = tx
+    let start_vol_order: i32 = tx
         .query_row(
             "SELECT COALESCE(MAX(sort_order), -1) FROM volume WHERE novel_id = ?1 AND deleted_at IS NULL",
             params![novel_id],
@@ -73,17 +73,16 @@ pub fn commit_import_novel(
         .unwrap_or(-1)
         + 1;
 
-    for vol_preview in preview.volumes {
+    for (vol_offset, vol_preview) in preview.volumes.into_iter().enumerate() {
+        let vol_order = start_vol_order + vol_offset as i32;
         let vol_id = Uuid::new_v4().to_string();
         tx.execute(
             "INSERT INTO volume (id, novel_id, title, summary, sort_order) VALUES (?1, ?2, ?3, '', ?4)",
             params![vol_id, novel_id, vol_preview.title, vol_order],
         )
         .map_err(|e| format!("创建分卷失败: {}", e))?;
-        vol_order += 1;
 
-        let mut chap_order = 0;
-        for chap_preview in vol_preview.chapters {
+        for (chap_order, chap_preview) in vol_preview.chapters.into_iter().enumerate() {
             let chap_id = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO chapter (id, novel_id, volume_id, title, summary, content, content_plain, word_count, status, sort_order)
@@ -96,11 +95,10 @@ pub fn commit_import_novel(
                     chap_preview.content,
                     chap_preview.content_plain,
                     chap_preview.word_count,
-                    chap_order,
+                    chap_order as i32,
                 ],
             )
             .map_err(|e| format!("创建章节失败: {}", e))?;
-            chap_order += 1;
         }
     }
 

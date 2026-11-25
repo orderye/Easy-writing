@@ -98,14 +98,22 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      # 只测桌面后端 crate。workspace 里的 frontend 是 leptos CSR（仅面向 wasm32），
-      # 用 --workspace 会把它拉进来为宿主目标白白编译一遍（跑 0 个测试）。
+      - name: Check WASM frontend compilation
+        run: cargo check --target wasm32-unknown-unknown -p easy-writing-frontend
+
+      - name: Clippy lint check
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # 跑桌面后端、共享类型与前端纯逻辑单元测试（WASM 编译检查见上方独立步骤）。
       - name: Backend tests
-        run: cargo test -p easy-writing-core -p easy-writing-frontend
+        run: cargo test -p easy-writing-core -p easy-writing-frontend -p shared-types
 
   # V0.3.8 P1-1：真实 WebDAV 服务端集成测试。
   #

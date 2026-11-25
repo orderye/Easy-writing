@@ -202,7 +202,7 @@ mod tests {
             items.insert(key_ref.to_string(), secret.to_string());
             Ok(())
         }
-        fn delete_secret(&self, key_ref: &str) -> Result<(), String> {
+        fn delete_secret(&self, _key_ref: &str) -> Result<(), String> {
             Ok(())
         }
     }

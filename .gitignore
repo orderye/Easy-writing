@@ -8,4 +8,6 @@
 .DS_Store
 *.log
 /release-packages
+/.zcode/
+/.cnb-worktree/
 

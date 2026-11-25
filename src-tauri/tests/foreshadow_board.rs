@@ -288,8 +288,8 @@ fn board_sorts_unresolved_first_then_by_chapters_since_plant() {
 
     // A 埋第 1 章（距今 14），B 埋第 5 章（距今 10），C 埋第 10 章（距今 5）
     let a = new_plot(&f, "A", "", Some(f.chapter_ids[0].as_str()));
-    let b = new_plot(&f, "B", "", Some(f.chapter_ids[4].as_str()));
-    let c = new_plot(&f, "C", "", Some(f.chapter_ids[9].as_str()));
+    let _b = new_plot(&f, "B", "", Some(f.chapter_ids[4].as_str()));
+    let _c = new_plot(&f, "C", "", Some(f.chapter_ids[9].as_str()));
 
     let rows = db::foreshadow::list_foreshadow_board(&conn, &f.novel_id).unwrap();
     let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();

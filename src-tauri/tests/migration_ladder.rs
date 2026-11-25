@@ -445,7 +445,7 @@ fn applied_at(conn: &Connection, version: i64) -> Option<String> {
 fn assert_pinned_columns_absent(conn: &Connection) {
     for table in ["character", "worldview_entry", "plot_item"] {
         assert!(
-            !column_exists(&conn, table, "pinned"),
+            !column_exists(conn, table, "pinned"),
             "历史状态不应有 V004 才创建的 pinned 列（{table}）"
         );
     }

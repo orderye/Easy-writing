@@ -122,7 +122,7 @@ jobs:
           crate: trunk
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build frontend bridge and styles
         run: pnpm build:assets
@@ -177,13 +177,14 @@ jobs:
         run: |
           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASS="$(openssl rand -hex 16)"
           echo -n "$APPLE_CERTIFICATE" | base64 --decode -o $CERTIFICATE_PATH
-          security create-keychain -p "$(openssl rand -hex 16)" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$(openssl rand -hex 16 2>/dev/null || echo dummy)" $KEYCHAIN_PATH || true
-          security import $CERTIFICATE_PATH -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -k "$(security find-generic-password -s $KEYCHAIN_PATH >/dev/null 2>&1 && echo ignored || echo dummy)" -k dummy $KEYCHAIN_PATH >/dev/null 2>&1 || true
-          security list-keychain -d user -s $KEYCHAIN_PATH login.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
 
       - name: Export Apple signing env (macOS, optional)
         if: runner.os == 'macOS' && env.APPLE_SIGNING_IDENTITY_SECRET != ''
@@ -241,6 +242,7 @@ jobs:
         env:
           WINDOWS_SIGNING_PFX: ${{ secrets.WINDOWS_SIGNING_PFX }}
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
         run: |
           $pfxPath = Join-Path $env:RUNNER_TEMP "signing.pfx"
@@ -253,6 +255,11 @@ jobs:
             ForEach-Object {
               Write-Host "Signing $($_.Name)"
               & $signtool sign /f $pfxPath /p "$env:WINDOWS_SIGNING_PFX_PASSWORD" /tr http://timestamp.digicert.com /td sha256 /fd sha256 $_.FullName
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              if ("${{ needs.gate.outputs.is_release }}" -eq "true") {
+                gh release upload "${{ needs.gate.outputs.release_tag }}" $_.FullName --clobber
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              }
             }
 
       # build-only：只产出构建物供人工检查，绝不创建 Release。

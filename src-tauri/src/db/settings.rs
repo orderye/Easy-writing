@@ -255,6 +255,7 @@ pub fn list_plots(conn: &Connection, novel_id: &str) -> Result<Vec<PlotItem>> {
     Ok(list)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn save_plot(
     conn: &Connection,
     id: Option<String>,
@@ -340,6 +341,7 @@ pub fn delete_plot(conn: &Connection, id: &str) -> Result<()> {
 }
 
 // --- Setting Changes Audit & Rollback ---
+#[allow(clippy::too_many_arguments)]
 pub fn record_setting_change(
     conn: &Connection,
     novel_id: &str,

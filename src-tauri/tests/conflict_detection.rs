@@ -176,7 +176,7 @@ fn ignored_signature_returns_clean() {
 fn build_with_budget(dir: &std::path::Path, scope: CheckScope, budget: usize) -> String {
     let pool = db::init_db(dir.to_path_buf()).unwrap();
     let conn = pool.get().unwrap();
-    let novel_id = seed_novel(&dir);
+    let novel_id = seed_novel(dir);
     let (text, _) =
         build_conflict_context(&conn, &novel_id, scope, budget).expect("上下文构建必须成功");
     drop(conn);

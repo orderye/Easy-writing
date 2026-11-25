@@ -79,7 +79,7 @@ pub fn ContextPanel(
     let on_toggle_exclude = move |entry: ContextManifestEntry| {
         let id = entry.entry_id.clone();
         excluded.update(|list| {
-            if list.iter().any(|x| *x == id) {
+            if list.contains(&id) {
                 list.retain(|x| *x != id);
             } else {
                 list.push(id);
@@ -188,10 +188,7 @@ pub fn ContextPanel(
                                                 let included = e.included;
                                                 let entry_for_exclude = e.clone();
                                                 let entry_for_pin = e.clone();
-                                                let is_excluded = move || {
-                                                    let id = entry_id.clone();
-                                                    excluded.get().iter().any(|x| *x == id)
-                                                };
+                                                let is_excluded = move || excluded.get().contains(&entry_id);
                                                 let row_cls = if included { "" } else { "opacity-40" };
                                                 view! {
                                                     <div class=format!("flex items-center gap-1.5 py-0.5 {}", row_cls)>

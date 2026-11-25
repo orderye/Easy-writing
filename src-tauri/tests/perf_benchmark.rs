@@ -250,7 +250,7 @@ fn perf_fulltext_search_baseline() {
     // 合成正文里每个汉字都会出现，因此任取一个字都能命中全部章节 ——
     // 这是最坏情况，也正是长篇作者反复做的那类操作。
     for term in ["人", "国", "天"] {
-        Bench::new(&format!("全书搜索「{term}」（全命中）"), ds.clone()).measure(|| {
+        Bench::new(format!("全书搜索「{term}」（全命中）"), ds.clone()).measure(|| {
             db::chapter::find_chapters_mentioning(&conn, &nid, term).unwrap()
         });
     }
@@ -265,7 +265,7 @@ fn perf_fulltext_search_baseline() {
     //
     // 3 字词走 trigram 索引；1 字词走 LIKE 回退 —— 两条路径都要有基线。
     for term in ["一二三", "四五六", "七八九"] {
-        Bench::new(&format!("FTS 全文搜索「{term}」（索引路径）"), ds.clone()).measure(|| {
+        Bench::new(format!("FTS 全文搜索「{term}」（索引路径）"), ds.clone()).measure(|| {
             db::search::search_chapters(&conn, &nid, term, 50).unwrap()
         });
     }

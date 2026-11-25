@@ -19,6 +19,7 @@ fn map_profile(row: &rusqlite::Row<'_>) -> Result<LlmProfile> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_profile(
     conn: &Connection,
     name: &str,
@@ -76,6 +77,7 @@ pub fn get_profile(conn: &Connection, id: &str) -> Result<Option<LlmProfile>> {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn update_profile(
     conn: &Connection,
     id: &str,

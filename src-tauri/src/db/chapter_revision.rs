@@ -33,6 +33,7 @@ fn map_revision(row: &rusqlite::Row<'_>) -> Result<ChapterRevision> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_revision(
     conn: &Connection,
     chapter_id: &str,
@@ -62,6 +63,7 @@ pub fn create_revision(
 ///
 /// `batch_id` 由批量替换（T09）写入：同一轮替换为每章写的快照共享一个 id，
 /// 「整批撤销」靠它一次找回全部。普通快照传 `None`。
+#[allow(clippy::too_many_arguments)]
 pub fn create_revision_with_batch(
     conn: &Connection,
     chapter_id: &str,

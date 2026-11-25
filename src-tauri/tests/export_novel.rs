@@ -299,7 +299,7 @@ fn epub_contains_ncx_and_nav() {
     run_export(&pool, &dir, &target, &options(&novel_id, ExportFormat::Epub));
 
     let file = std::fs::File::open(&target).unwrap();
-    let mut archive = ZipArchive::new(file).unwrap();
+    let archive = ZipArchive::new(file).unwrap();
     let names: Vec<String> = archive.file_names().flatten().map(|n| n.to_string()).collect();
 
     assert!(names.iter().any(|n| n.ends_with("toc.ncx")), "缺少 NCX");
@@ -355,7 +355,7 @@ fn export_with_images_embeds_media() {
     assert_eq!(outcome.summary.skipped_images, 0);
 
     let file = std::fs::File::open(&target).unwrap();
-    let mut archive = ZipArchive::new(file).unwrap();
+    let archive = ZipArchive::new(file).unwrap();
     let names: Vec<String> = archive.file_names().flatten().map(|n| n.to_string()).collect();
     assert!(
         names.iter().any(|n| n.starts_with("EPUB/images/")),
@@ -406,7 +406,7 @@ fn export_without_images_skips_and_counts() {
     assert_eq!(outcome.summary.skipped_images, 1);
 
     let file = std::fs::File::open(&target).unwrap();
-    let mut archive = ZipArchive::new(file).unwrap();
+    let archive = ZipArchive::new(file).unwrap();
     let names: Vec<String> = archive.file_names().flatten().map(|n| n.to_string()).collect();
     assert!(
         !names.iter().any(|n| n.starts_with("EPUB/images/")),

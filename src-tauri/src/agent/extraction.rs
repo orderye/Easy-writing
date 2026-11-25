@@ -679,9 +679,9 @@ pub const CANDIDATE_KINDS: [&str; 4] = ["worldview", "character", "plot", "chapt
 /// 解析 `single_call` 的输出。
 ///
 /// 同时接受两种形态：
-///   1. 分组对象 `{"worldview": [...], "character": [...]}` —— 任务书要求的形态；
-///   2. 自带 `kind` 字段的数组 —— 模型经常「回退」到并行模式的输出结构。
-/// 两种形态最终都归一成同一种 `Vec<RawCandidate>`，与 parallel_4 完全同构。
+/// 1. 分组对象 `{"worldview": [...], "character": [...]}` —— 任务书要求的形态；
+/// 2. 自带 `kind` 字段的数组 —— 模型经常「回退」到并行模式的输出结构。
+///    两种形态最终都归一成同一种 `Vec<RawCandidate>`，与 parallel_4 完全同构。
 pub fn parse_single_call_candidates(raw: &str) -> Result<Vec<RawCandidate>, String> {
     if let Some(result) = parse_grouped_candidates(raw) {
         return result;

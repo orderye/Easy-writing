@@ -731,7 +731,7 @@ mod tests {
             tokens_for_chars(budget_chars),
             &estimator,
         );
-        assemble_writing_context_with_options(&conn, &test_novel(), chapter_id, "", prompt, &opts)
+        assemble_writing_context_with_options(conn, &test_novel(), chapter_id, "", prompt, &opts)
             .unwrap()
     }
 

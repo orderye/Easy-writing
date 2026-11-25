@@ -85,7 +85,7 @@ pub fn replace_in_chapter(
 
     // 1. 收集文本节点（按文档序）。
     let mut slots: Vec<TextSlot> = Vec::new();
-    collect_text_slots(&mut doc, &mut slots);
+    collect_text_slots(&doc, &mut slots);
     if slots.is_empty() {
         return None;
     }
