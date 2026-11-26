@@ -31,6 +31,9 @@ const RESERVED_COMMANDS: &[&str] = &[
     "append_chat_message",
     "list_chat_sessions",
     "delete_chat_session",
+    // 作品诊断与恢复中心（V0.4.0 / P2-4）：后端只读聚合层先落地，
+    // 前端 UI 由后续处理接入；接上 UI 时必须把这一条从预留表移除。
+    "get_diagnostics",
 ];
 
 /// 仓库根目录（本测试文件位于 src-tauri/tests/）。

@@ -122,7 +122,11 @@ jobs:
   # 本 job 跑在真实 WebDAV 实现上，补的正是这一层。
   #
   # 服务端选型记录（任务书 P1-1 B 要求）：
-  #   镜像        ghcr.io/hacdias/webdav（Go 实现，源码 github.com/hacdias/webdav）
+  #   镜像        ghcr.io/hacdias/webdav:v5.17.3（Go 实现，源码 github.com/hacdias/webdav）
+  #               钉住固定版本标签，避免 `latest` 漂移导致两次运行不可比
+  #               标签依据    上游 releases/tags 的 v5.17.3（2026-10-30）真实存在；
+  #               docker.yml 对 v* 标签按 semver 推送 ghcr.io/hacdias/webdav，
+  #               且 GHCR manifest 查询返回 HTTP 200
   #   选择依据    上游 README 明确列出支持 PROPFIND / MKCOL / MOVE / COPY /
   #               DELETE / PUT / GET / HEAD —— 与 WebDavClient 实际发出的
   #               请求集合完全一致
@@ -183,8 +187,10 @@ jobs:
             -p 6065:6065 \
             -v "$WORK/config.yml:/config.yml:ro" \
             -v "$WORK/data:/data" \
-            ghcr.io/hacdias/webdav -c /config.yml
+            ghcr.io/hacdias/webdav:v5.17.3 -c /config.yml
           echo "WEBDAV_WORKDIR=$WORK" >> "$GITHUB_ENV"
+          echo "WebDAV 服务端镜像：ghcr.io/hacdias/webdav:v5.17.3（固定标签）"
+          echo "实际运行镜像 ID：$(docker inspect --format '{{.Image}}' ew-webdav)"
 
       # 探测用的是客户端真正依赖的 PROPFIND，而不是 TCP 连通性。
       # 失败时输出状态码与容器日志 —— 一次运行就能定位问题，不靠反复猜。
@@ -253,11 +259,14 @@ jobs:
 
   # V0.3.8 P1-1：性能门禁。
   #
-  # 阈值刻意宽松（500ms）。理由：CI runner 的 CPU 与开发机差异很大，
+  # 阈值刻意宽松（EW_PERF_GATE_MS=500ms）。理由：CI runner 的 CPU 与开发机差异很大，
   # 我们没有在 runner 上采集过真实分布，任何更紧的阈值都会产生噪音，
   # 最终导致大家养成忽略红色构建的习惯。
   # 这个门槛只用于拦截「劣化一个数量级」的回归（如误引入 N+1），
   # 精确的性能治理以本机定期跑出的报告为准。
+  # 待 runner 上采集到真实分布后，再据此收紧阈值（见 RELEASE_ACCEPTANCE §7.4 / §9）。
+  # 迁移基准的 EW_MIGRATION_GATE_MS 则刻意未接入本 job —— 同样要等 runner 分布，
+  # 不凭开发机数据拍数字。
   performance:
     name: 性能门禁（长篇基准）
     runs-on: ubuntu-latest

@@ -22,6 +22,7 @@ const COMMAND_SOURCES: &[&str] = &[
     include_str!("../src/commands/mod.rs"),
     include_str!("../src/commands/ai_cmd.rs"),
     include_str!("../src/commands/config_cmd.rs"),
+    include_str!("../src/commands/diagnostics_cmd.rs"),
     include_str!("../src/commands/export_cmd.rs"),
     include_str!("../src/commands/search_cmd.rs"),
     include_str!("../src/commands/sync_cmd.rs"),
@@ -106,7 +107,12 @@ fn every_command_declares_snake_case() {
     // get_daily_stat（今日净增字数）、get_daily_goal / set_daily_goal（每日目标）、
     // update_chapter_pov（视角角色 + 故事时间）。
     // 四者均带 snake_case 并已加入 command_key_sweep。
-    assert_eq!(total, 121, "command count changed — re-audit the frontend call sites");
+    // 121 → 122：作品诊断中心（V0.4.0 / P2-4）增加 get_diagnostics：
+    // 只读聚合诊断报告。带 snake_case；首参为 AppHandle（需 app_data_dir），
+    // 与 scan_image_storage 同属 MockRuntime 已知限制，不进入 command_key_sweep；
+    // 它的前端调用点暂未接入（UI 由后续处理），登记进 ipc_command_inventory 的
+    // RESERVED_COMMANDS。
+    assert_eq!(total, 122, "command count changed — re-audit the frontend call sites");
     assert!(
         offenders.is_empty(),
         "these commands are missing rename_all = \"snake_case\" and will reject the \
