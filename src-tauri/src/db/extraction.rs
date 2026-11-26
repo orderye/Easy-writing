@@ -111,69 +111,84 @@ pub fn merge_character_candidate(
     candidate_id: &str,
     target_character_id: &str,
 ) -> std::result::Result<shared_types::Character, String> {
-    let (novel_id, kind, title, payload): (String, String, String, String) = conn
-        .query_row(
-            "SELECT novel_id, kind, COALESCE(title, ''), payload FROM extraction_candidate WHERE id = ?1",
-            params![candidate_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-        )
-        .map_err(|e| format!("候选不存在：{e}"))?;
+    let mut merged_out: Option<shared_types::Character> = None;
+    crate::db::setting_tx::with_savepoint(conn, "sp_merge_character_candidate", || {
+        let (novel_id, kind, title, payload): (String, String, String, String) = conn
+            .query_row(
+                "SELECT novel_id, kind, COALESCE(title, ''), payload FROM extraction_candidate WHERE id = ?1",
+                params![candidate_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .map_err(|e| rusqlite::Error::InvalidParameterName(format!("候选不存在：{e}")))?;
 
-    if kind != "character" {
-        return Err("只有角色候选支持合并到既有角色".to_string());
-    }
+        if kind != "character" {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "只有角色候选支持合并到既有角色".to_string(),
+            ));
+        }
 
-    let existing = crate::db::settings::list_characters(conn, &novel_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|c| c.id == target_character_id)
-        .ok_or_else(|| "目标角色不存在或已删除".to_string())?;
+        let existing = crate::db::settings::list_characters(conn, &novel_id)?
+            .into_iter()
+            .find(|c| c.id == target_character_id)
+            .ok_or_else(|| {
+                rusqlite::Error::InvalidParameterName("目标角色不存在或已删除".to_string())
+            })?;
 
-    let title = title.trim().to_string();
-    if title.is_empty() {
-        return Err("候选标题为空，无法作为别名合并".to_string());
-    }
+        let title = title.trim().to_string();
+        if title.is_empty() {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "候选标题为空，无法作为别名合并".to_string(),
+            ));
+        }
 
-    // 别名去重按归一化比较，避免「小舟 / 小舟 」这种纯空白差异堆两条。
-    let mut aliases: Vec<String> = serde_json::from_str(&existing.aliases).unwrap_or_default();
-    let norm_title = crate::agent::extraction::normalize_title(&title);
-    let already = !norm_title.is_empty()
-        && (crate::agent::extraction::normalize_title(&existing.name) == norm_title
-            || aliases
-                .iter()
-                .any(|a| crate::agent::extraction::normalize_title(a) == norm_title));
-    if !already {
-        aliases.push(title.clone());
-    }
+        // 别名去重按归一化比较，避免「小舟 / 小舟 」这种纯空白差异堆两条。
+        let mut aliases: Vec<String> = serde_json::from_str(&existing.aliases).unwrap_or_default();
+        let norm_title = crate::agent::extraction::normalize_title(&title);
+        let already = !norm_title.is_empty()
+            && (crate::agent::extraction::normalize_title(&existing.name) == norm_title
+                || aliases
+                    .iter()
+                    .any(|a| crate::agent::extraction::normalize_title(a) == norm_title));
+        if !already {
+            aliases.push(title.clone());
+        }
 
-    let mut ep = shared_types::ExplodedProfile::parse_from_str(&existing.profile);
-    if ep.raw_notes.is_empty() {
-        ep.raw_notes = payload.clone();
-    } else if !payload.trim().is_empty() && !ep.raw_notes.contains(&payload) {
-        ep.raw_notes.push_str("\n\n---\n");
-        ep.raw_notes.push_str(&payload);
-    }
+        let mut ep = shared_types::ExplodedProfile::parse_from_str(&existing.profile);
+        if ep.raw_notes.is_empty() {
+            ep.raw_notes = payload.clone();
+        } else if !payload.trim().is_empty() && !ep.raw_notes.contains(&payload) {
+            ep.raw_notes.push_str("\n\n---\n");
+            ep.raw_notes.push_str(&payload);
+        }
 
-    let aliases_json = serde_json::to_string(&aliases).unwrap_or_else(|_| "[]".to_string());
-    let merged = crate::db::settings::save_character(
-        conn,
-        Some(existing.id.clone()),
-        &novel_id,
-        &existing.name,
-        &aliases_json,
-        &ep.to_json_string(),
-    )
-    .map_err(|e| e.to_string())?;
+        let aliases_json = serde_json::to_string(&aliases).unwrap_or_else(|_| "[]".to_string());
+        let merged = crate::db::setting_tx::save_character_with_reason(
+            conn,
+            Some(existing.id.clone()),
+            &novel_id,
+            &existing.name,
+            &aliases_json,
+            &ep.to_json_string(),
+            "AI提炼疑似同人合并",
+        )?;
 
-    // 新名称进词库，编辑器里输入「小舟」也能补全。
-    let _ = crate::db::lexicon::upsert_lexicon_term(
-        conn,
-        &novel_id,
-        &title,
-        "character",
-        Some(&existing.id),
-    );
+        // 新名称进词库，编辑器里输入「小舟」也能补全。
+        crate::db::lexicon::upsert_lexicon_term(
+            conn,
+            &novel_id,
+            &title,
+            "character",
+            Some(&existing.id),
+        )?;
 
-    update_candidate_status(conn, candidate_id, "accepted").map_err(|e| e.to_string())?;
-    Ok(merged)
+        update_candidate_status(conn, candidate_id, "accepted")?;
+        merged_out = Some(merged);
+        Ok(())
+    })
+    .map_err(|e| match e {
+        rusqlite::Error::InvalidParameterName(msg) => msg,
+        other => other.to_string(),
+    })?;
+
+    merged_out.ok_or_else(|| "合并角色候选失败".to_string())
 }

@@ -566,13 +566,14 @@ pub fn resolve_candidate(
                     .is_ok()
                 });
 
-                crate::db::settings::save_worldview(
+                crate::db::setting_tx::save_worldview_with_reason(
                     &tx,
                     real_target_id,
                     &novel_id,
                     "世界观设定",
                     &title,
                     &final_text,
+                    "AI提炼采纳",
                 )
                 .map_err(|e| e.to_string())?;
 
@@ -620,13 +621,14 @@ pub fn resolve_candidate(
                     let profile_json = ep.to_json_string();
                     let ch_name = existing_char.as_ref().map(|c| c.name.as_str()).unwrap_or(&title);
                     let ch_aliases = existing_char.as_ref().map(|c| c.aliases.as_str()).unwrap_or("[]");
-                    crate::db::settings::save_character(
+                    crate::db::setting_tx::save_character_with_reason(
                         &tx,
                         Some(tid.clone()),
                         &novel_id,
                         ch_name,
                         ch_aliases,
                         &profile_json,
+                        "AI提炼采纳",
                     )
                     .map_err(|e| e.to_string())?;
                     tid.clone()
@@ -640,13 +642,14 @@ pub fn resolve_candidate(
                     };
                     let profile_json = ep.to_json_string();
 
-                    let new_ch = crate::db::settings::save_character(
+                    let new_ch = crate::db::setting_tx::save_character_with_reason(
                         &tx,
                         None,
                         &novel_id,
                         &title,
                         "[]",
                         &profile_json,
+                        "AI提炼采纳",
                     )
                     .map_err(|e| e.to_string())?;
                     new_ch.id
@@ -719,7 +722,7 @@ pub fn resolve_candidate(
                     .is_ok()
                 });
 
-                crate::db::settings::save_plot(
+                crate::db::setting_tx::save_plot_with_reason(
                     &tx,
                     real_target_id,
                     &novel_id,
@@ -728,24 +731,17 @@ pub fn resolve_candidate(
                     plot_kind,
                     plot_status,
                     Some(chapter_id.clone()),
+                    "AI提炼采纳",
                 )
                 .map_err(|e| e.to_string())?;
             }
             "chapter_summary" => {
-                // 大纲：更新章节梗概 summary 字段，直接呈现在大纲视图
-                tx.execute(
-                    "UPDATE chapter SET summary = ?1, updated_at = datetime('now') WHERE id = ?2",
-                    rusqlite::params![final_text, chapter_id],
-                )
-                .map_err(|e| e.to_string())?;
-                crate::db::settings::record_setting_change(
+                // 大纲：通过统一事务通道更新章节梗概 summary 字段并保留旧值留档
+                crate::db::setting_tx::update_chapter_summary_with_reason(
                     &tx,
                     &novel_id,
-                    Some(chapter_id.as_str()),
-                    "chapter",
                     &chapter_id,
                     &title,
-                    "",
                     &final_text,
                     "AI提炼章纲梗概",
                 )

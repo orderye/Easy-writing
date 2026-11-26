@@ -20,6 +20,8 @@ pub mod mapper;
 pub mod novel;
 pub mod prompt_template;
 pub mod search;
+pub mod setting_tx;
+pub mod setting_view;
 pub mod settings;
 pub mod trash;
 pub mod volume;

@@ -12,6 +12,7 @@
 //! 把它们合并成 `Clean` 会让作者误以为「检查过且没问题」。
 use crate::ai::gateway::AiGateway;
 use crate::ai::openai::ChatMessage;
+use crate::db::setting_view::{load_setting_index, truncate_chars};
 use rusqlite::Connection;
 use serde::Deserialize;
 use shared_types::{ConflictInfo, ConflictSettingRef, ConsistencyOutcome, LlmProfile};
@@ -109,29 +110,13 @@ impl ConflictCheckSettings {
 
 // ---------- 上下文构建 ----------
 
-fn truncate_chars(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let mut out: String = s.chars().take(max).collect();
-    out.push('…');
-    out
-}
-
-/// 构造冲突检测用的设定上下文。
-///
-/// 返回 `(context_text, candidates)`：
-///   * `context_text` 只含**进入提示词**的条目，按 `pinned` 优先、随后按列表顺序，
-///     受 `budget_chars` 限制；
-///   * `candidates` 是**全量**（同样受检查范围约束）的条目，用于校验模型返回的 id
-///     并把标题换成库内权威值 —— 即使某条因预算被裁掉，只要模型确实引用了它，
-///     仍然能解析出来。
 pub fn build_conflict_context(
     conn: &Connection,
     novel_id: &str,
     scope: CheckScope,
     budget_chars: usize,
 ) -> rusqlite::Result<(String, Vec<ConflictSettingRef>)> {
+    let view = load_setting_index(conn, novel_id)?;
     let mut candidates: Vec<ConflictSettingRef> = Vec::new();
     let mut pinned_lines: Vec<String> = Vec::new();
     let mut normal_lines: Vec<String> = Vec::new();
@@ -144,7 +129,7 @@ pub fn build_conflict_context(
         }
     };
 
-    for wv in crate::db::settings::list_worldview(conn, novel_id)? {
+    for wv in view.worldviews {
         if scope == CheckScope::PinnedOnly && !wv.pinned {
             continue;
         }
@@ -164,7 +149,7 @@ pub fn build_conflict_context(
         );
     }
 
-    for c in crate::db::settings::list_characters(conn, novel_id)? {
+    for c in view.characters {
         if scope == CheckScope::PinnedOnly && !c.pinned {
             continue;
         }
@@ -185,7 +170,7 @@ pub fn build_conflict_context(
         );
     }
 
-    for p in crate::db::settings::list_plots(conn, novel_id)? {
+    for p in view.plots {
         if scope == CheckScope::PinnedOnly && !p.pinned {
             continue;
         }

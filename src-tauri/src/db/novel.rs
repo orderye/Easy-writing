@@ -81,13 +81,39 @@ pub fn get_novel(conn: &Connection, id: &str) -> Result<Option<Novel>> {
 }
 
 pub fn update_novel(conn: &Connection, id: &str, title: &str, synopsis: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE novel 
-         SET title = ?1, synopsis = ?2, updated_at = datetime('now') 
-         WHERE id = ?3",
-        params![title, synopsis, id],
-    )?;
-    Ok(())
+    crate::db::setting_tx::with_savepoint(conn, "sp_update_novel", || {
+        let old_synopsis: Option<String> = conn
+            .query_row(
+                "SELECT synopsis FROM novel WHERE id = ?1",
+                params![id],
+                |r| r.get(0),
+            )
+            .ok();
+
+        conn.execute(
+            "UPDATE novel
+             SET title = ?1, synopsis = ?2, updated_at = datetime('now')
+             WHERE id = ?3",
+            params![title, synopsis, id],
+        )?;
+
+        if let Some(old_s) = old_synopsis {
+            if old_s != synopsis {
+                crate::db::setting_tx::record_setting_change(
+                    conn,
+                    id,
+                    None,
+                    "outline",
+                    id,
+                    title,
+                    &old_s,
+                    synopsis,
+                    "用户手动编辑",
+                )?;
+            }
+        }
+        Ok(())
+    })
 }
 
 /// 软删除作品。委托给 `db::trash::soft_delete_novel`，

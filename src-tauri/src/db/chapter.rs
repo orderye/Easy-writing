@@ -230,13 +230,39 @@ pub fn update_chapter_meta(
     summary: &str,
     status: &str,
 ) -> Result<()> {
-    conn.execute(
-        "UPDATE chapter 
-         SET title = ?1, summary = ?2, status = ?3, updated_at = datetime('now') 
-         WHERE id = ?4",
-        params![title, summary, status, id],
-    )?;
-    Ok(())
+    crate::db::setting_tx::with_savepoint(conn, "sp_update_chapter_meta", || {
+        let old_info: Option<(String, String)> = conn
+            .query_row(
+                "SELECT novel_id, summary FROM chapter WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+
+        conn.execute(
+            "UPDATE chapter
+             SET title = ?1, summary = ?2, status = ?3, updated_at = datetime('now')
+             WHERE id = ?4",
+            params![title, summary, status, id],
+        )?;
+
+        if let Some((novel_id, old_s)) = old_info {
+            if old_s != summary {
+                crate::db::setting_tx::record_setting_change(
+                    conn,
+                    &novel_id,
+                    Some(id),
+                    "chapter",
+                    id,
+                    title,
+                    &old_s,
+                    summary,
+                    "用户手动编辑",
+                )?;
+            }
+        }
+        Ok(())
+    })
 }
 
 /// 更新章节的视角角色与故事时间（任务书 T11）。

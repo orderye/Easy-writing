@@ -473,35 +473,32 @@ pub fn build_existing_index(
     conn: &rusqlite::Connection,
     novel_id: &str,
 ) -> Result<ExistingIndex, String> {
-    let mut index: ExistingIndex = Vec::new();
+    let view = crate::db::setting_view::load_setting_index(conn, novel_id)
+        .map_err(|e| e.to_string())?;
 
-    let chars = crate::db::settings::list_characters(conn, novel_id).map_err(|e| e.to_string())?;
-    index.push((
-        "character".to_string(),
-        chars
-            .into_iter()
-            .map(|c| (c.id, c.name, c.aliases))
-            .collect(),
-    ));
-
-    let wv = crate::db::settings::list_worldview(conn, novel_id).map_err(|e| e.to_string())?;
-    index.push((
-        "worldview".to_string(),
-        wv.into_iter()
-            .map(|w| (w.id, w.title, "[]".to_string()))
-            .collect(),
-    ));
-
-    let plots = crate::db::settings::list_plots(conn, novel_id).map_err(|e| e.to_string())?;
-    index.push((
-        "plot".to_string(),
-        plots
-            .into_iter()
-            .map(|p| (p.id, p.title, "[]".to_string()))
-            .collect(),
-    ));
-
-    Ok(index)
+    Ok(vec![
+        (
+            "character".to_string(),
+            view.characters
+                .into_iter()
+                .map(|c| (c.id, c.name, c.aliases))
+                .collect(),
+        ),
+        (
+            "worldview".to_string(),
+            view.worldviews
+                .into_iter()
+                .map(|w| (w.id, w.title, "[]".to_string()))
+                .collect(),
+        ),
+        (
+            "plot".to_string(),
+            view.plots
+                .into_iter()
+                .map(|p| (p.id, p.title, "[]".to_string()))
+                .collect(),
+        ),
+    ])
 }
 
 /// 把某个 kind 的既有条目渲染成 prompt 片段。

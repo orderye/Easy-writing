@@ -17,6 +17,11 @@
 //!      带入，且在各自类别里排在最前，最不容易被预算挤掉；
 //!   5. **透明可审计**（T06）：装配结果同时产出 `ContextManifest`，逐条目记录
 //!      入选原因与估算 token，前端「本次上下文」面板与实际发送保持一致。
+use crate::db::setting_view::{
+    load_setting_index, match_character_presence, truncate_chars, PresenceMatch,
+};
+#[cfg(test)]
+use crate::db::setting_view::parse_aliases;
 use rusqlite::Connection;
 use shared_types::{ContextManifest, ContextManifestEntry, Novel};
 
@@ -112,19 +117,6 @@ impl<'a> AssembleOptions<'a> {
 }
 
 // ---------- 内部装配器 ----------
-
-/// 按字符数截断，超出时以省略号结尾。
-fn truncate_chars(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    if max == 0 {
-        return String::new();
-    }
-    let mut out: String = s.chars().take(max - 1).collect();
-    out.push('…');
-    out
-}
 
 /// 尝试把一段文本整组装进预算；放不下则整条放弃（返回 None），
 /// 而不是截成残段 —— 半截的段落标题对模型没有意义，
@@ -222,42 +214,10 @@ impl<'a> Assembler<'a> {
 
 // ---------- 角色命中 ----------
 
-/// 解析 character.aliases（JSON 字符串数组）。解析失败按"无别名"处理，
-/// 不能让一条脏数据把整个上下文装配打断。
-fn parse_aliases(aliases_json: &str) -> Vec<String> {
-    serde_json::from_str::<Vec<String>>(aliases_json).unwrap_or_default()
-}
-
-/// 角色在本章正文（或用户指令）中的命中方式。
-enum PresenceMatch {
-    None,
-    /// 按本名命中。
-    Name,
-    /// 仅按别名命中。
-    Alias,
-}
-
 /// 角色是否在本章正文中被提及（按本名或任一别名）。
 #[cfg(test)]
 fn character_appears(name: &str, aliases_json: &str, text: &str) -> bool {
-    !matches!(match_presence(name, aliases_json, text), PresenceMatch::None)
-}
-
-/// 判定角色的命中方式：本名优先，别名次之。
-fn match_presence(name: &str, aliases_json: &str, text: &str) -> PresenceMatch {
-    if text.is_empty() {
-        return PresenceMatch::None;
-    }
-    if !name.is_empty() && text.contains(name) {
-        return PresenceMatch::Name;
-    }
-    if parse_aliases(aliases_json)
-        .iter()
-        .any(|a| !a.is_empty() && text.contains(a.as_str()))
-    {
-        return PresenceMatch::Alias;
-    }
-    PresenceMatch::None
+    !matches!(match_character_presence(name, aliases_json, text), PresenceMatch::None)
 }
 
 // ---------- 装配入口 ----------
@@ -397,18 +357,20 @@ pub fn assemble_writing_context_with_options(
         }
     }
 
+    // 通过 DP5 只读导出视图加载设定索引（已按 pinned 优先排序）
+    let settings_view = load_setting_index(conn, &novel.id)?;
+
     // 4. 角色：pinned 恒入；其余按本名/别名命中分出场/未出场
-    let characters = crate::db::settings::list_characters(conn, &novel.id)?;
-    if !characters.is_empty() {
+    if !settings_view.characters.is_empty() {
         let mut pinned_chars = Vec::new();
         let mut on_stage: Vec<(&shared_types::Character, &str)> = Vec::new();
         let mut off_stage = Vec::new();
-        for c in &characters {
+        for c in &settings_view.characters {
             if c.pinned {
                 pinned_chars.push(c);
                 continue;
             }
-            match match_presence(&c.name, &c.aliases, &hit_text) {
+            match match_character_presence(&c.name, &c.aliases, &hit_text) {
                 PresenceMatch::Name => on_stage.push((c, "presence")),
                 PresenceMatch::Alias => on_stage.push((c, "alias")),
                 PresenceMatch::None => off_stage.push(c),
@@ -451,10 +413,9 @@ pub fn assemble_writing_context_with_options(
     }
 
     // 5. 待回收伏笔（pinned 恒入；其余按 planted 状态）
-    let plots = crate::db::settings::list_plots(conn, &novel.id)?;
     let mut pinned_plots = Vec::new();
     let mut active_plots = Vec::new();
-    for p in &plots {
+    for p in &settings_view.plots {
         if p.pinned {
             pinned_plots.push(p);
         } else if p.status == "planted" {
@@ -507,11 +468,10 @@ pub fn assemble_writing_context_with_options(
     }
 
     // 7. 世界观（优先级最低，预算不够时最先被挤压；pinned 排在最前）
-    let worldview_list = crate::db::settings::list_worldview(conn, &novel.id)?;
-    if !worldview_list.is_empty() {
+    if !settings_view.worldviews.is_empty() {
         let mut pinned_wv = Vec::new();
         let mut normal_wv = Vec::new();
-        for wv in &worldview_list {
+        for wv in &settings_view.worldviews {
             if wv.pinned {
                 pinned_wv.push(wv);
             } else {

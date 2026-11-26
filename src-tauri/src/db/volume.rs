@@ -63,13 +63,39 @@ pub fn get_volume(conn: &Connection, id: &str) -> Result<Option<Volume>> {
 }
 
 pub fn update_volume(conn: &Connection, id: &str, title: &str, summary: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE volume 
-         SET title = ?1, summary = ?2, updated_at = datetime('now') 
-         WHERE id = ?3",
-        params![title, summary, id],
-    )?;
-    Ok(())
+    crate::db::setting_tx::with_savepoint(conn, "sp_update_volume", || {
+        let old_info: Option<(String, String)> = conn
+            .query_row(
+                "SELECT novel_id, summary FROM volume WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+
+        conn.execute(
+            "UPDATE volume
+             SET title = ?1, summary = ?2, updated_at = datetime('now')
+             WHERE id = ?3",
+            params![title, summary, id],
+        )?;
+
+        if let Some((novel_id, old_s)) = old_info {
+            if old_s != summary {
+                crate::db::setting_tx::record_setting_change(
+                    conn,
+                    &novel_id,
+                    None,
+                    "volume",
+                    id,
+                    title,
+                    &old_s,
+                    summary,
+                    "用户手动编辑",
+                )?;
+            }
+        }
+        Ok(())
+    })
 }
 
 pub fn reorder_volumes(conn: &Connection, volume_ids: &[String]) -> Result<()> {

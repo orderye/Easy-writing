@@ -13,8 +13,8 @@
 //! 不抽公共函数：T06 的函数签名绑定上下文装配语义，改它会动一条已钉死测试的热路径。
 
 use crate::db::chapter::list_all_chapter_headers_for_novel;
-use crate::db::settings::{list_characters, list_plots};
-use rusqlite::{params, Connection, Result};
+use crate::db::setting_view::{load_setting_index, match_character_presence, PresenceMatch};
+use rusqlite::{Connection, Result};
 use shared_types::{Character, ForeshadowRow, PlotItem};
 
 /// 超期阈值默认值。
@@ -42,16 +42,11 @@ pub fn characters_mentioned_in(text: &str, characters: &[Character]) -> Vec<Stri
     }
     let mut matched = Vec::new();
     for c in characters {
-        // 本名命中
-        if !c.name.is_empty() && text.contains(c.name.as_str()) {
+        if !matches!(
+            match_character_presence(&c.name, &c.aliases, text),
+            PresenceMatch::None
+        ) {
             matched.push(c.name.clone());
-            continue;
-        }
-        // 别名命中（aliases 是 JSON 字符串数组，解析失败按「无别名」处理）
-        if let Ok(aliases) = serde_json::from_str::<Vec<String>>(&c.aliases) {
-            if aliases.iter().any(|a| !a.is_empty() && text.contains(a.as_str())) {
-                matched.push(c.name.clone());
-            }
         }
     }
     matched
@@ -59,7 +54,8 @@ pub fn characters_mentioned_in(text: &str, characters: &[Character]) -> Vec<Stri
 
 /// 伏笔看板：按全书章序算出埋设/回收位置与距今章数，并匹配关联角色。
 pub fn list_foreshadow_board(conn: &Connection, novel_id: &str) -> Result<Vec<ForeshadowRow>> {
-    let plots = list_plots(conn, novel_id)?;
+    let view = load_setting_index(conn, novel_id)?;
+    let plots = view.plots;
     if plots.is_empty() {
         return Ok(Vec::new());
     }
@@ -75,7 +71,7 @@ pub fn list_foreshadow_board(conn: &Connection, novel_id: &str) -> Result<Vec<Fo
     let threshold = overdue_threshold_chars(conn);
 
     // 关联角色：一次取出全部角色，逐条伏笔匹配
-    let characters = list_characters(conn, novel_id)?;
+    let characters = view.characters;
 
     let mut rows: Vec<ForeshadowRow> = plots
         .into_iter()
@@ -144,93 +140,12 @@ pub fn resolve_plot(
     id: &str,
     resolved_chapter_id: Option<String>,
 ) -> Result<PlotItem> {
-    // 1. 校验伏笔存在（未删）
-    let plot: PlotItem = {
-        let mut stmt = conn.prepare(
-            "SELECT id, novel_id, title, content, kind, status, chapter_id, resolved_chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
-             FROM plot_item WHERE id = ?1 AND deleted_at IS NULL",
-        )?;
-        stmt.query_row(params![id], |row| {
-            Ok(PlotItem {
-                id: row.get(0)?,
-                novel_id: row.get(1)?,
-                title: row.get(2)?,
-                content: row.get(3)?,
-                kind: row.get(4)?,
-                status: row.get(5)?,
-                chapter_id: row.get(6)?,
-                resolved_chapter_id: row.get(7)?,
-                origin: row.get(8)?,
-                sort_order: row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-                pinned: row.get::<_, i32>(12)? != 0,
-                deleted_at: row.get(13)?,
-            })
-        })?
-    };
-
-    // 2. 校验回收章节属于该作品（不静默接受跨作品章节）
-    if let Some(cid) = resolved_chapter_id.as_deref() {
-        let belongs: bool = conn
-            .query_row(
-                "SELECT 1 FROM chapter WHERE id = ?1 AND novel_id = ?2 AND deleted_at IS NULL",
-                params![cid, plot.novel_id],
-                |_| Ok(()),
-            )
-            .is_ok();
-        if !belongs {
-            return Err(rusqlite::Error::InvalidParameterName(format!(
-                "回收章节不属于该作品，拒绝写入：{}",
-                cid
-            )));
-        }
-    }
-
-    // 3. 写 status + resolved_chapter_id
-    let before_status = plot.status.clone();
-    conn.execute(
-        "UPDATE plot_item SET status = 'resolved', resolved_chapter_id = ?1, updated_at = datetime('now')
-         WHERE id = ?2",
-        params![resolved_chapter_id, id],
-    )?;
-
-    // 4. 留档（target_type = "plot"）
-    let _ = crate::db::settings::record_setting_change(
+    crate::db::setting_tx::resolve_plot_with_reason(
         conn,
-        &plot.novel_id,
-        plot.chapter_id.as_deref(),
-        "plot",
-        &plot.id,
-        &plot.title,
-        &format!("status={}", before_status),
-        &format!("status=resolved, resolved_chapter_id={:?}", resolved_chapter_id),
+        id,
+        resolved_chapter_id,
         "伏笔看板标记回收",
-    );
-
-    // 5. 返回更新后的 PlotItem
-    let mut stmt = conn.prepare(
-        "SELECT id, novel_id, title, content, kind, status, chapter_id, resolved_chapter_id, origin, sort_order, created_at, updated_at, pinned, deleted_at
-         FROM plot_item WHERE id = ?1",
-    )?;
-    stmt.query_row(params![id], |row| {
-        Ok(PlotItem {
-            id: row.get(0)?,
-            novel_id: row.get(1)?,
-            title: row.get(2)?,
-            content: row.get(3)?,
-            kind: row.get(4)?,
-            status: row.get(5)?,
-            chapter_id: row.get(6)?,
-            resolved_chapter_id: row.get(7)?,
-            origin: row.get(8)?,
-            sort_order: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
-            pinned: row.get::<_, i32>(12)? != 0,
-            deleted_at: row.get(13)?,
-        })
-    })
+    )
 }
 
 #[cfg(test)]
