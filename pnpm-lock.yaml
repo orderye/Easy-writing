@@ -9,34 +9,34 @@ importers:
   .:
     dependencies:
       '@tiptap/core':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/pm@2.27.3)
       '@tiptap/extension-character-count':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)
       '@tiptap/extension-color':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/extension-text-style@2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3)))
       '@tiptap/extension-image':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
       '@tiptap/extension-placeholder':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))(@tiptap/pm@2.27.3)
       '@tiptap/extension-text-align':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
       '@tiptap/extension-text-style':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
       '@tiptap/extension-underline':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3(@tiptap/core@2.27.3(@tiptap/pm@2.27.3))
       '@tiptap/pm':
         specifier: ^2.27.3
         version: 2.27.3
       '@tiptap/starter-kit':
-        specifier: ^2.10.4
+        specifier: ^2.27.3
         version: 2.27.3
     devDependencies:
       '@tauri-apps/cli':
@@ -256,35 +256,30 @@ packages:
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
-    libc: [glibc]
 
   '@tauri-apps/cli-linux-arm64-musl@2.12.2':
     resolution: {integrity: sha512-pb+RTZUYH/p0gR4j4ecCCq+FNfz3W3eKuUQvVEBn7MQZx6DzfLO7FaYzt2NyDKWpdNN3lP10mdzOvw3R5P5aAQ==}
     engines: {node: '>= 10'}
     cpu: [arm64]
     os: [linux]
-    libc: [musl]
 
   '@tauri-apps/cli-linux-riscv64-gnu@2.12.2':
     resolution: {integrity: sha512-nidEvDUJyHYNbIv9MUk6KiEix8IXfRh4Wj2G2SA5g8nFmgbBCwazUNWYiG/LhNeNbfZpBMLerRBUtoQ5K0GidA==}
     engines: {node: '>= 10'}
     cpu: [riscv64]
     os: [linux]
-    libc: [glibc]
 
   '@tauri-apps/cli-linux-x64-gnu@2.12.2':
     resolution: {integrity: sha512-gkXyYn3w+Xfc8nz/DleEbkm1M7bBuU2cejqUXNmI98cA2P5kp+oPmS4ALTorb1FaNWjpsKoYZBWsbS9BXxYFkQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
-    libc: [glibc]
 
   '@tauri-apps/cli-linux-x64-musl@2.12.2':
     resolution: {integrity: sha512-MrjgoZ09s8Hsn99XvxSNvK8NQTZxi7XiyK3FxxytzfHgz2jb3qUT69CZtsokRkN/zdi9rCgrMtq+w9XNICjcfQ==}
     engines: {node: '>= 10'}
     cpu: [x64]
     os: [linux]
-    libc: [musl]
 
   '@tauri-apps/cli-win32-arm64-msvc@2.12.2':
     resolution: {integrity: sha512-BR+CYM7iF3lkfyTtVkwMQU/s9hwegLpj3UqDjaxKCPmixQCa1csBBPy3C75V+FhLtOjIXNna4Gt6Vm9oxbV+qA==}
