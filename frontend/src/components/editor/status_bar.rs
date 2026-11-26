@@ -101,6 +101,39 @@ pub fn StatusBar(app_ctx: AppContext) -> impl IntoView {
                     }
                 }}
 
+                // 伏笔未回收与超期只读计数（T10）：点击直达左栏伏笔看板
+                {move || {
+                    let rows = app_ctx.foreshadow_board.get();
+                    let unresolved = rows.iter().filter(|r| r.status == "planted").count();
+                    if unresolved == 0 {
+                        return None;
+                    }
+                    let overdue = rows.iter().filter(|r| r.overdue).count();
+                    let label = if overdue > 0 {
+                        format!("伏笔 {unresolved} (超期 {overdue})")
+                    } else {
+                        format!("伏笔 {unresolved}")
+                    };
+                    let cls = if overdue > 0 {
+                        "hover:text-amber-700 dark:hover:text-amber-300 cursor-pointer font-medium text-amber-600 dark:text-amber-400 transition-colors"
+                    } else {
+                        "hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer font-medium text-slate-600 dark:text-slate-300 transition-colors"
+                    };
+                    Some(view! {
+                        <button
+                            class=cls
+                            title="点击查看伏笔看板"
+                            on:click=move |_| {
+                                app_ctx.active_settings_tab.set("foreshadow".to_string());
+                                app_ctx.left_panel_open.set(true);
+                            }
+                        >
+                            {label}
+                        </button>
+                        <span class="text-slate-300 dark:text-slate-700">"|"</span>
+                    })
+                }}
+
                 <button
                     class=move || {
                         if app_ctx.is_ghost_completion_enabled.get() {

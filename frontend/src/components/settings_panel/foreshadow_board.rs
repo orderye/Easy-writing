@@ -12,20 +12,23 @@ use crate::components::structure_panel::chapter_list::request_switch_chapter;
 use crate::state::AppContext;
 use crate::tauri_api::invoke_cmd;
 use leptos::prelude::*;
-use shared_types::{ChapterHeader, ForeshadowRow};
+use shared_types::ChapterHeader;
 
 #[component]
 pub fn ForeshadowBoardView(app_ctx: AppContext) -> impl IntoView {
-    let board = RwSignal::new(Vec::<ForeshadowRow>::new());
+    let board = app_ctx.foreshadow_board;
 
     let load_board = move || {
         load_list_for_novel(app_ctx, "list_foreshadow_board", board);
     };
 
-    // 作品切换 / 看板 tab 激活时加载
+    // 作品切换或看板 tab 激活时加载（状态栏也依赖该共享信号展示未回收数）
     Effect::new(move |_| {
-        if app_ctx.active_settings_tab.get() == "foreshadow" && app_ctx.current_novel.get().is_some() {
+        let _tab = app_ctx.active_settings_tab.get();
+        if app_ctx.current_novel.get().is_some() {
             load_board();
+        } else {
+            board.set(Vec::new());
         }
     });
 

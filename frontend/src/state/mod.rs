@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use shared_types::{
     Chapter, ChapterHeader, ConflictInfo, DeviceStateInfo, ExportProgress, ExportSummary,
-    ExtractionCandidate, MissingKeyInfo, Novel, PendingNotice, Volume,
+    ExtractionCandidate, ForeshadowRow, MissingKeyInfo, Novel, PendingNotice, Volume,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -120,6 +120,8 @@ pub struct AppContext {
     pub today_net_words: RwSignal<i64>,
     /// 每日目标字数；0 = 未设置（状态栏不显示目标进度）。
     pub daily_goal: RwSignal<i64>,
+    /// 伏笔看板共享数据（T10）：看板读写、状态栏只读展示未回收与超期计数。
+    pub foreshadow_board: RwSignal<Vec<ForeshadowRow>>,
 }
 
 impl AppContext {
@@ -190,6 +192,7 @@ impl AppContext {
             is_typewriter_mode: RwSignal::new(false),
             today_net_words: RwSignal::new(0),
             daily_goal: RwSignal::new(0),
+            foreshadow_board: RwSignal::new(Vec::new()),
         }
     }
 }

@@ -36,21 +36,35 @@ export function asset_rel_to_url(relPath, appDataDir) {
 
 export function canonicalize_asset_src(src) {
   if (!src) return "";
-  if (src.startsWith("asset://local/")) return src;
   if (/^(data:|blob:)/i.test(src)) return src;
   if (/^(https?:)/i.test(src) && !src.includes("asset.localhost")) return src;
-  try {
-    const decoded = decodeURIComponent(src);
-    const imgIdx = decoded.indexOf("images/");
-    if (imgIdx !== -1) {
-      return "asset://local/" + decoded.slice(imgIdx);
-    }
-  } catch (e) {}
-  const imgIdx = src.indexOf("images/");
-  if (imgIdx !== -1) {
-    return "asset://local/" + src.slice(imgIdx);
+
+  let rel = src;
+  if (rel.startsWith("asset://local/")) {
+    rel = rel.slice("asset://local/".length);
   }
-  return src;
+  try {
+    rel = decodeURIComponent(rel);
+  } catch (e) {}
+  // 只处理 images/ 相对路径；其他输入（外链、无法解码的路径）原样返回。
+  const idx = rel.indexOf("images/");
+  if (idx === -1) return src;
+
+  // 把 images/ 之后的相对路径规范化：吃掉 "." 与空段，遇到 ".." 就回退一层；
+  // 一旦回退越过 images/ 根，说明输入试图越界，返回空串让图片显示不出来但不放行。
+  // 注意：这层只保证前端**不下发**越界 URL；asset 协议自身是否拦截由 Rust 侧
+  // asset_protocol_scope 回归测试（Tauri Scope / SafePathBuf）覆盖。
+  const segments = [];
+  for (const seg of rel.slice(idx + "images/".length).split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      if (segments.length === 0) return "";
+      segments.pop();
+    } else {
+      segments.push(seg);
+    }
+  }
+  return "asset://local/images/" + segments.join("/");
 }
 "#)]
 extern "C" {
