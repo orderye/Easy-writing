@@ -178,9 +178,13 @@ jobs:
           tls: false
           cors:
             enabled: true
+          # v5.17.3 起默认权限为只读 R，须显式给 CRUD 才能 MKCOL/PUT/MOVE。
+          # latest 时代默认值更宽松，钉版后暴露了这一兼容性差异。
+          permissions: CRUD
           users:
             - username: ewtest
               password: ewtest
+              permissions: CRUD
               directory: /data
           YAML
           docker run -d --name ew-webdav \
@@ -230,6 +234,9 @@ jobs:
           EW_WEBDAV_IT_USER: ewtest
           EW_WEBDAV_IT_PASSWORD: ewtest
         run: |
+          # pipefail 必须开：否则管道返回的是 tee 的 0，cargo test 的失败会被吞掉，
+          # job 会显示绿色绿灯，实际有用例失败（2026-11-26 曾发生）。
+          set -o pipefail
           cargo test -p easy-writing-core --test webdav_real_server -- \
             --nocapture --test-threads=1 2>&1 | tee webdav-it.log
           # 凭据不得留在日志里
