@@ -3,6 +3,7 @@ pub mod ai;
 pub mod asset;
 pub mod commands;
 pub mod db;
+pub mod diagnostics;
 pub mod export;
 pub mod import;
 pub mod keyring;
@@ -203,6 +204,8 @@ pub fn run() {
             commands::update_cmd::check_app_update,
             commands::update_cmd::open_external_url,
             commands::update_cmd::set_ignored_update_version,
+            // 作品诊断与恢复中心（V0.4.0 / P2-4，只读聚合）
+            commands::diagnostics_cmd::get_diagnostics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running easy-writing core");

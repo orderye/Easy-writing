@@ -1167,3 +1167,72 @@ pub struct ExportSummary {
     pub cancelled: bool,
     pub elapsed_ms: u64,
 }
+
+// ---------------------------------------------------------------------------
+// 作品诊断与恢复中心（V0.4.0 / P2-4）
+// ---------------------------------------------------------------------------
+//
+// 设计约束（见 Docs/V0.3.8_P2_REPORT.md §5）：
+// - 只读聚合：这里只有状态与计数，**没有凭据、没有正文**；
+// - 逐项容错：单项失败只把那一项标成 error，不影响其余项；
+// - 缺失能力显式 skipped，不伪造数据。
+
+/// 单个诊断项的状态。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiagnosticStatus {
+    /// 检查通过（或没有发现异常）。
+    Ok,
+    /// 发现了需要作者关注的情况，但不阻塞使用。
+    Warning,
+    /// 该项检查自身失败（例如数据源不可读）。
+    Error,
+    /// 该能力当前不存在，明确跳过并说明原因。
+    Skipped,
+}
+
+/// 单个诊断项的结果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiagnosticItem {
+    /// 稳定的机器标识，前端按此决定图标与跳转目标。
+    pub id: String,
+    /// 面向作者的标题。
+    pub title: String,
+    pub status: DiagnosticStatus,
+    /// 一句话摘要。保证不含密钥内容与章节正文。
+    pub summary: String,
+    /// 相关计数；skipped 或纯信息项为 None。
+    pub count: Option<i64>,
+    /// skipped 的原因，或 error 的简短说明；ok/warning 时为 None。
+    pub reason: Option<String>,
+}
+
+/// 一次完整诊断的报告。
+///
+/// `items` 的顺序固定，便于前端稳定渲染与快照测试。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiagnosticsReport {
+    pub items: Vec<DiagnosticItem>,
+    pub ok_count: usize,
+    pub warning_count: usize,
+    pub error_count: usize,
+    pub skipped_count: usize,
+}
+
+impl DiagnosticsReport {
+    /// 按各项状态重算四个计数（避免手算漂移）。
+    pub fn recompute_counts(&mut self) {
+        self.ok_count = 0;
+        self.warning_count = 0;
+        self.error_count = 0;
+        self.skipped_count = 0;
+        for item in &self.items {
+            match item.status {
+                DiagnosticStatus::Ok => self.ok_count += 1,
+                DiagnosticStatus::Warning => self.warning_count += 1,
+                DiagnosticStatus::Error => self.error_count += 1,
+                DiagnosticStatus::Skipped => self.skipped_count += 1,
+            }
+        }
+    }
+}
